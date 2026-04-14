@@ -1,0 +1,188 @@
+:root {
+  color-scheme: light;
+  --bg: #f8fafc;
+  --fg: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --card: #ffffff;
+  --shadow: 0 1px 2px rgba(0,0,0,0.05), 0 10px 20px rgba(0,0,0,0.06);
+  --danger: #b91c1c;
+  --success: #047857;
+  --warning: #b45309;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.nav {
+  display: flex;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  background: var(--card);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.nav a {
+  text-decoration: none;
+  color: var(--fg);
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.nav a.active {
+  border: 1px solid var(--border);
+  background: #f9fafb;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.row > .card {
+  flex: 1;
+  min-width: 240px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+thead th {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+tbody tr:hover {
+  background: rgba(17, 24, 39, 0.03);
+}
+
+button {
+  border: 1px solid var(--border);
+  background: #111827;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: #fff;
+  color: var(--fg);
+}
+
+input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.toolbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 6px 0 14px;
+}
+
+.toolbar h2 {
+  margin: 0;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.badge.status-pending {
+  color: var(--warning);
+  background: rgba(180, 83, 9, 0.10);
+  border-color: rgba(180, 83, 9, 0.25);
+}
+
+.badge.status-resolved {
+  color: var(--success);
+  background: rgba(4, 120, 87, 0.10);
+  border-color: rgba(4, 120, 87, 0.25);
+}
+
+.alert {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.alert.error {
+  border-color: rgba(185, 28, 28, 0.35);
+  background: rgba(185, 28, 28, 0.07);
+  color: var(--danger);
+}
+
+@keyframes rwDash {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+/* Leaflet renders vector overlays as SVG paths; this class is applied via CircleMarker.className */
+.rw-location-ring {
+  stroke-dasharray: 10 14;
+  stroke-linecap: round;
+  animation: rwDash 2.2s linear infinite;
+}

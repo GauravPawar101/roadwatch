@@ -1,0 +1,46 @@
+[
+  {
+    "geopoliticalIsoCode": "IN-MH",
+    "districtVector": "Maharashtra Core",
+    "mathematicalBounds": {
+      "minLat": 15.6,
+      "maxLat": 22.0,
+      "minLng": 72.6,
+      "maxLng": 80.8
+    },
+    "classificationMap": [
+      {
+        "roadMatrixClass": "NH",
+        "primaryGraphNode": "NHAI_MUMBAI_REGIONAL",
+        "fallbackEscalation": "MORTH_NEW_DELHI_SEC"
+      },
+      {
+        "roadMatrixClass": "SH",
+        "primaryGraphNode": "PWD_MAHA_CHIEF_ENG",
+        "fallbackEscalation": "PWD_MAHA_STATE_MINISTER"
+      }
+    ]
+  },
+  {
+    "geopoliticalIsoCode": "IN-DL",
+    "districtVector": "National Capital Region (Delhi)",
+    "mathematicalBounds": {
+      "minLat": 28.4,
+      "maxLat": 28.9,
+      "minLng": 76.8,
+      "maxLng": 77.4
+    },
+    "classificationMap": [
+      {
+        "roadMatrixClass": "URBAN",
+        "primaryGraphNode": "MUNICIPAL_CORP_DELHI_ZONAL",
+        "fallbackEscalation": "NEW_DELHI_MUNICIPAL_HEAD"
+      },
+      {
+        "roadMatrixClass": "NH",
+        "primaryGraphNode": "NHAI_NCR_PROJECT_DIR",
+        "fallbackEscalation": "NHAI_DELHI_CHAIRMAN"
+      }
+    ]
+  }
+]

@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    // Explicitly avoids transpiling natively here. Instructs Metro Bundler inside mobile-host to handle Babel transpilation universally.
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-native",
+    "lib": ["ESNext", "DOM"],
+    
+    // Strict Typings guarantees generic domains link flawlessly
+    "strict": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    
+    "baseUrl": ".",
+    "paths": {
+      // Maps explicitly across local boundaries structurally natively.
+      "@roadwatch/*": ["../../*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"]
+}

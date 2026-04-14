@@ -1,0 +1,11 @@
+packages:
+  - "apps/*"
+  - "chaincode"
+  - "providers/*"
+  - "services/*"
+  - "packages/*"
+  - "packages/core"
+  - "packages/config"
+  - "packages/features/*"
+  - "packages/providers/*"
+  - "packages/adapters/*"

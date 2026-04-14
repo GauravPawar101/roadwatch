@@ -1,0 +1,32 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"compilerOptions": {
+		"ignoreDeprecations": "5.0",
+		"baseUrl": ".",
+		"paths": {
+			"@roadwatch/core/src/*": ["packages/core/src/*"],
+			"@roadwatch/config/src/*": ["packages/config/src/*"],
+			"@roadwatch/adapters/src/*": ["packages/adapters/src/*"],
+			"@roadwatch/features/src/*": ["packages/features/src/*"],
+			"@roadwatch/feature-agent": ["packages/features/feature-agent/index.ts"],
+			"@roadwatch/feature-complaint": ["packages/features/feature-complaint/index.ts"],
+			"@roadwatch/feature-map": ["packages/features/feature-map/index.ts"],
+			"@roadwatch/providers/src/*": ["packages/providers/src/*"],
+			"@roadwatch/providers/storage-sqlite/src/*": ["packages/providers/storage-sqlite/src/*"]
+		},
+		"target": "ES2022",
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"resolveJsonModule": true,
+		"allowJs": false,
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"useDefineForClassFields": true,
+		"isolatedModules": true,
+		"verbatimModuleSyntax": true
+	}
+}

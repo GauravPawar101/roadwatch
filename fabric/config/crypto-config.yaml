@@ -1,0 +1,29 @@
+- &NHAIOrg
+    Name: NHAIMSP
+    ID:   NHAIMSP
+    MSPDir: ../network/organizations/peerOrganizations/nhai.roadwatch.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('NHAIMSP.admin', 'NHAIMSP.peer', 'NHAIMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('NHAIMSP.admin', 'NHAIMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('NHAIMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('NHAIMSP.peer')"
+    AnchorPeers:
+      - Host: peer0.nhai.roadwatch.com
+        Port: 7051
+  
+  - &RoadWatchOrg
+    Name: RoadWatchMSP
+    ID:   RoadWatchMSP
+    MSPDir: ../network/organizations/peerOrganizations/roadwatch.roadwatch.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('

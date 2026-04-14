@@ -1,0 +1,18 @@
+namespace RoadWatch.Models;
+
+// Structs securely pack offline coordinate memory contiguously.
+struct GeoLocation {
+  latitude: float32;
+  longitude: float32;
+}
+
+table MediaProof {
+  id: string;
+  captured_at: uint64;
+  location: GeoLocation;
+  file_hash: string;
+  storage_path: string;
+  is_video: bool;
+}
+
+root_type MediaProof;

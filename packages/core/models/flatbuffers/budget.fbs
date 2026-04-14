@@ -1,0 +1,12 @@
+namespace RoadWatch.Models;
+
+table BudgetRecord {
+  id: string;
+  road_id: string;
+  contractor_id: string;
+  allocated_amount: float64;
+  allocation_date: uint64;
+  description: string;
+}
+
+root_type BudgetRecord;

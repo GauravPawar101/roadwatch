@@ -1,0 +1,38 @@
+namespace RoadWatch.Models;
+
+enum ComplaintStatus : byte {
+  Reported = 0,
+  UnderReview = 1,
+  Assigned = 2,
+  InProgress = 3,
+  Resolved = 4,
+  Rejected = 5
+}
+
+enum DamageType : byte {
+  Pothole = 0,
+  Waterlogging = 1,
+  Cracks = 2,
+  BrokenDivider = 3,
+  MissingSignage = 4
+}
+
+struct GeoLocation {
+  latitude: float32;
+  longitude: float32;
+}
+
+table Complaint {
+  id: string;
+  author_id: string;
+  road_id: string;
+  location: GeoLocation;
+  damage_type: DamageType;
+  severity: byte;
+  timestamp: uint64;
+  media_ids: [string];
+  status: ComplaintStatus;
+  resolution_notes: string;
+}
+
+root_type Complaint;
