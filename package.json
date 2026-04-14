@@ -1,0 +1,46 @@
+{
+  "name": "roadwatch",
+  "private": true,
+  "packageManager": "pnpm@8.10.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "packages/core",
+    "packages/config",
+    "packages/features/*",
+    "packages/providers/*",
+    "packages/adapters/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:unit": "turbo run test --filter=@roadwatch/core",
+    "test:integration": "turbo run test --filter=@roadwatch/gateway-api",
+    "test:prompts": "tsx tools/prompt-tests/run.ts",
+    "test:fabric": "vitest run -c tests/fabric/vitest.config.ts",
+    "loadtest": "node tools/load/run-k6.mjs",
+    "chaostest": "node tools/chaos/run.mjs",
+    "seed:backend": "pnpm -F @roadwatch/gateway-api seed:backend",
+    "seed:fabric": "tsx scripts/fabric-ledger.ts seed",
+    "query:fabric:history": "tsx scripts/fabric-ledger.ts history",
+    "query:fabric:by-road": "tsx scripts/fabric-ledger.ts by-road",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "start": "pnpm --filter @roadwatch/mobile-host start",
+    "ios": "pnpm --filter @roadwatch/mobile-host ios",
+    "android": "pnpm --filter @roadwatch/mobile-host android",
+    "pod-install": "pnpm --filter @roadwatch/mobile-host pod-install"
+  },
+  "devDependencies": {
+    "@grpc/grpc-js": "^1.13.4",
+    "@hyperledger/fabric-gateway": "^1.9.1",
+    "@types/supertest": "^6.0.3",
+    "@vitest/coverage-v8": "^3.2.4",
+    "supertest": "^7.1.4",
+    "tsx": "^4.20.5",
+    "turbo": "latest",
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.4"
+  }
+}

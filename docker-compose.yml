@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------
+  # 🐘 PostgreSQL (Materialized Logical Views & JWT Auth)
+  # ----------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: roadwatch_postgres
+    environment:
+      POSTGRES_USER: roadwatch_admin
+      POSTGRES_PASSWORD: development_password
+      POSTGRES_DB: roadwatch_local
+    ports:
+      # React Native emulators map implicitly directly strictly into standard localhost boundaries securely
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roadwatch_admin -d roadwatch_local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------
+  # ⚡ Kafka (KRaft Mode Engine - No Zookeeper Required)
+  # ----------------------------------------------------
+  kafka:
+    profiles: ["local-kafka"]
+    image: bitnami/kafka:latest
+    container_name: roadwatch_kafka
+    ports:
+      # Crucial: 9092 is mapped for node bridging natively!
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      # Maps local Android simulator 10.0.2.2 boundaries dynamically if bridging limits remotely
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      - KAFKA_BROKER_ID=1
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - ALLOW_PLAINTEXT_LISTENER=yes
+    volumes:
+      - kafka_data:/bitnami/kafka
+
+  # ----------------------------------------------------
+  # 🌐 Node.js API Backend (React Native -> Express Gateway)
+  # ----------------------------------------------------
+  api-backend:
+    profiles: ["stub-api"]
+    image: node:18-alpine
+    container_name: roadwatch_api
+    working_dir: /usr/src/app
+    ports:
+      # Mobile boundaries: 
+      # - iOS hits HTTP://localhost:3000
+      # - Android hits HTTP://10.0.2.2:3000
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgres://roadwatch_admin:development_password@postgres:5432/roadwatch_local
+      - KAFKA_BROKER=kafka:9092
+      - JWT_SECRET=local_development_cryptographic_secret
+    # Explicit inline script execution dynamically starting an Express + KafkaJS stub actively directly!
+    command: >
+      sh -c "npm install express pg kafkajs cors && 
+             echo \"
+             const express = require('express');
+             const cors = require('cors');
+             const app = express();
+             app.use(cors());
+             app.get('/health', (req, res) => res.json({ status: 'RoadWatch Custom Edge API Active!' }));
+             app.listen(3000, () => console.log('Edge Sync Server Mounted exactly on port 3000'));
+             \" > server.js && 
+             node server.js"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+
+volumes:
+  pg_data:
+  kafka_data:

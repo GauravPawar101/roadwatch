@@ -1,0 +1,33 @@
+{
+  "namespace": "roadwatch.events",
+  "type": "record",
+  "name": "ComplaintIngestionEvent",
+  "doc": "Standardized envelope schema defining generic offline telemetry payloads pumped from Indian mobile terminals up onto cloud Kafka Partitions.",
+  "fields": [
+    { 
+      "name": "eventId", 
+      "type": "string",
+      "doc": "Local SQLite generated ID mapped physically on the phone."
+    },
+    { 
+      "name": "timestampUnix", 
+      "type": "long",
+      "doc": "System clock validation capturing exactly when the user originally pressed 'Save' offline."
+    },
+    { 
+      "name": "deviceId", 
+      "type": "string" 
+    },
+    { 
+      "name": "payloadFormat", 
+      "type": "string", 
+      "default": "FLATBUFFERS_V1",
+      "doc": "Declares parsing intent for backend worker clusters explicitly. Defaults rigidly to FlatBuffers byte encoding to optimize edge packet weights."
+    },
+    { 
+      "name": "rawBinaryPayload", 
+      "type": "bytes",
+      "doc": "The serialized FlatBuffer encoded stream strictly encapsulating the structural Complaint."
+    }
+  ]
+}

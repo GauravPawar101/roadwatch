@@ -1,0 +1,17 @@
+{
+  "name": "@roadwatch/feature-map",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "react-dom": "18.2.0"
+  }
+}

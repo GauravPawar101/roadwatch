@@ -1,0 +1,151 @@
+{
+  "authorityDirectory": [
+    {
+      "authorityId": "AUTH-DL",
+      "name": "Delhi PWD",
+      "department": "Roads & Maintenance",
+      "publicPhone": "+91-11-XXXX-XXXX",
+      "publicEmail": "helpdesk@pwd.delhi.example",
+      "website": "https://pwd.delhi.example",
+      "address": "New Delhi"
+    },
+    {
+      "authorityId": "AUTH-MH",
+      "name": "MH PWD",
+      "department": "Highways",
+      "publicPhone": "+91-22-XXXX-XXXX",
+      "publicEmail": "helpdesk@pwd.maharashtra.example",
+      "website": "https://pwd.maharashtra.example",
+      "address": "Mumbai"
+    }
+  ],
+  "contractors": [
+    { "id": "CTR-DEL-001", "name": "Shakti Infra", "registrationNumber": "DL-REG-001", "contactPhoneMasked": "+91-98XXXXXX10" },
+    { "id": "CTR-MUM-001", "name": "Konkan Works", "registrationNumber": "MH-REG-014", "contactPhoneMasked": "+91-98XXXXXX22" }
+  ],
+  "roadAssignments": [
+    { "roadId": "RD-DL-001", "contractorId": "CTR-DEL-001", "startsOn": "2025-01-01", "endsOn": "2026-12-31" },
+    { "roadId": "RD-MH-001", "contractorId": "CTR-MUM-001", "startsOn": "2025-01-01", "endsOn": "2026-12-31" }
+  ],
+  "countries": [
+    {
+      "code": "IN",
+      "name": "India",
+      "defaultTimeZone": "Asia/Kolkata",
+      "states": [
+        {
+          "code": "DL",
+          "name": "Delhi",
+          "districts": [
+            {
+              "id": "b8b5c1d6-3f1e-4c73-9a09-2b2d74c18b6e",
+              "code": "DL-ND",
+              "name": "New Delhi",
+              "bbox": {
+                "topLeft": { "lat": 28.889, "lng": 76.84 },
+                "bottomRight": { "lat": 28.4, "lng": 77.35 }
+              },
+              "zoom": { "min": 10, "max": 16 },
+              "tileStyleUrl": null,
+              "roads": [
+                {
+                  "id": "RD-DL-001",
+                  "name": "Ring Road",
+                  "roadType": "ARTERIAL",
+                  "authorityId": "AUTH-DL",
+                  "totalLengthKm": 48,
+                  "geometry": {
+                    "type": "LineString",
+                    "coordinates": [
+                      [77.168, 28.705],
+                      [77.205, 28.702],
+                      [77.240, 28.688],
+                      [77.250, 28.662],
+                      [77.232, 28.640],
+                      [77.195, 28.642],
+                      [77.168, 28.705]
+                    ]
+                  }
+                },
+                {
+                  "id": "RD-DL-002",
+                  "name": "Outer Ring Road",
+                  "roadType": "ARTERIAL",
+                  "authorityId": "AUTH-DL",
+                  "totalLengthKm": 55,
+                  "geometry": {
+                    "type": "LineString",
+                    "coordinates": [
+                      [77.070, 28.755],
+                      [77.120, 28.770],
+                      [77.210, 28.760],
+                      [77.290, 28.725],
+                      [77.295, 28.655],
+                      [77.235, 28.595],
+                      [77.125, 28.605],
+                      [77.070, 28.655],
+                      [77.070, 28.755]
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "code": "MH",
+          "name": "Maharashtra",
+          "districts": [
+            {
+              "id": "7a01f2c1-2e3b-4c19-9e15-0a1d0d66be33",
+              "code": "MH-MUM",
+              "name": "Mumbai",
+              "bbox": {
+                "topLeft": { "lat": 19.33, "lng": 72.72 },
+                "bottomRight": { "lat": 18.89, "lng": 73.05 }
+              },
+              "zoom": { "min": 10, "max": 16 },
+              "tileStyleUrl": null,
+              "roads": [
+                {
+                  "id": "RD-MH-001",
+                  "name": "Western Express Highway",
+                  "roadType": "HIGHWAY",
+                  "authorityId": "AUTH-MH",
+                  "totalLengthKm": 25,
+                  "geometry": {
+                    "type": "LineString",
+                    "coordinates": [
+                      [72.854, 19.285],
+                      [72.858, 19.240],
+                      [72.865, 19.190],
+                      [72.876, 19.135],
+                      [72.886, 19.085]
+                    ]
+                  }
+                },
+                {
+                  "id": "RD-MH-002",
+                  "name": "Eastern Express Highway",
+                  "roadType": "HIGHWAY",
+                  "authorityId": "AUTH-MH",
+                  "totalLengthKm": 22,
+                  "geometry": {
+                    "type": "LineString",
+                    "coordinates": [
+                      [72.934, 19.250],
+                      [72.936, 19.210],
+                      [72.940, 19.165],
+                      [72.945, 19.120],
+                      [72.948, 19.085]
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

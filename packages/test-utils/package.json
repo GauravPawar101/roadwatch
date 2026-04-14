@@ -1,0 +1,18 @@
+{
+  "name": "@roadwatch/test-utils",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"(no tests)\""
+  },
+  "dependencies": {
+    "@roadwatch/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

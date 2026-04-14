@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "noEmit": false,
+    
+    /* 1. Set the base for path resolution */
+    "baseUrl": ".", 
+    
+    /* 2. Map the @roadwatch namespace to the source code */
+    "paths": {
+      "@roadwatch/core": ["../core/src/index.ts"],
+      "@roadwatch/core/*": ["../core/src/*"]
+    },
+    /* 3. Explicitly enable this to match your monorepo rules */
+    "verbatimModuleSyntax": true 
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,162 @@
+# fabric/config/configtx.yaml
+# Defines orgs, policies, and channel structure
+
+Organizations:
+
+  - &OrdererOrg
+    Name: OrdererMSP
+    ID:   OrdererMSP
+    MSPDir: ../network/organizations/ordererOrganizations/orderer.roadwatch.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('OrdererMSP.member')"
+      Writers:
+        Type: Signature
+        Rule: "OR('OrdererMSP.member')"
+      Admins:
+        Type: Signature
+        Rule: "OR('OrdererMSP.admin')"
+
+  - &NHAIOrg
+    Name: NHAIMSP
+    ID:   NHAIMSP
+    MSPDir: ../network/organizations/peerOrganizations/nhai.roadwatch.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('NHAIMSP.admin', 'NHAIMSP.peer', 'NHAIMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('NHAIMSP.admin', 'NHAIMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('NHAIMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('NHAIMSP.peer')"
+    AnchorPeers:
+      - Host: peer0.nhai.roadwatch.com
+        Port: 7051
+
+  - &RoadWatchOrg
+    Name: RoadWatchMSP
+    ID:   RoadWatchMSP
+    MSPDir: ../network/organizations/peerOrganizations/roadwatch.roadwatch.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('RoadWatchMSP.admin', 'RoadWatchMSP.peer', 'RoadWatchMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('RoadWatchMSP.admin', 'RoadWatchMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('RoadWatchMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('RoadWatchMSP.peer')"
+    AnchorPeers:
+      - Host: peer0.roadwatch.roadwatch.com
+        Port: 9051
+
+Capabilities:
+  Channel: &ChannelCapabilities
+    V2_0: true
+  Orderer: &OrdererCapabilities
+    V2_0: true
+  Application: &ApplicationCapabilities
+    V2_5: true
+
+Application: &ApplicationDefaults
+  Organizations:
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+    LifecycleEndorsement:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Endorsement"
+    Endorsement:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Endorsement"
+  Capabilities:
+    <<: *ApplicationCapabilities
+
+Orderer: &OrdererDefaults
+  OrdererType: etcdraft
+  Addresses:
+    - orderer1.orderer.roadwatch.com:7050
+  EtcdRaft:
+    Consenters:
+      - Host: orderer1.orderer.roadwatch.com
+        Port: 7050
+        ClientTLSCert: ../network/organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/tls/server.crt
+        ServerTLSCert: ../network/organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/tls/server.crt
+  BatchTimeout: 2s
+  BatchSize:
+    MaxMessageCount:      100     # max txs per block
+    AbsoluteMaxBytes:     99 MB
+    PreferredMaxBytes:    512 KB
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+    BlockValidation:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+  Capabilities:
+    <<: *OrdererCapabilities
+
+Channel: &ChannelDefaults
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+  Capabilities:
+    <<: *ChannelCapabilities
+
+Profiles:
+
+  # Genesis block for the orderer system channel
+  RoadWatchOrdererGenesis:
+    <<: *ChannelDefaults
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *OrdererOrg
+    Consortiums:
+      RoadWatchConsortium:
+        Organizations:
+          - *NHAIOrg
+          - *RoadWatchOrg
+
+  # The actual application channel
+  RoadWatchIndiaChannel:
+    Consortium: RoadWatchConsortium
+    <<: *ChannelDefaults
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - *NHAIOrg
+        - *RoadWatchOrg
+      Capabilities:
+        <<: *ApplicationCapabilities

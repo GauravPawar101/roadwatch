@@ -1,0 +1,38 @@
+namespace RoadWatch.Models;
+
+enum AuthorityType : byte { Municipal, State, NHAI }
+enum ComplaintStatus : byte { Open, InProgress, Resolved, Dismissed }
+
+struct GeoCoordinate {
+  latitude: double;
+  longitude: double;
+}
+
+table Road {
+  id: string;
+  name: string;
+  pin_code: string;
+  start_point: GeoCoordinate;
+  end_point: GeoCoordinate;
+  authority_id: string;
+}
+
+table Authority {
+  id: string;
+  name: string;
+  type: AuthorityType;
+  jurisdiction_pin_codes: [string];
+}
+
+table Complaint {
+  id: string;
+  road_id: string;
+  author_id: string;
+  description: string;
+  location: GeoCoordinate;
+  timestamp: ulong;
+  status: ComplaintStatus;
+  image_hashes: [string];
+}
+
+root_type Complaint;

@@ -1,0 +1,19 @@
+namespace RoadWatch.Models;
+
+enum RoadType : byte {
+  NH = 0,
+  SH = 1,
+  MDR = 2,
+  Urban = 3,
+  Rural = 4
+}
+
+table Road {
+  id: string;
+  name: string;
+  type: RoadType;
+  authority_id: string;
+  total_length_km: float32;
+}
+
+root_type Road;
