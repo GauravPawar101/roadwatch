@@ -1,0 +1,241 @@
+/* Stitch Design System Variables & Utilities */
+
+:root {
+  --surface-dim: #051424;
+  --outline: #919094;
+  --tertiary: #4cd7f6;
+  --surface: #051424;
+  --tertiary-container: #000d11;
+  --background: #051424;
+  --on-surface: #d4e4fa;
+  --on-surface-variant: #c7c6ca;
+  --primary: #c8c6c7;
+  --secondary: #d0bcff;
+  --surface-container-highest: #273647;
+  --surface-container-high: #1c2b3c;
+  --surface-container: #122131;
+  --surface-container-lowest: #010f1f;
+  --surface-bright: #2c3a4c;
+  --error: #ffb4ab;
+  --error-container: #93000a;
+  --secondary-container: #571bc1;
+  --on-secondary-container: #c4abff;
+  --outline-variant: #46464a;
+}
+
+/* Base page styles */
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--background);
+  color: var(--on-surface);
+}
+
+/* Color utilities (used by stitch markup) */
+.text-on-surface { color: var(--on-surface) !important; }
+.text-on-surface-variant { color: var(--on-surface-variant) !important; }
+.text-tertiary { color: var(--tertiary) !important; }
+.text-primary { color: var(--primary) !important; }
+.text-secondary { color: var(--secondary) !important; }
+.bg-surface-container-high { background: var(--surface-container-high) !important; }
+.bg-surface-container-highest { background: var(--surface-container-highest) !important; }
+.bg-surface-container-lowest { background: var(--surface-container-lowest) !important; }
+.bg-secondary-container { background: var(--secondary-container) !important; color: var(--on-secondary-container) !important; }
+.border-outline-variant { border-color: var(--outline-variant) !important; }
+
+/* Utility for subtle translucent backgrounds used across stitch screens */
+.glass-panel {
+  background: rgba(18, 33, 49, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.75rem;
+}
+
+/* Prism Gradient */
+.prism-gradient {
+  background: linear-gradient(45deg, #8b5cf6, #4cd7f6);
+}
+
+/* Prism Glow Effect */
+.prism-glow {
+  transition: all 0.2s;
+}
+
+.prism-glow:hover {
+  box-shadow: 0 0 15px rgba(76, 215, 246, 0.3);
+}
+
+/* Material Symbols */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  display: inline-block;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: normal;
+  white-space: nowrap;
+  direction: ltr;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Button Styles */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(45deg, #8b5cf6, #4cd7f6);
+  color: white;
+  border: none;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(76, 215, 246, 0.2);
+}
+
+.btn-primary:hover {
+  opacity: 0.95;
+  box-shadow: 0 0 15px rgba(76, 215, 246, 0.3);
+}
+
+.btn-primary:active {
+  transform: scale(0.95);
+}
+
+/* Card Styles */
+.card {
+  background: rgba(18, 33, 49, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  transition: all 0.2s;
+}
+
+.card:hover {
+  border-color: rgba(76, 215, 246, 0.2);
+  transform: translateY(-2px);
+}
+
+/* Status Badges */
+.badge-error {
+  background-color: rgba(255, 180, 171, 0.1);
+  color: #ffb4ab;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.badge-success {
+  background-color: rgba(76, 215, 246, 0.1);
+  color: #4cd7f6;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.badge-warning {
+  background-color: rgba(208, 188, 255, 0.1);
+  color: #d0bcff;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+/* Typography */
+.headline-lg {
+  font-size: 40px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.headline-md {
+  font-size: 32px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.title-lg {
+  font-size: 24px;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+
+.body-lg {
+  font-size: 18px;
+  line-height: 1.6;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.body-md {
+  font-size: 16px;
+  line-height: 1.6;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.label-md {
+  font-size: 14px;
+  line-height: 1.2;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.caption {
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+/* Animations */
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-in {
+  animation: slideInUp 0.3s ease-out;
+}
+
+.animate-fade {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
