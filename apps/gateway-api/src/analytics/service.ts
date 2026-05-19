@@ -1,5 +1,5 @@
 import PDFDocument from 'pdfkit';
-import { pool } from '../db.js';
+import { cassandraTypes, execute as executeFn } from '../cassandra.js';
 
 export type AnalyticsEventType =
   | 'COMPLAINT_CREATED'
@@ -21,22 +21,24 @@ export async function trackAnalyticsEvent(event: {
   occurredAt?: Date;
   properties?: unknown;
 }): Promise<void> {
-  await pool.query(
-    `INSERT INTO analytics_events (type, actor_user_id, complaint_id, contractor_id, district, zone, lat, lng, occurred_at, properties)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, now()), COALESCE($10::jsonb, '{}'::jsonb));`,
-    [
-      event.type,
-      event.actorUserId ?? null,
-      event.complaintId ?? null,
-      event.contractorId ?? null,
-      event.district ?? null,
-      event.zone ?? null,
-      typeof event.lat === 'number' ? event.lat : null,
-      typeof event.lng === 'number' ? event.lng : null,
-      event.occurredAt ?? null,
-      event.properties ? JSON.stringify(event.properties) : null
-    ]
-  );
+  const payload = {
+    type: event.type,
+    actorUserId: event.actorUserId ?? null,
+    complaintId: event.complaintId ?? null,
+    contractorId: event.contractorId ?? null,
+    district: event.district ?? null,
+    zone: event.zone ?? null,
+    lat: typeof event.lat === 'number' ? event.lat : null,
+    lng: typeof event.lng === 'number' ? event.lng : null,
+    properties: event.properties ?? {}
+  };
+  const occurredAt = event.occurredAt ?? new Date();
+  await executeFn('INSERT INTO analytics_events (id, event_type, payload, created_at) VALUES (?, ?, ?, ?)', [
+    cassandraTypes.TimeUuid.now(),
+    event.type,
+    JSON.stringify(payload),
+    occurredAt.toISOString()
+  ], { prepare: true });
 }
 
 export async function getCountsByStatus(params?: { district?: string; zone?: string }): Promise<Record<string, number>> {
@@ -52,16 +54,31 @@ export async function getCountsByStatus(params?: { district?: string; zone?: str
     where.push(`zone = $${values.length}`);
   }
 
-  const r = await pool.query(
-    `SELECT status, count(*)::int AS count
-     FROM complaints
-     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-     GROUP BY status;`,
-    values
-  );
-
+  // Aggregate by fetching matching complaints and folding in JS (Cassandra lacks arbitrary GROUP BY)
   const byStatus: Record<string, number> = {};
-  for (const row of r.rows) byStatus[row.status] = row.count;
+  if (values.length === 0) {
+    const r = await executeFn('SELECT status FROM complaints ALLOW FILTERING', [], { prepare: true });
+    for (const row of r.rows) byStatus[row.status] = (byStatus[row.status] || 0) + 1;
+    return byStatus;
+  }
+  // If district/zone filters provided, query per filter
+  const district = params?.district;
+  const zone = params?.zone;
+  if (district && zone) {
+    const r = await executeFn('SELECT status FROM complaints WHERE district = ? AND zone = ? ALLOW FILTERING', [district, zone], { prepare: true });
+    for (const row of r.rows) byStatus[row.status] = (byStatus[row.status] || 0) + 1;
+    return byStatus;
+  }
+  if (district) {
+    const r = await executeFn('SELECT status FROM complaints WHERE district = ? ALLOW FILTERING', [district], { prepare: true });
+    for (const row of r.rows) byStatus[row.status] = (byStatus[row.status] || 0) + 1;
+    return byStatus;
+  }
+  if (zone) {
+    const r = await executeFn('SELECT status FROM complaints WHERE zone = ? ALLOW FILTERING', [zone], { prepare: true });
+    for (const row of r.rows) byStatus[row.status] = (byStatus[row.status] || 0) + 1;
+    return byStatus;
+  }
   return byStatus;
 }
 
@@ -86,8 +103,8 @@ export async function listChronicRoads(params?: {
   const days = Math.max(1, Math.floor(params?.days ?? 60));
   const limit = Math.min(500, Math.max(1, Math.floor(params?.limit ?? 100)));
 
-  const where: string[] = [`status <> 'RESOLVED'`, `created_at <= now() - ($1::int * interval '1 day')`];
-  const values: any[] = [days];
+  const where: string[] = [`status <> 'RESOLVED'`];
+  const values: any[] = [];
 
   if (params?.district) {
     values.push(params.district);
@@ -100,17 +117,20 @@ export async function listChronicRoads(params?: {
 
   values.push(limit);
 
-  const r = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng, created_at,
-            EXTRACT(epoch FROM (now() - created_at))/86400.0 AS age_days
-     FROM complaints
-     WHERE ${where.join(' AND ')}
-     ORDER BY created_at ASC
-     LIMIT $${values.length};`,
-    values
-  );
+  // Fetch matching complaints and compute age in JS
+  const q = [] as any[];
+  if (params?.district) q.push({ district: params!.district });
+  if (params?.zone) q.push({ zone: params!.zone });
+  const rows = await executeFn('SELECT id, district, zone, status, description, lat, lng, created_at FROM complaints WHERE status <> ? ALLOW FILTERING', ['RESOLVED'], { prepare: true });
+  const filtered = (rows.rows || []).filter((r: any) => {
+    if (params?.district && r.district !== params.district) return false;
+    if (params?.zone && r.zone !== params.zone) return false;
+    const created = new Date(r.created_at).getTime();
+    const ageDays = (Date.now() - created) / 86400_000;
+    return ageDays >= days;
+  }).slice(0, limit);
 
-  return r.rows.map((row: any) => ({
+  return filtered.map((row: any) => ({
     complaintId: row.id,
     district: row.district,
     zone: row.zone,
@@ -119,7 +139,7 @@ export async function listChronicRoads(params?: {
     lat: row.lat,
     lng: row.lng,
     createdAt: new Date(row.created_at).toISOString(),
-    ageDays: Math.floor(Number(row.age_days ?? 0))
+    ageDays: Math.floor((Date.now() - new Date(row.created_at).getTime()) / 86400_000)
   }));
 }
 
@@ -156,8 +176,8 @@ export async function getHotspots(params?: {
   const cellKm = params?.cellKm ?? 1;
   const limit = Math.min(200, Math.max(1, Math.floor(params?.limit ?? 20)));
 
-  const where: string[] = [`lat IS NOT NULL`, `lng IS NOT NULL`, `created_at >= now() - ($1::int * interval '1 day')`];
-  const values: any[] = [days];
+  const where: string[] = [`lat IS NOT NULL`, `lng IS NOT NULL`];
+  const values: any[] = [];
 
   if (params?.district) {
     values.push(params.district);
@@ -168,13 +188,7 @@ export async function getHotspots(params?: {
     where.push(`zone = $${values.length}`);
   }
 
-  const r = await pool.query(
-    `SELECT id, district, zone, lat, lng
-     FROM complaints
-     WHERE ${where.join(' AND ')}
-     LIMIT 5000;`,
-    values
-  );
+  const r = await executeFn('SELECT id, district, zone, lat, lng, created_at FROM complaints WHERE lat IS NOT NULL AND lng IS NOT NULL ALLOW FILTERING', [], { prepare: true });
 
   const clusters = new Map<
     string,
@@ -249,8 +263,8 @@ export async function getWorseningTrends(params?: {
   const limit = Math.min(200, Math.max(1, Math.floor(params?.limit ?? 20)));
   const minRecent = Math.max(1, Math.floor(params?.minRecent ?? 2));
 
-  const where: string[] = [`lat IS NOT NULL`, `lng IS NOT NULL`, `created_at >= now() - ($1::int * interval '1 day')`];
-  const values: any[] = [windowDays];
+  const where: string[] = [`lat IS NOT NULL`, `lng IS NOT NULL`];
+  const values: any[] = [];
 
   if (params?.district) {
     values.push(params.district);
@@ -261,13 +275,7 @@ export async function getWorseningTrends(params?: {
     where.push(`zone = $${values.length}`);
   }
 
-  const r = await pool.query(
-    `SELECT id, status, created_at, lat, lng
-     FROM complaints
-     WHERE ${where.join(' AND ')}
-     LIMIT 10000;`,
-    values
-  );
+  const r = await executeFn('SELECT id, status, created_at, lat, lng FROM complaints WHERE lat IS NOT NULL AND lng IS NOT NULL ALLOW FILTERING', [], { prepare: true });
 
   const nowMs = Date.now();
   const recentStart = nowMs - half * 86400_000;
@@ -353,43 +361,43 @@ export async function getContractorScorecard(params?: { district?: string; zone?
 
   values.push(limit);
 
-  const r = await pool.query(
-    `SELECT
-        ctr.id AS contractor_id,
-        ctr.name AS contractor_name,
-        count(*)::int AS assigned_count,
-        count(*) FILTER (WHERE c.status = 'RESOLVED')::int AS resolved_count,
-        count(*) FILTER (WHERE c.status <> 'RESOLVED')::int AS open_count,
-        avg(EXTRACT(epoch FROM (c.updated_at - a.assigned_at))/86400.0) FILTER (WHERE c.status = 'RESOLVED') AS avg_resolution_days,
-        count(*) FILTER (
-          WHERE c.status = 'RESOLVED'
-            AND a.expected_resolution_days IS NOT NULL
-            AND c.updated_at > a.assigned_at + (a.expected_resolution_days * interval '1 day')
-        )::int AS sla_breaches
-     FROM complaint_assignments a
-     JOIN contractors ctr ON ctr.id = a.contractor_id
-     JOIN complaints c ON c.id = a.complaint_id
-     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-     GROUP BY ctr.id, ctr.name
-     ORDER BY resolved_count DESC, assigned_count DESC
-     LIMIT $${values.length};`,
-    values
-  );
+  // Compute scorecard in application code by iterating assignments
+  const assignments = await executeFn('SELECT contractor_id, complaint_id, assigned_at, expected_resolution_days FROM complaint_assignments ALLOW FILTERING', [], { prepare: true });
+  const contractorMap: Record<string, { contractorName: string; assignedCount: number; resolvedCount: number; openCount: number; resolutionDays: number[]; slaBreaches: number }> = {};
+  for (const a of assignments.rows) {
+    const cid = a.contractor_id;
+    contractorMap[cid] = contractorMap[cid] || { contractorName: cid, assignedCount: 0, resolvedCount: 0, openCount: 0, resolutionDays: [], slaBreaches: 0 };
+    contractorMap[cid].assignedCount += 1;
+    const cRes = await executeFn('SELECT status, updated_at FROM complaints WHERE id = ? LIMIT 1', [a.complaint_id], { prepare: true });
+    const status = cRes.rows && cRes.rows[0] ? cRes.rows[0].status : null;
+    if (status === 'RESOLVED') {
+      contractorMap[cid].resolvedCount += 1;
+      const updatedAt = new Date(cRes.rows[0].updated_at).getTime();
+      const assignedAt = new Date(a.assigned_at).getTime();
+      if (updatedAt && assignedAt) contractorMap[cid].resolutionDays.push((updatedAt - assignedAt) / 86400_000);
+      if (a.expected_resolution_days != null && updatedAt > assignedAt + a.expected_resolution_days * 86400_000) contractorMap[cid].slaBreaches += 1;
+    } else {
+      contractorMap[cid].openCount += 1;
+    }
+    const ctRes = await executeFn('SELECT name FROM contractors WHERE id = ? LIMIT 1', [cid], { prepare: true });
+    if (ctRes.rows && ctRes.rows[0]) contractorMap[cid].contractorName = ctRes.rows[0].name || cid;
+  }
 
-  return (r.rows as any[]).map((row) => {
-    const resolved = Number(row.resolved_count ?? 0);
-    const breaches = Number(row.sla_breaches ?? 0);
+  const rowsOut = Object.entries(contractorMap).map(([contractorId, v]) => {
+    const avg = v.resolutionDays.length ? v.resolutionDays.reduce((a, b) => a + b, 0) / v.resolutionDays.length : null;
     return {
-      contractorId: row.contractor_id,
-      contractorName: row.contractor_name,
-      assignedCount: Number(row.assigned_count ?? 0),
-      resolvedCount: resolved,
-      openCount: Number(row.open_count ?? 0),
-      avgResolutionDays: row.avg_resolution_days == null ? null : Number(row.avg_resolution_days),
-      slaBreaches: breaches,
-      onTimeRate: resolved > 0 ? (resolved - breaches) / resolved : null
-    } satisfies ContractorScorecardRow;
+      contractorId,
+      contractorName: v.contractorName,
+      assignedCount: v.assignedCount,
+      resolvedCount: v.resolvedCount,
+      openCount: v.openCount,
+      avgResolutionDays: avg,
+      slaBreaches: v.slaBreaches,
+      onTimeRate: v.resolvedCount ? (v.resolvedCount - v.slaBreaches) / v.resolvedCount : null
+    } as ContractorScorecardRow;
   });
+
+  return rowsOut.slice(0, limit);
 }
 
 export function toCsv(rows: Record<string, any>[], columns: string[]): string {
@@ -420,7 +428,6 @@ export async function exportRoadsGeoJson(params?: {
     const days = Math.max(1, Math.floor(params?.chronicDays ?? 60));
     values.push(days);
     where.push(`status <> 'RESOLVED'`);
-    where.push(`created_at <= now() - ($${values.length}::int * interval '1 day')`);
   }
 
   if (params?.district) {
@@ -434,18 +441,22 @@ export async function exportRoadsGeoJson(params?: {
 
   values.push(limit);
 
-  const r = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng, created_at, updated_at
-     FROM complaints
-     WHERE ${where.join(' AND ')}
-     ORDER BY updated_at DESC
-     LIMIT $${values.length};`,
-    values
-  );
+  const r = await executeFn('SELECT id, district, zone, status, description, lat, lng, created_at, updated_at FROM complaints WHERE lat IS NOT NULL AND lng IS NOT NULL ALLOW FILTERING', [], { prepare: true });
+  const rows = (r.rows || []).filter((row: any) => {
+    if (params?.chronicOnly) {
+      const days = Math.max(1, Math.floor(params?.chronicDays ?? 60));
+      const created = new Date(row.created_at).getTime();
+      if (row.status === 'RESOLVED') return false;
+      if ((Date.now() - created) / 86400_000 < days) return false;
+    }
+    if (params?.district && row.district !== params.district) return false;
+    if (params?.zone && row.zone !== params.zone) return false;
+    return true;
+  }).slice(0, limit);
 
   return {
     type: 'FeatureCollection',
-    features: (r.rows as any[]).map((row) => ({
+    features: rows.map((row: any) => ({
       type: 'Feature',
       geometry: {
         type: 'Point',

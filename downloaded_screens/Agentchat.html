@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CivicGuard AI Assistant</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            line-height: 1;
+            text-transform: none;
+            letter-spacing: normal;
+            word-wrap: normal;
+            white-space: nowrap;
+            direction: ltr;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-surface-variant": "#44474e",
+                      "on-primary": "#ffffff",
+                      "status-resolved": "#003f25",
+                      "on-primary-fixed-variant": "#2e476e",
+                      "outline": "#74777f",
+                      "on-surface": "#0b1c30",
+                      "surface-bright": "#f8f9ff",
+                      "primary-fixed-dim": "#aec7f5",
+                      "on-background": "#0b1c30",
+                      "on-tertiary-fixed-variant": "#005231",
+                      "on-tertiary-fixed": "#002111",
+                      "tertiary-container": "#002614",
+                      "background": "#f8f9ff",
+                      "inverse-primary": "#aec7f5",
+                      "surface-tint": "#465f87",
+                      "primary": "#00091b",
+                      "on-tertiary-container": "#43976a",
+                      "secondary-fixed": "#d3e4ff",
+                      "surface-container-high": "#dce9ff",
+                      "primary-container": "#002045",
+                      "outline-variant": "#c4c6cf",
+                      "tertiary-fixed": "#9ff5c1",
+                      "inverse-on-surface": "#eaf1ff",
+                      "tertiary": "#000b04",
+                      "error": "#ba1a1a",
+                      "status-pending": "#fff7ed",
+                      "surface-dim": "#cbdbf5",
+                      "surface-container-lowest": "#ffffff",
+                      "secondary-fixed-dim": "#a2c9ff",
+                      "on-primary-fixed": "#001b3c",
+                      "on-error": "#ffffff",
+                      "surface-container-low": "#eff4ff",
+                      "primary-fixed": "#d6e3ff",
+                      "surface": "#f8f9ff",
+                      "on-primary-container": "#7089b3",
+                      "surface-variant": "#d3e4fe",
+                      "surface-tint-blue": "#f8f9ff",
+                      "on-error-container": "#93000a",
+                      "secondary-container": "#7db6ff",
+                      "on-secondary-fixed": "#001c38",
+                      "inverse-surface": "#213145",
+                      "surface-container-highest": "#d3e4fe",
+                      "secondary": "#1960a3",
+                      "on-secondary": "#ffffff",
+                      "error-container": "#ffdad6",
+                      "on-secondary-fixed-variant": "#004881",
+                      "status-pending-text": "#7c2d12",
+                      "surface-container": "#e5eeff",
+                      "on-tertiary": "#ffffff",
+                      "on-secondary-container": "#00477f",
+                      "tertiary-fixed-dim": "#83d8a6",
+                      "status-resolved-text": "#ffffff"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "margin-desktop": "64px",
+                      "margin-mobile": "16px",
+                      "container-max": "1280px",
+                      "base": "8px",
+                      "gutter": "24px"
+              },
+              "fontFamily": {
+                      "body-sm": ["Inter"],
+                      "label-md": ["Inter"],
+                      "display-lg": ["Inter"],
+                      "headline-md": ["Inter"],
+                      "body-md": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "headline-sm": ["Inter"],
+                      "headline-lg": ["Inter"],
+                      "display-lg-mobile": ["Inter"]
+              },
+              "fontSize": {
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                      "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                      "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                      "headline-lg": ["30px", {"lineHeight": "38px", "fontWeight": "600"}],
+                      "display-lg-mobile": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+              }
+            },
+          },
+        }
+    </script>
+</head>
+<body class="bg-background font-body-md text-on-background min-h-screen flex">
+<!-- Sidebar Navigation -->
+<aside class="hidden md:flex flex-col h-screen w-64 fixed left-0 top-0 bg-surface-container border-r border-outline-variant py-base gap-2 overflow-y-auto z-50">
+<div class="px-6 py-4 flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined">account_balance</span>
+</div>
+<div>
+<h1 class="text-headline-sm font-headline-sm font-bold text-primary">CivicGuard</h1>
+<p class="text-label-md font-label-md text-on-surface-variant">Infrastructure Portal</p>
+</div>
+</div>
+<nav class="flex-1 px-4 flex flex-col gap-1 mt-4">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-variant transition-all rounded-xl" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-md">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-variant transition-all rounded-xl" href="#">
+<span class="material-symbols-outlined">assignment_late</span>
+<span class="font-label-md">Grievances</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-variant transition-all rounded-xl" href="#">
+<span class="material-symbols-outlined">foundation</span>
+<span class="font-label-md">Projects</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-variant transition-all rounded-xl" href="#">
+<span class="material-symbols-outlined">engineering</span>
+<span class="font-label-md">Contractors</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-variant transition-all rounded-xl" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-label-md">Reports</span>
+</a>
+<!-- Active State AI Assistant -->
+<a class="flex items-center gap-3 px-4 py-3 bg-secondary-container text-on-secondary-container rounded-xl font-semibold" href="#">
+<span class="material-symbols-outlined">smart_toy</span>
+<span class="font-label-md">AI Assistant</span>
+</a>
+</nav>
+<div class="px-4 pb-4 border-t border-outline-variant pt-4 flex flex-col gap-1">
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-variant transition-all rounded-xl" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-variant transition-all rounded-xl" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="font-label-md">Logout</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 md:ml-64 flex flex-col min-h-screen">
+<!-- Top App Bar -->
+<header class="flex justify-between items-center h-16 px-margin-desktop w-full sticky top-0 z-40 bg-surface-container-lowest border-b border-outline-variant shadow-sm">
+<div class="flex items-center gap-gutter">
+<div class="relative w-64">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
+<input class="w-full h-10 pl-10 pr-4 bg-surface-container-low border border-outline rounded-full text-body-sm focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Search grievance reports..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low text-on-surface-variant transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low text-on-surface-variant transition-colors">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+<div class="h-8 w-[1px] bg-outline-variant mx-2"></div>
+<div class="flex items-center gap-3">
+<img alt="User" class="w-10 h-10 rounded-full object-cover border border-outline-variant" data-alt="A professional headshot of a government official or project manager, wearing a crisp navy suit, with a confident and trustworthy expression. The lighting is bright and clean, typical of a corporate environment, with a soft-focus office background that emphasizes institutional authority and transparency." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCZcr_gM2tW5xp4UUoYQVsK5vYg5VXpCvFCCGpLtmW6f66AxGdWoarZ998CB2KFbDmLUOmfWJIsyMEO-SyDAeeEGcPCk7gqwP9nG0qaiffboXdreXjXQqshj_RpEmKnzU_86u6BR6ag0j0ZhRCBN-5QlDNOKtiMBNtEkOx6_k3KpKVmo59RVlRmsYy3E48vgWZWUnfXAdF0DW_d5rXGJ7r2XiGDPWvcMTZl58fJEhbKlQ_5sLHv-u7UPXbNEVBINwO2h9bFQGRuelM"/>
+<span class="font-label-md text-on-surface hidden lg:block">Admin Console</span>
+</div>
+</div>
+</header>
+<!-- Chat Container -->
+<section class="flex-1 flex flex-col items-center justify-center p-base md:p-gutter">
+<div class="w-full max-w-container-max flex flex-col h-[calc(100vh-160px)] bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden">
+<!-- Chat Header -->
+<div class="px-6 py-4 border-b border-outline-variant flex items-center justify-between bg-surface-container-low">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div>
+<h2 class="text-headline-sm font-headline-sm text-primary">CivicGuard Assistant</h2>
+<p class="text-label-md font-label-md text-on-surface-variant flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-status-resolved"></span>
+                                Secure AI Agent • Radical Transparency Active
+                            </p>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="px-4 py-2 text-label-md font-label-md border border-outline-variant rounded-full hover:bg-surface-variant transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">history</span>
+                            Session History
+                        </button>
+</div>
+</div>
+<!-- Chat Area (Messages) -->
+<div class="flex-1 overflow-y-auto p-6 flex flex-col gap-6 bg-surface-bright">
+<!-- AI Welcome Message -->
+<div class="flex gap-4 max-w-[85%] self-start">
+<div class="w-8 h-8 rounded-full bg-primary flex-shrink-0 flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined text-[16px]">account_balance</span>
+</div>
+<div class="bg-white border border-outline-variant p-4 rounded-r-xl rounded-bl-xl shadow-sm">
+<p class="font-body-md text-on-surface">Greetings. I am the CivicGuard AI Assistant. I can help you analyze grievance data, track infrastructure project milestones, or generate compliance reports for local contractors. How may I assist you today?</p>
+<div class="mt-4 grid grid-cols-2 gap-2">
+<button class="text-left p-3 text-body-sm bg-surface-container-low hover:bg-surface-container-high rounded-lg border border-outline-variant transition-colors">
+                                    "Show pending grievances in Sector 7"
+                                </button>
+<button class="text-left p-3 text-body-sm bg-surface-container-low hover:bg-surface-container-high rounded-lg border border-outline-variant transition-colors">
+                                    "Generate contractor audit report"
+                                </button>
+</div>
+</div>
+</div>
+<!-- User Message -->
+<div class="flex gap-4 max-w-[85%] self-end flex-row-reverse">
+<div class="w-8 h-8 rounded-full bg-secondary-container flex-shrink-0 flex items-center justify-center text-on-secondary-container">
+<span class="material-symbols-outlined text-[16px]">person</span>
+</div>
+<div class="bg-primary text-on-primary p-4 rounded-l-xl rounded-br-xl shadow-sm">
+<p class="font-body-md">Analyze the recent delay in the Metro-Link Bridge project and suggest accountability measures.</p>
+</div>
+</div>
+<!-- AI Reasoning/Data Message -->
+<div class="flex gap-4 max-w-[85%] self-start">
+<div class="w-8 h-8 rounded-full bg-primary flex-shrink-0 flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined text-[16px]">account_balance</span>
+</div>
+<div class="bg-white border border-outline-variant p-4 rounded-r-xl rounded-bl-xl shadow-sm">
+<p class="font-body-md text-on-surface mb-3">Analyzing Metro-Link Bridge data (Project ID: MLB-2024)...</p>
+<div class="bg-surface-container-low p-4 rounded-lg border border-outline-variant mb-3">
+<h4 class="font-semibold text-primary mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">warning</span>
+                                    Identified Delays
+                                </h4>
+<ul class="space-y-2 text-body-sm text-on-surface-variant">
+<li class="flex justify-between"><span>Phase 2 Concrete Pouring:</span> <span class="text-error font-semibold">+14 Days</span></li>
+<li class="flex justify-between"><span>Material Procurement (Steel):</span> <span class="text-error font-semibold">+09 Days</span></li>
+</ul>
+</div>
+<p class="font-body-md text-on-surface">Based on the contract terms, the delay exceeds the 10% buffer. I recommend initiating a **formal inquiry** into Contractor 'Apex Build Group' and requesting an updated Gantt chart within 48 hours for transparency.</p>
+</div>
+</div>
+</div>
+<!-- Input Area -->
+<div class="p-6 border-t border-outline-variant bg-white">
+<form class="relative">
+<div class="flex items-end gap-3 bg-surface-container-lowest border border-outline rounded-2xl p-2 focus-within:ring-2 focus-within:ring-primary transition-all">
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-low rounded-xl transition-colors" type="button">
+<span class="material-symbols-outlined">attach_file</span>
+</button>
+<textarea class="flex-1 bg-transparent border-none focus:ring-0 text-body-md py-2 resize-none h-12 max-h-32" placeholder="Ask about reports, contractors, or specific projects..." rows="1"></textarea>
+<button class="bg-primary text-on-primary h-12 w-12 flex items-center justify-center rounded-xl hover:scale-105 active:scale-95 transition-all shadow-sm" type="submit">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">send</span>
+</button>
+</div>
+<div class="mt-3 flex items-center justify-between px-2">
+<p class="text-label-md font-label-md text-outline">Enter to send, Shift+Enter for new line</p>
+<div class="flex gap-4">
+<button class="text-label-md font-label-md text-secondary hover:underline flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[14px]">shield</span>
+                                    Privacy Policy
+                                </button>
+<button class="text-label-md font-label-md text-secondary hover:underline flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[14px]">summarize</span>
+                                    Data Sources
+                                </button>
+</div>
+</div>
+</form>
+</div>
+</div>
+</section>
+</main>
+<!-- Floating Action Button - Only for Primary screens, but kept here for context as it's the 'Report' action in the design system -->
+<button class="fixed bottom-margin-mobile right-margin-mobile md:bottom-margin-desktop md:right-margin-desktop w-14 h-14 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">add</span>
+</button>
+</body></html>

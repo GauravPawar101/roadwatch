@@ -76,7 +76,7 @@ async function connectGateway(env: FabricEnv) {
 }
 
 describe('Fabric chaincode integration', () => {
-  it.skipIf(!enabled)('invokes CreateComplaint and reads state back', async () => {
+  it.skipIf(!enabled)('anchors and verifies a Merkle root', async () => {
     const env = getFabricEnv();
     const gateway = await connectGateway(env);
 
@@ -84,41 +84,26 @@ describe('Fabric chaincode integration', () => {
       const network = gateway.getNetwork(env.channel);
       const contract = network.getContract(env.chaincode);
 
-      const complaintId = `C-${Date.now()}`;
+      const merkleRoot = crypto
+        .createHash('sha256')
+        .update(crypto.randomBytes(32))
+        .digest('hex');
 
-      // Use transient PII if supported by the chaincode client.
-      const transient = {
-        pii: Buffer.from(
-          JSON.stringify({
-            CitizenID: 'citizen-1',
-            Location: '{"lat":18.52,"lng":73.85}',
-            InitialIPFSCid: 'cid-initial'
-          }),
-          'utf8'
-        )
-      };
-
-      const proposal = contract.newProposal('CreateComplaint', {
-        arguments: [
-          complaintId,
-          'citizen-1',
-          'road-1',
-          '{"lat":18.52,"lng":73.85}',
-          'cid-initial',
-          'NHAI',
-          'details-hash'
-        ],
-        transientData: transient
+      // SubmitMerkleRoot(ctx, merkleRoot, regionCode, batchSize)
+      const proposal = contract.newProposal('SubmitMerkleRoot', {
+        arguments: [merkleRoot, 'MH', '1']
       });
 
       const endorsed = await proposal.endorse();
       const committed = await endorsed.submit();
       await committed.getStatus();
 
-      const historyBytes = await contract.evaluateTransaction('GetComplaintHistory', complaintId);
-      const history = JSON.parse(Buffer.from(historyBytes).toString('utf8')) as any[];
-      expect(history.length).toBeGreaterThan(0);
-      expect(JSON.stringify(history)).toContain(complaintId);
+      const verifyBytes = await contract.evaluateTransaction('VerifyMerkleRoot', merkleRoot);
+      const verify = JSON.parse(Buffer.from(verifyBytes).toString('utf8')) as {
+        merkleRoot: string;
+      };
+
+      expect(verify.merkleRoot).toBe(merkleRoot);
     } finally {
       gateway.close();
     }

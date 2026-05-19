@@ -1,0 +1,23 @@
+version: '3.8'
+services:
+  cassandra:
+    image: cassandra:4.1
+    environment:
+      CASSANDRA_CLUSTER_NAME: roadwatch
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+    volumes:
+      - media_cassandra_data:/var/lib/cassandra
+    ports:
+      - '9042:9042'
+
+  media-backend:
+    build: .
+    env_file: .env.example
+    ports:
+      - '4000:4000'
+    depends_on:
+      - cassandra
+
+volumes:
+  media_cassandra_data:

@@ -13,10 +13,15 @@ This repo uses **local env files** (not committed) for running services and test
 
 **Start from:** `apps/gateway-api/.env.example` → copy to `.env`
 
-Required for most dev flows:
-- `DATABASE_URL`
+Required for most dev flows (Cassandra preferred):
+- `CASSANDRA_CONTACT_POINTS`
+- `CASSANDRA_KEYSPACE`
+- `CASSANDRA_LOCAL_DC`
 - `JWT_SECRET`
 - `ALLOW_DEV_OTP_ECHO=true` (dev-only OTP flow)
+
+Legacy/Postgres (optional):
+- (Deprecated) `DATABASE_URL` — Only for legacy scripts if you are maintaining a parallel Postgres deployment
 
 LLM (choose one):
 - Gemini:
@@ -42,7 +47,7 @@ Authority tooling on `/agent/chat` is only enabled when you pass a valid JWT.
 1) Request OTP (dev returns `devCode` if `ALLOW_DEV_OTP_ECHO=true`):
 
 ```bash
-curl -sS -X POST http://localhost:3000/auth/otp/request \
+curl -sS -X POST http://localhost:3100/auth/otp/request \
   -H 'Content-Type: application/json' \
   -d '{"phone":"+911234567890"}'
 ```
@@ -50,7 +55,7 @@ curl -sS -X POST http://localhost:3000/auth/otp/request \
 2) Verify OTP and get JWT:
 
 ```bash
-curl -sS -X POST http://localhost:3000/auth/otp/verify \
+curl -sS -X POST http://localhost:3100/auth/otp/verify \
   -H 'Content-Type: application/json' \
   -d '{"phone":"+911234567890","sessionId":"<sessionId>","code":"<devCode>"}'
 ```
@@ -58,7 +63,7 @@ curl -sS -X POST http://localhost:3000/auth/otp/verify \
 3) Call the agent with auth:
 
 ```bash
-curl -sS -X POST 'http://localhost:3000/agent/chat' \
+curl -sS -X POST 'http://localhost:3100/agent/chat' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <token>' \
   -d '{"input":"Mark complaint RW-ABC-123 as IN_PROGRESS with note: crew dispatched"}'

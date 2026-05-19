@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Track Progress - Infrastructure Grievance Platform</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-dim": "#cbdbf5",
+                      "surface-tint": "#455f88",
+                      "secondary-fixed-dim": "#a2c9ff",
+                      "on-secondary-fixed": "#001c38",
+                      "tertiary-container": "#003f25",
+                      "inverse-on-surface": "#eaf1ff",
+                      "surface-container-lowest": "#ffffff",
+                      "on-tertiary-fixed": "#002111",
+                      "outline": "#74777f",
+                      "on-surface-variant": "#43474e",
+                      "tertiary-fixed-dim": "#83d8a6",
+                      "secondary-container": "#7db6ff",
+                      "on-surface": "#0b1c30",
+                      "on-primary-fixed": "#001b3c",
+                      "error-container": "#ffdad6",
+                      "on-secondary": "#ffffff",
+                      "surface-bright": "#f8f9ff",
+                      "secondary-fixed": "#d3e4ff",
+                      "surface-container-high": "#dce9ff",
+                      "on-secondary-fixed-variant": "#004881",
+                      "inverse-surface": "#213145",
+                      "on-primary-container": "#86a0cd",
+                      "error": "#ba1a1a",
+                      "outline-variant": "#c4c6cf",
+                      "on-error": "#ffffff",
+                      "primary-fixed": "#d6e3ff",
+                      "on-primary-fixed-variant": "#2d476f",
+                      "on-error-container": "#93000a",
+                      "primary-fixed-dim": "#adc7f7",
+                      "background": "#f8f9ff",
+                      "on-tertiary-fixed-variant": "#005231",
+                      "on-primary": "#ffffff",
+                      "surface-container-low": "#eff4ff",
+                      "primary": "#002045",
+                      "surface-container-highest": "#d3e4fe",
+                      "on-tertiary-container": "#5caf81",
+                      "tertiary": "#002715",
+                      "surface": "#f8f9ff",
+                      "primary-container": "#1a365d",
+                      "on-background": "#0b1c30",
+                      "on-tertiary": "#ffffff",
+                      "on-secondary-container": "#00477f",
+                      "inverse-primary": "#adc7f7",
+                      "tertiary-fixed": "#9ff5c1",
+                      "secondary": "#1960a3",
+                      "surface-variant": "#d3e4fe",
+                      "surface-container": "#e5eeff"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "base": "8px",
+                      "margin-desktop": "64px",
+                      "container-max": "1280px",
+                      "gutter": "24px",
+                      "margin-mobile": "16px"
+              },
+              "fontFamily": {
+                      "label-md": ["Inter"],
+                      "headline-md": ["Inter"],
+                      "headline-lg": ["Inter"],
+                      "body-sm": ["Inter"],
+                      "display-lg": ["Inter"],
+                      "body-md": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "display-lg-mobile": ["Inter"],
+                      "headline-sm": ["Inter"]
+              },
+              "fontSize": {
+                      "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                      "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                      "headline-lg": ["30px", {"lineHeight": "38px", "fontWeight": "600"}],
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                      "display-lg-mobile": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        body {
+            background-color: #f8f9ff;
+            color: #0b1c30;
+            font-family: 'Inter', sans-serif;
+        }
+        .trust-card {
+            background: #ffffff;
+            border: 1px solid #d3e4fe;
+            box-shadow: 0 4px 6px -1px rgba(0, 32, 69, 0.05);
+        }
+        .status-pill {
+            background: #e5eeff;
+            border: 1px solid #d3e4fe;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+<!-- TopAppBar Component -->
+<header class="bg-surface-container-lowest border-b border-outline-variant top-0 z-50 shadow-sm sticky">
+<div class="flex justify-between items-center px-margin-desktop py-4 max-w-[1280px] mx-auto w-full">
+<div class="text-headline-sm font-bold text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary">account_balance</span>
+            Infrastructure Grievance Platform
+        </div>
+<nav class="hidden md:flex gap-gutter items-center">
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-md" href="#">Report Issue</a>
+<a class="text-primary border-b-2 border-primary pb-1 font-semibold text-label-md" href="#">Track Progress</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-md" href="#">Community Map</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-md" href="#">Help</a>
+</nav>
+<div class="flex items-center gap-base">
+<div class="relative hidden lg:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[20px]">search</span>
+<input class="bg-surface-container-low border border-outline-variant rounded-lg pl-10 pr-4 py-1.5 text-body-md focus:outline-none focus:ring-1 focus:ring-primary w-64" placeholder="Search report ID..." type="text"/>
+</div>
+<button class="bg-primary text-white px-6 py-2 rounded-lg font-label-md hover:bg-primary-container transition-all active:scale-95 shadow-sm">
+                Sign In
+            </button>
+</div>
+</div>
+</header>
+<main class="flex-grow max-w-[1280px] mx-auto w-full px-margin-desktop py-12">
+<!-- Header Section -->
+<div class="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-gutter">
+<div>
+<h1 class="text-headline-lg text-primary mb-2">Track Progress</h1>
+<p class="text-body-lg text-on-surface-variant max-w-2xl">Manage and monitor your reported infrastructure issues. Radical transparency for institutional accountability.</p>
+</div>
+<div class="flex gap-base">
+<div class="trust-card px-6 py-3 rounded-xl flex items-center gap-3">
+<span class="text-headline-md text-secondary">12</span>
+<span class="text-label-md text-outline-variant uppercase tracking-wider font-bold">Active</span>
+</div>
+<div class="trust-card px-6 py-3 rounded-xl flex items-center gap-3">
+<span class="text-headline-md text-on-tertiary-container">08</span>
+<span class="text-label-md text-outline-variant uppercase tracking-wider font-bold">Resolved</span>
+</div>
+</div>
+</div>
+<!-- FilterBar Component -->
+<section class="trust-card rounded-xl p-gutter mb-gutter bg-surface-container-low">
+<div class="grid grid-cols-1 md:grid-cols-4 gap-gutter">
+<div class="space-y-2">
+<label class="text-label-md text-on-surface font-semibold">Search Query</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
+<input class="w-full bg-white border border-outline-variant rounded-lg pl-10 pr-4 py-2.5 text-body-md focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all" placeholder="Road name, ID..." type="text"/>
+</div>
+</div>
+<div class="space-y-2">
+<label class="text-label-md text-on-surface font-semibold">Status</label>
+<select class="w-full bg-white border border-outline-variant rounded-lg px-4 py-2.5 text-body-md focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none appearance-none cursor-pointer">
+<option>All Statuses</option>
+<option>Pending</option>
+<option>Under Review</option>
+<option>Resolved</option>
+</select>
+</div>
+<div class="space-y-2">
+<label class="text-label-md text-on-surface font-semibold">Category</label>
+<select class="w-full bg-white border border-outline-variant rounded-lg px-4 py-2.5 text-body-md focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none appearance-none cursor-pointer">
+<option>All Infrastructure</option>
+<option>Potholes &amp; Roads</option>
+<option>Street Lighting</option>
+<option>Water &amp; Sewage</option>
+<option>Waste Management</option>
+</select>
+</div>
+<div class="flex items-end">
+<button class="w-full bg-white hover:bg-surface-container-high transition-colors py-2.5 rounded-lg text-label-md font-bold text-primary border border-outline-variant">
+                    Apply Advanced Filters
+                </button>
+</div>
+</div>
+</section>
+<!-- ComplaintCard List -->
+<div class="space-y-gutter">
+<!-- Card 1: Critical Under Review -->
+<div class="trust-card rounded-xl overflow-hidden group hover:border-secondary/50 transition-all">
+<div class="flex flex-col md:flex-row">
+<div class="w-full md:w-64 h-48 md:h-auto overflow-hidden bg-surface-container">
+<img alt="Pothole" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A detailed wide shot of a severe, deep pothole on a weathered urban asphalt road during a rainy evening." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDPNTkaJUnqX_EFkar8AKewvHycKMjpA-wE259tfwFyWR0lckoNx7sTb7oryt7EKUPPMUev_Uz02cwspbET2D6geCb6Gp6KV_Notn2sX2QOlTjBihwdwy8-Jc7X9rB7XdLtMBSGxVcsYrEbYjCNKqEr2S1KhdA-_BpTuCpfp-Rlm22o2IZaNqDrnu-D9vYuK6NzejbAYuh6b5cI58W5rLcvR_5U_Mpt7ZL2xOF2KMQKTTiHyUG22_YbyXiL_bSJJsVO8-02a24IJF8"/>
+</div>
+<div class="flex-grow p-gutter flex flex-col justify-between">
+<div>
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] bg-error/10 text-error px-2 py-1 rounded font-bold uppercase tracking-widest border border-error/20">Critical Severity</span>
+<span class="text-label-md text-outline-variant">Ref: #GRI-92381</span>
+</div>
+<h3 class="text-headline-sm text-primary mb-1">Major Pothole Cluster on Main St.</h3>
+<div class="flex items-center gap-1 text-on-surface-variant mb-4">
+<span class="material-symbols-outlined text-[18px]">location_on</span>
+<span class="text-body-md">Sector 4, North Ring Road (Near Junction 12)</span>
+</div>
+<p class="text-body-md text-on-surface-variant line-clamp-2">Multiple deep depressions across three lanes causing significant traffic slowdown and vehicle damage. Reported on Oct 24, 2024.</p>
+</div>
+<div class="mt-6 pt-4 border-t border-surface-container-high flex items-center justify-between">
+<div class="flex items-center gap-gutter">
+<div class="flex items-center gap-1.5">
+<div class="w-2.5 h-2.5 rounded-full bg-secondary"></div>
+<span class="text-label-md font-bold text-secondary">Under Review</span>
+</div>
+<div class="text-body-sm text-on-surface-variant">
+                                SLA: <span class="text-on-surface font-semibold">48h remaining</span>
+</div>
+</div>
+<button class="text-secondary text-label-md font-bold flex items-center gap-1 hover:text-on-secondary-container transition-colors">
+                            View Full Timeline <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 2: Medium Pending -->
+<div class="trust-card rounded-xl overflow-hidden group hover:border-secondary/50 transition-all">
+<div class="flex flex-col md:flex-row">
+<div class="w-full md:w-64 h-48 md:h-auto overflow-hidden bg-surface-container">
+<img alt="Broken Lamp" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A professional architectural photograph of a broken street lamp at dusk." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCrLVldHOFdcJbfG9GlBvLW2ur0CjJEyFP7obd2IxhUytUDK4ANlTtvu69_1niFSM-gYxuOI_JvKLrAOPvYrMIVJLK5I_5AyTD-l-gQdosvVS3NlDl-Om1kDW-JtBy85FMaOhitHNEN-G3UNMdkG7sJ1KgzIzxGRrGxVuCeWtmh72vC2zWbJVadeVgbJs-ql-GYG8emnqW1geAtGLvNK8d6eE0_9VtPjWQfuhAqO889a2QnlSjIhm7BGEnTQ1blN2NQIov9Lyyf4UU"/>
+</div>
+<div class="flex-grow p-gutter flex flex-col justify-between">
+<div>
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] bg-secondary/10 text-secondary px-2 py-1 rounded font-bold uppercase tracking-widest border border-secondary/20">Medium Severity</span>
+<span class="text-label-md text-outline-variant">Ref: #GRI-92385</span>
+</div>
+<h3 class="text-headline-sm text-primary mb-1">Streetlight Failure - Sector 7</h3>
+<div class="flex items-center gap-1 text-on-surface-variant mb-4">
+<span class="material-symbols-outlined text-[18px]">location_on</span>
+<span class="text-body-md">Oakwood Avenue, West Wing</span>
+</div>
+<p class="text-body-md text-on-surface-variant line-clamp-2">Three consecutive streetlights are out, making the pedestrian crossing hazardous during night hours.</p>
+</div>
+<div class="mt-6 pt-4 border-t border-surface-container-high flex items-center justify-between">
+<div class="flex items-center gap-gutter">
+<div class="flex items-center gap-1.5">
+<div class="w-2.5 h-2.5 rounded-full bg-outline"></div>
+<span class="text-label-md font-bold text-outline">Pending Verification</span>
+</div>
+<div class="text-body-sm text-error">
+                                SLA: <span class="font-bold">Overdue (12h)</span>
+</div>
+</div>
+<button class="text-secondary text-label-md font-bold flex items-center gap-1 hover:text-on-secondary-container transition-colors">
+                            View Full Timeline <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 3: Low Resolved -->
+<div class="trust-card rounded-xl overflow-hidden group hover:border-secondary/50 transition-all opacity-90 hover:opacity-100">
+<div class="flex flex-col md:flex-row">
+<div class="w-full md:w-64 h-48 md:h-auto overflow-hidden bg-surface-container">
+<img alt="Repaired Infrastructure" class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" data-alt="A high-resolution, technical close-up of a neatly repaired sewer grate." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDJs__yYAeKbG1Mcg1cUE01X53MqopPwBPq3lh8FpEH0zQ2nRlzD-GXfm3sVCXewmM4JaIt4gD5c1mD9sJCeE6K1hKihq1zQ5sPqK8hpUzosmsS2ZrmyvGKXAUHDXix5wkuoSjp2QMWrGBE3z2psw5-bhjBfpaP3FEoFnu8SBAfU7mwD8aP_qMaoJgY1OVbp4hu2aHWCWslkM6gTbSeWa1lf9zM2ennWRnzGoZhwgW6WCUcMyJDccnVm1XOGHNEX1FxW5O__zNsviQ"/>
+</div>
+<div class="flex-grow p-gutter flex flex-col justify-between">
+<div>
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] bg-surface-container text-on-surface-variant px-2 py-1 rounded font-bold uppercase tracking-widest border border-outline-variant">Low Severity</span>
+<span class="text-label-md text-outline-variant">Ref: #GRI-92102</span>
+</div>
+<h3 class="text-headline-sm text-primary mb-1">Clogged Storm Drain</h3>
+<div class="flex items-center gap-1 text-on-surface-variant mb-4">
+<span class="material-symbols-outlined text-[18px]">location_on</span>
+<span class="text-body-md">Riverside Drive</span>
+</div>
+<p class="text-body-md text-on-surface-variant line-clamp-2">Debris build-up preventing water flow during light rain. Maintenance completed on Oct 18.</p>
+</div>
+<div class="mt-6 pt-4 border-t border-surface-container-high flex items-center justify-between">
+<div class="flex items-center gap-gutter">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-on-tertiary-container text-[20px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="text-label-md font-bold text-on-tertiary-container">Resolved</span>
+</div>
+<div class="text-body-sm text-outline">
+                                Closed: <span class="text-on-surface font-semibold">Oct 20, 2024</span>
+</div>
+</div>
+<button class="text-secondary text-label-md font-bold flex items-center gap-1 hover:text-on-secondary-container transition-colors">
+                            View Report <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Pagination Component -->
+<nav class="mt-16 flex flex-col md:flex-row justify-between items-center gap-gutter border-t border-outline-variant pt-8">
+<span class="text-body-md text-on-surface-variant">Showing <span class="text-primary font-bold">1-3</span> of <span class="text-primary font-bold">20</span> reports</span>
+<div class="flex items-center gap-2">
+<button class="w-10 h-10 flex items-center justify-center rounded-lg border border-outline-variant text-outline hover:text-primary hover:border-primary transition-all disabled:opacity-30" disabled="">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg bg-primary text-white font-bold shadow-sm">1</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-all">2</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-all">3</button>
+<span class="text-outline px-2">...</span>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-all">7</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg border border-outline-variant text-outline hover:text-primary hover:border-primary transition-all">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</nav>
+</main>
+<!-- Footer Component -->
+<footer class="bg-primary text-white border-t border-primary-container mt-20">
+<div class="flex flex-col md:flex-row justify-between items-center px-margin-desktop py-12 max-w-[1280px] mx-auto w-full">
+<div class="flex flex-col gap-2 mb-8 md:mb-0">
+<div class="text-headline-sm font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary-container">account_balance</span>
+                Infrastructure Grievance Platform
+            </div>
+<p class="text-body-sm text-surface-dim max-w-sm">
+                © 2024 Global Infrastructure Grievance Platform. Promoting Institutional Authority and Radical Transparency.
+            </p>
+</div>
+<div class="flex flex-wrap justify-center gap-8">
+<a class="text-label-md text-surface-dim hover:text-white hover:underline transition-all" href="#">Open Data</a>
+<a class="text-label-md text-surface-dim hover:text-white hover:underline transition-all" href="#">Privacy Policy</a>
+<a class="text-label-md text-surface-dim hover:text-white hover:underline transition-all" href="#">Terms of Service</a>
+<a class="text-label-md text-surface-dim hover:text-white hover:underline transition-all" href="#">Government Contacts</a>
+</div>
+</div>
+</footer>
+</body></html>

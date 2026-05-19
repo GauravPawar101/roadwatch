@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CivicGuard | Citizen Signup</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-surface-variant": "#44474e",
+                        "on-primary": "#ffffff",
+                        "status-resolved": "#003f25",
+                        "on-primary-fixed-variant": "#2e476e",
+                        "outline": "#74777f",
+                        "on-surface": "#0b1c30",
+                        "surface-bright": "#f8f9ff",
+                        "primary-fixed-dim": "#aec7f5",
+                        "on-background": "#0b1c30",
+                        "on-tertiary-fixed-variant": "#005231",
+                        "on-tertiary-fixed": "#002111",
+                        "tertiary-container": "#002614",
+                        "background": "#f8f9ff",
+                        "inverse-primary": "#aec7f5",
+                        "surface-tint": "#465f87",
+                        "primary": "#00091b",
+                        "on-tertiary-container": "#43976a",
+                        "secondary-fixed": "#d3e4ff",
+                        "surface-container-high": "#dce9ff",
+                        "primary-container": "#002045",
+                        "outline-variant": "#c4c6cf",
+                        "tertiary-fixed": "#9ff5c1",
+                        "inverse-on-surface": "#eaf1ff",
+                        "tertiary": "#000b04",
+                        "error": "#ba1a1a",
+                        "status-pending": "#fff7ed",
+                        "surface-dim": "#cbdbf5",
+                        "surface-container-lowest": "#ffffff",
+                        "secondary-fixed-dim": "#a2c9ff",
+                        "on-primary-fixed": "#001b3c",
+                        "on-error": "#ffffff",
+                        "surface-container-low": "#eff4ff",
+                        "primary-fixed": "#d6e3ff",
+                        "surface": "#f8f9ff",
+                        "on-primary-container": "#7089b3",
+                        "surface-variant": "#d3e4fe",
+                        "surface-tint-blue": "#f8f9ff",
+                        "on-error-container": "#93000a",
+                        "secondary-container": "#7db6ff",
+                        "on-secondary-fixed": "#001c38",
+                        "inverse-surface": "#213145",
+                        "surface-container-highest": "#d3e4fe",
+                        "secondary": "#1960a3",
+                        "on-secondary": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed-variant": "#004881",
+                        "status-pending-text": "#7c2d12",
+                        "surface-container": "#e5eeff",
+                        "on-tertiary": "#ffffff",
+                        "on-secondary-container": "#00477f",
+                        "tertiary-fixed-dim": "#83d8a6",
+                        "status-resolved-text": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "margin-desktop": "64px",
+                        "margin-mobile": "16px",
+                        "container-max": "1280px",
+                        "base": "8px",
+                        "gutter": "24px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Inter"],
+                        "label-md": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "display-lg-mobile": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                        "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "headline-lg": ["30px", {"lineHeight": "38px", "fontWeight": "600"}],
+                        "display-lg-mobile": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col">
+<!-- Auth Background Elements -->
+<div class="fixed inset-0 pointer-events-none opacity-10 z-0 overflow-hidden">
+<div class="absolute top-0 right-0 w-[800px] h-[800px] bg-secondary-container rounded-full blur-[120px] -mr-40 -mt-40"></div>
+<div class="absolute bottom-0 left-0 w-[600px] h-[600px] bg-primary-container rounded-full blur-[100px] -ml-20 -mb-20"></div>
+</div>
+<!-- Main Content Canvas -->
+<main class="relative z-10 flex-grow flex items-center justify-center p-margin-mobile md:p-margin-desktop">
+<div class="w-full max-w-[560px]">
+<!-- Branding Anchor -->
+<div class="flex flex-col items-center mb-base gap-2">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[32px]" style="font-variation-settings: 'FILL' 1;">security</span>
+<h1 class="font-headline-lg text-headline-lg md:text-headline-lg text-on-surface tracking-tight">CivicGuard</h1>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant text-center max-w-sm">
+                    Join the institutional effort for radical transparency in public infrastructure.
+                </p>
+</div>
+<!-- Signup Card -->
+<div class="bg-surface-container-lowest border border-outline-variant shadow-[0px_4px_20px_rgba(0,0,0,0.05)] rounded-full p-8 md:p-12">
+<h2 class="font-headline-sm text-headline-sm text-on-surface mb-8 text-center">Citizen Account Creation</h2>
+<form class="space-y-6">
+<!-- Personal Details Row -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant" for="full_name">Full Name</label>
+<input class="w-full px-4 py-3 bg-surface-container-lowest border border-outline rounded-full font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" id="full_name" placeholder="John Doe" type="text"/>
+</div>
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant" for="username">Username</label>
+<input class="w-full px-4 py-3 bg-surface-container-lowest border border-outline rounded-full font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" id="username" placeholder="johndoe_civic" type="text"/>
+</div>
+</div>
+<!-- Contact Details Row -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant" for="email">Email Address</label>
+<input class="w-full px-4 py-3 bg-surface-container-lowest border border-outline rounded-full font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" id="email" placeholder="john@example.gov" type="email"/>
+</div>
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant" for="phone">Phone Number</label>
+<input class="w-full px-4 py-3 bg-surface-container-lowest border border-outline rounded-full font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" id="phone" placeholder="+1 (555) 000-0000" type="tel"/>
+</div>
+</div>
+<!-- Password Field -->
+<div class="flex flex-col gap-2 relative">
+<label class="font-label-md text-label-md text-on-surface-variant" for="password">Password</label>
+<div class="relative">
+<input class="w-full px-4 py-3 bg-surface-container-lowest border border-outline rounded-full font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" id="password" placeholder="••••••••" type="password"/>
+<button class="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant" type="button">
+<span class="material-symbols-outlined">visibility</span>
+</button>
+</div>
+</div>
+<!-- Password Validation Requirements -->
+<div class="bg-surface-container-low p-4 rounded-xl space-y-2 border border-outline-variant">
+<p class="font-label-md text-label-md text-on-surface-variant mb-1">Security Standards:</p>
+<ul class="space-y-1">
+<li class="flex items-center gap-2 text-status-resolved text-sm font-body-sm">
+<span class="material-symbols-outlined text-[18px]">check_circle</span>
+                                At least 12 characters long
+                            </li>
+<li class="flex items-center gap-2 text-error text-sm font-body-sm">
+<span class="material-symbols-outlined text-[18px]">cancel</span>
+                                Includes one special character ($ @ ! % * # ? &amp;)
+                            </li>
+<li class="flex items-center gap-2 text-on-surface-variant opacity-50 text-sm font-body-sm">
+<span class="material-symbols-outlined text-[18px]">radio_button_unchecked</span>
+                                Includes at least one uppercase letter
+                            </li>
+<li class="flex items-center gap-2 text-on-surface-variant opacity-50 text-sm font-body-sm">
+<span class="material-symbols-outlined text-[18px]">radio_button_unchecked</span>
+                                Includes at least one numeric digit
+                            </li>
+</ul>
+</div>
+<!-- Confirm Password Field -->
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant" for="confirm_password">Confirm Password</label>
+<input class="w-full px-4 py-3 bg-surface-container-lowest border border-outline rounded-full font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" id="confirm_password" placeholder="••••••••" type="password"/>
+</div>
+<!-- Terms & Conditions -->
+<div class="flex items-start gap-3 py-2">
+<input class="mt-1 rounded-sm border-outline text-primary focus:ring-primary h-4 w-4" id="terms" type="checkbox"/>
+<label class="font-body-sm text-body-sm text-on-surface-variant" for="terms">
+                            By creating an account, I agree to the <a class="text-secondary font-semibold hover:underline" href="#">Terms of Service</a> and acknowledge the <a class="text-secondary font-semibold hover:underline" href="#">Transparency Charter</a>.
+                        </label>
+</div>
+<!-- Primary Action -->
+<div class="pt-4 flex flex-col gap-4">
+<button class="w-full py-4 bg-primary text-on-primary font-label-md text-label-md rounded-full hover:shadow-lg active:scale-95 transition-all duration-200 flex items-center justify-center gap-2" type="submit">
+<span>Register Citizen Account</span>
+<span class="material-symbols-outlined">how_to_reg</span>
+</button>
+<div class="flex items-center justify-center gap-2 font-body-sm text-body-sm text-on-surface-variant">
+<span>Already part of the network?</span>
+<a class="text-primary font-bold hover:underline decoration-2" href="#">Sign In</a>
+</div>
+</div>
+</form>
+</div>
+<!-- Footer Compliance -->
+<footer class="mt-8 flex flex-col md:flex-row items-center justify-between text-on-surface-variant opacity-60 font-label-md text-[12px] uppercase tracking-widest gap-4">
+<span>© 2024 CivicGuard Authority</span>
+<div class="flex gap-margin-mobile">
+<a class="hover:text-primary transition-colors" href="#">Privacy Protocol</a>
+<a class="hover:text-primary transition-colors" href="#">Digital Accessibility</a>
+<a class="hover:text-primary transition-colors" href="#">System Status</a>
+</div>
+</footer>
+</div>
+</main>
+<!-- Side Graphic (Desktop Only) -->
+<div class="hidden lg:block fixed right-0 top-0 bottom-0 w-1/4 pointer-events-none overflow-hidden">
+<div class="h-full w-full bg-surface-container flex items-center justify-center p-12">
+<div class="flex flex-col gap-8">
+<div class="bg-surface-container-lowest p-6 rounded-full border border-outline-variant shadow-sm rotate-3">
+<div class="h-32 w-full bg-surface-variant rounded-lg mb-4">
+<img class="h-full w-full object-cover rounded-lg" data-alt="A macro close-up of a professional identification badge showing high-security holographic elements and a clean corporate layout. The lighting is crisp and cool, reflecting the deep navy and white aesthetic of an institutional authority platform. The atmosphere is professional, emphasizing radical transparency and digital security." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBVlNv97tTv_BuhS2D7B3mrL5T0SRuCJ8bCSMLssJLpuTZCR7KocsEWAhsMadXJn1imFkCQGFiiuK5J0Kv5jkm0PoVf0c_vapyx21m_MrU3yFUJw0gaPzfzhINxs77M6E9jSM1FxpGG1sfgcIhPyM_WtAKbhsLqxTfAuPZumGv86lwZkqYTLPYF8ZoUQgx2gFU1HLJIsBQ83m0e8pG2UE6U3mq__AkXRNWCqJjfH4fdwtIgrH3L7TzsJOnDxOaLSsjWzBP6VCw-rUw"/>
+</div>
+<div class="h-2 w-2/3 bg-on-surface-variant opacity-20 rounded-full mb-2"></div>
+<div class="h-2 w-1/2 bg-on-surface-variant opacity-10 rounded-full"></div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-full border border-outline-variant shadow-sm -rotate-6 ml-12">
+<div class="h-24 w-full bg-surface-variant rounded-lg mb-4">
+<img class="h-full w-full object-cover rounded-lg" data-alt="A clean, data-driven visualization showing infrastructure progress graphs on a modern digital tablet interface. The color palette features stable navy blues, crisp whites, and slate blue accents, maintaining a high-stakes professional tone. The image is bright and airy, representing a transparent and reliable government-citizen communication channel." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD4b-qYTUrKNpGUTzyh8DAjM3JBXzle2dzKNcIOKib8UzD_3-X8Zx8fbNip6KGoTBJstZLEQbv_vHAmfctyAY-wsw3bJ_xjz9-cIEPu-_Ktg_4-c29xquGjKf474_lY_IenMOMYU051E_079WCbtanrjruXzugpUrs6cBfAItEDR1zXLS5Gcw4VzZB9YaZH-tBu7W3Qi4ND1WX2q6UnltTFPM06c7kk9ayBWnyXdVqYqWR8mB73gWDlGkKB5puNs26FAOfdkaApOjI"/>
+</div>
+<div class="h-2 w-3/4 bg-on-surface-variant opacity-20 rounded-full mb-2"></div>
+<div class="h-2 w-1/3 bg-on-surface-variant opacity-10 rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+</body></html>

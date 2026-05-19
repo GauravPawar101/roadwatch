@@ -1,4 +1,5 @@
-import type { Request, Response, NextFunction } from 'express';
+import type { NextFunction, Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import type { JwtClaims } from './auth/jwt.js';
 import { verifyAccessToken } from './auth/jwt.js';
 
@@ -11,7 +12,13 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     try {
       (req as AuthedRequest).user = verifyAccessToken(token);
       return next();
-    } catch {
+    } catch (e: any) {
+      if (e instanceof jwt.TokenExpiredError) {
+        return res.status(401).json({ code: 'TOKEN_EXPIRED', error: 'Token expired' });
+      }
+      if (e instanceof jwt.JsonWebTokenError) {
+        return res.status(401).json({ code: 'INVALID_TOKEN', error: 'Invalid token' });
+      }
       return res.status(401).json({ error: 'Invalid token' });
     }
   }
@@ -22,7 +29,13 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     try {
       (req as AuthedRequest).user = verifyAccessToken(token);
       return next();
-    } catch {
+    } catch (e: any) {
+      if (e instanceof jwt.TokenExpiredError) {
+        return res.status(401).json({ code: 'TOKEN_EXPIRED', error: 'Token expired' });
+      }
+      if (e instanceof jwt.JsonWebTokenError) {
+        return res.status(401).json({ code: 'INVALID_TOKEN', error: 'Invalid token' });
+      }
       return res.status(401).json({ error: 'Invalid token' });
     }
   }
@@ -41,12 +54,14 @@ export function requireRole(roles: Array<JwtClaims['role']>) {
 
 export function assertDistrictAccess(user: JwtClaims, district: string): boolean {
   if (user.role === 'CE') return true;
-  if (user.districts.includes('ALL')) return true;
-  return user.districts.includes(district);
+  const districts = user.districts || [];
+  if (districts.includes('ALL')) return true;
+  return districts.includes(district);
 }
 
 export function assertZoneAccess(user: JwtClaims, zone: string): boolean {
   if (user.role === 'CE') return true;
-  if (user.zones.includes('ALL')) return true;
-  return user.zones.includes(zone);
+  const zones = user.zones || [];
+  if (zones.includes('ALL')) return true;
+  return zones.includes(zone);
 }

@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>InfraTrust Portal - Command Center</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "inverse-on-surface": "#eaf1ff",
+                      "on-tertiary-fixed-variant": "#005231",
+                      "on-background": "#0b1c30",
+                      "inverse-primary": "#aec7f5",
+                      "error-container": "#ffdad6",
+                      "surface-container-high": "#dce9ff",
+                      "on-secondary-container": "#00477f",
+                      "on-secondary": "#ffffff",
+                      "on-surface-variant": "#44474e",
+                      "on-error-container": "#93000a",
+                      "status-pending-text": "#7c2d12",
+                      "surface-container-lowest": "#ffffff",
+                      "surface-tint-blue": "#f8f9ff",
+                      "surface-container-highest": "#d3e4fe",
+                      "primary": "#00091b",
+                      "on-tertiary-container": "#43976a",
+                      "surface-container": "#e5eeff",
+                      "tertiary": "#000b04",
+                      "primary-fixed": "#d6e3ff",
+                      "status-resolved-text": "#ffffff",
+                      "secondary-fixed": "#d3e4ff",
+                      "on-secondary-fixed": "#001c38",
+                      "secondary": "#1960a3",
+                      "primary-container": "#002045",
+                      "inverse-surface": "#213145",
+                      "error": "#ba1a1a",
+                      "secondary-fixed-dim": "#a2c9ff",
+                      "surface-bright": "#f8f9ff",
+                      "on-primary": "#ffffff",
+                      "on-tertiary-fixed": "#002111",
+                      "on-primary-container": "#7089b3",
+                      "secondary-container": "#7db6ff",
+                      "background": "#f8f9ff",
+                      "surface-dim": "#cbdbf5",
+                      "on-error": "#ffffff",
+                      "outline-variant": "#c4c6cf",
+                      "on-primary-fixed-variant": "#2e476e",
+                      "surface-tint": "#465f87",
+                      "on-tertiary": "#ffffff",
+                      "surface-variant": "#d3e4fe",
+                      "status-resolved": "#003f25",
+                      "on-primary-fixed": "#001b3c",
+                      "tertiary-container": "#002614",
+                      "outline": "#74777f",
+                      "surface-container-low": "#eff4ff",
+                      "on-secondary-fixed-variant": "#004881",
+                      "tertiary-fixed": "#9ff5c1",
+                      "primary-fixed-dim": "#aec7f5",
+                      "status-pending": "#fff7ed",
+                      "tertiary-fixed-dim": "#83d8a6",
+                      "surface": "#f8f9ff",
+                      "on-surface": "#0b1c30"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "margin-mobile": "16px",
+                      "gutter": "24px",
+                      "margin-desktop": "64px",
+                      "base": "8px",
+                      "container-max": "1280px"
+              },
+              "fontFamily": {
+                      "headline-md": ["Inter"],
+                      "headline-lg": ["Inter"],
+                      "body-sm": ["Inter"],
+                      "headline-sm": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "display-lg": ["Inter"],
+                      "display-lg-mobile": ["Inter"],
+                      "label-md": ["Inter"],
+                      "body-md": ["Inter"]
+              },
+              "fontSize": {
+                      "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                      "headline-lg": ["30px", {"lineHeight": "38px", "fontWeight": "600"}],
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                      "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                      "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "display-lg-mobile": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen">
+<!-- TopNavBar -->
+<header class="bg-surface dark:bg-primary-container border-b border-outline-variant dark:border-outline shadow-sm dark:shadow-none sticky top-0 z-50">
+<div class="flex justify-between items-center w-full px-64 max-w-container-max mx-auto h-16">
+<div class="flex items-center gap-base">
+<span class="text-headline-sm font-headline-sm font-bold text-on-surface dark:text-on-primary-container">InfraTrust Portal</span>
+</div>
+<nav class="hidden md:flex items-center gap-gutter h-full">
+<a class="text-on-surface-variant dark:text-outline hover:text-primary dark:hover:text-primary-fixed transition-colors font-body-md text-body-md" href="#">Global View</a>
+<a class="text-on-surface-variant dark:text-outline hover:text-primary dark:hover:text-primary-fixed transition-colors font-body-md text-body-md" href="#">Policy Engine</a>
+<a class="text-on-surface-variant dark:text-outline hover:text-primary dark:hover:text-primary-fixed transition-colors font-body-md text-body-md" href="#">Audit Logs</a>
+</nav>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined p-2 hover:bg-surface-container-low dark:hover:bg-surface-variant transition-colors rounded-full text-primary dark:text-primary-fixed">sync</button>
+<button class="material-symbols-outlined p-2 hover:bg-surface-container-low dark:hover:bg-surface-variant transition-colors rounded-full text-primary dark:text-primary-fixed">notifications</button>
+<button class="material-symbols-outlined p-2 hover:bg-surface-container-low dark:hover:bg-surface-variant transition-colors rounded-full text-primary dark:text-primary-fixed">account_circle</button>
+</div>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-64 bg-surface-container-lowest dark:bg-inverse-surface border-r border-outline-variant dark:border-outline shadow-sm flex flex-col p-base gap-2 pt-20">
+<div class="px-4 py-6 mb-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-surface-dim overflow-hidden">
+<img alt="Super Admin Avatar" class="w-full h-full object-cover" data-alt="A professional portrait of a senior government official or high-level system administrator. He is wearing a dark navy corporate suit, standing in a brightly lit, modern architectural setting with glass and steel elements. The lighting is crisp and high-key, conveying a sense of transparency, reliability, and institutional authority." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDOR-jxr9EbnWtjLQ5ALTVxNeAb22jZDX2KRpxYQztCdpd9JXCyj4U-suynfoxnZ_fkq3UfQH0WwJ14PIRDqQBUJkHA4Ff3vKAR5nOxwE2kMzM_JsQ14d_SH5zwwQFWLq8nK5e4WMfjGY_OMGXoJmyRRRaoIW61DG-0eUuzB3rRE0FlgFbRj5Z2WVyjf55SxNUkeXlmCWVNPh43kvaR8fHIAZ1sUdjUHP6fSpUF0XhfhuA7wgp97-m-2-rUvKsc9uYhcSYyQpOfPFQ"/>
+</div>
+<div>
+<div class="font-headline-sm text-headline-sm text-on-surface">System Admin</div>
+<div class="font-body-sm text-body-sm text-on-surface-variant">State-Level Access</div>
+</div>
+</div>
+<button class="mt-6 w-full py-3 px-4 bg-primary text-on-primary rounded-xl font-label-md text-label-md active:scale-98 duration-150 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">add</span>
+                New Global Policy
+            </button>
+</div>
+<nav class="flex-1 flex flex-col gap-1">
+<a class="bg-secondary-container dark:bg-on-secondary-fixed-variant text-on-secondary-container dark:text-secondary-fixed rounded-xl font-bold flex items-center gap-3 px-4 py-3 active:scale-98 duration-150 transition-all" href="#">
+<span class="material-symbols-outlined">dashboard_customize</span>
+<span class="font-label-md text-label-md">Command Center</span>
+</a>
+<a class="text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-variant rounded-xl flex items-center gap-3 px-4 py-3 active:scale-98 duration-150 transition-all" href="#">
+<span class="material-symbols-outlined">map</span>
+<span class="font-label-md text-label-md">State Dashboard</span>
+</a>
+<a class="text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-variant rounded-xl flex items-center gap-3 px-4 py-3 active:scale-98 duration-150 transition-all" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-label-md text-label-md">District Analytics</span>
+</a>
+<a class="text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-variant rounded-xl flex items-center gap-3 px-4 py-3 active:scale-98 duration-150 transition-all" href="#">
+<span class="material-symbols-outlined">verified</span>
+<span class="font-label-md text-label-md">SLA Compliance</span>
+</a>
+<a class="text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-variant rounded-xl flex items-center gap-3 px-4 py-3 active:scale-98 duration-150 transition-all" href="#">
+<span class="material-symbols-outlined">sync_alt</span>
+<span class="font-label-md text-label-md">System Sync</span>
+</a>
+<a class="text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-variant rounded-xl flex items-center gap-3 px-4 py-3 active:scale-98 duration-150 transition-all" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">Configuration</span>
+</a>
+</nav>
+<div class="mt-auto border-t border-outline-variant pt-4 flex flex-col gap-1">
+<a class="text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-variant rounded-xl flex items-center gap-3 px-4 py-3 transition-all" href="#">
+<span class="material-symbols-outlined">help_outline</span>
+<span class="font-label-md text-label-md">Help Center</span>
+</a>
+<a class="text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-variant rounded-xl flex items-center gap-3 px-4 py-3 transition-all" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="font-label-md text-label-md">Log Out</span>
+</a>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="ml-64 p-margin-desktop">
+<div class="max-w-container-max mx-auto space-y-margin-desktop">
+<!-- Header & Role Switch -->
+<section class="flex flex-col items-center justify-center text-center space-y-6">
+<div>
+<h1 class="font-display-lg text-display-lg text-primary mb-2">Command Center</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Global infrastructure oversight and rapid query engine.</p>
+</div>
+<!-- RoleSwitch Component -->
+<div class="inline-flex bg-surface-container-low p-1.5 rounded-full border border-outline-variant shadow-sm">
+<button class="px-6 py-2 rounded-full font-label-md text-label-md bg-white text-primary shadow-sm ring-1 ring-black/5">State</button>
+<button class="px-6 py-2 rounded-full font-label-md text-label-md text-on-surface-variant hover:bg-surface-container-high transition-colors">District</button>
+<button class="px-6 py-2 rounded-full font-label-md text-label-md text-on-surface-variant hover:bg-surface-container-high transition-colors">City</button>
+</div>
+</section>
+<!-- ScopeFilter & Assistant Command Bar -->
+<section class="max-w-4xl mx-auto space-y-gutter">
+<!-- ScopeFilter -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-gutter bg-surface-container-lowest p-6 rounded-xl border border-outline-variant shadow-sm">
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant ml-1">Jurisdiction</label>
+<select class="bg-background border-outline rounded-xl px-4 py-2.5 font-body-md text-body-md focus:ring-primary focus:border-primary">
+<option>Northern Province</option>
+<option>Southern Province</option>
+<option>Eastern Province</option>
+<option>Western Province</option>
+</select>
+</div>
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant ml-1">Asset Category</label>
+<select class="bg-background border-outline rounded-xl px-4 py-2.5 font-body-md text-body-md focus:ring-primary focus:border-primary">
+<option>Roads &amp; Highways</option>
+<option>Water Treatment</option>
+<option>Power Grid</option>
+<option>Telecommunications</option>
+</select>
+</div>
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant ml-1">Project ID</label>
+<input class="bg-background border-outline rounded-xl px-4 py-2.5 font-body-md text-body-md focus:ring-primary focus:border-primary" placeholder="e.g. INF-992-B" type="text"/>
+</div>
+</div>
+<!-- SystemAssistant Input -->
+<div class="relative group">
+<div class="absolute inset-y-0 left-6 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-primary text-[28px]">search_spark</span>
+</div>
+<input class="w-full bg-surface-container-lowest border-2 border-primary/10 rounded-2xl pl-16 pr-24 py-6 font-body-lg text-body-lg shadow-sm focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all placeholder:text-outline" placeholder='Ask the Assistant: "Show me all high-severity potholes in North District"' type="text"/>
+<div class="absolute inset-y-3 right-3 flex items-center">
+<button class="bg-primary text-on-primary px-6 h-full rounded-xl font-label-md text-label-md hover:bg-primary-container active:scale-95 transition-all">Execute</button>
+</div>
+</div>
+<!-- Assistant Feedback / Preview Area -->
+<div class="bg-surface-container-low rounded-xl border border-outline-variant p-gutter">
+<div class="flex items-start gap-4">
+<div class="w-10 h-10 rounded-lg bg-secondary-container flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-secondary-container">auto_awesome</span>
+</div>
+<div class="flex-1 space-y-4">
+<p class="font-body-md text-body-md text-on-surface">Analysis complete. I found **42 high-severity infrastructure defects** across the North District that exceed the 48-hour SLA threshold. Most are concentrated in the industrial corridor.</p>
+<!-- Visual Data Cards (Bento Style) -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="bg-white p-4 rounded-xl border border-outline-variant shadow-sm flex items-center justify-between">
+<div>
+<div class="text-label-md font-label-md text-on-surface-variant">SLA Breach Risk</div>
+<div class="text-headline-sm font-headline-sm text-error">Critical (High)</div>
+</div>
+<span class="material-symbols-outlined text-error-container text-4xl">warning</span>
+</div>
+<div class="bg-white p-4 rounded-xl border border-outline-variant shadow-sm flex items-center justify-between">
+<div>
+<div class="text-label-md font-label-md text-on-surface-variant">Active Response Teams</div>
+<div class="text-headline-sm font-headline-sm text-on-tertiary-container">12 Active</div>
+</div>
+<span class="material-symbols-outlined text-tertiary-fixed-dim text-4xl">engineering</span>
+</div>
+</div>
+<button class="text-primary font-label-md text-label-md flex items-center gap-1 hover:underline">
+                                View detailed drill-down report
+                                <span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Quick Access Links -->
+<section class="space-y-gutter">
+<div class="flex items-center justify-between">
+<h2 class="font-headline-md text-headline-md text-on-surface">System-Wide Quick Access</h2>
+<button class="text-secondary font-label-md text-label-md hover:underline">Manage All Reports</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-gutter">
+<a class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant shadow-sm hover:shadow-md transition-all group" href="#">
+<span class="material-symbols-outlined text-primary mb-4 block group-hover:scale-110 transition-transform">history_edu</span>
+<h3 class="font-headline-sm text-headline-sm mb-2">Audit Logs</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Full chain-of-custody tracking for all infrastructure updates.</p>
+</a>
+<a class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant shadow-sm hover:shadow-md transition-all group" href="#">
+<span class="material-symbols-outlined text-primary mb-4 block group-hover:scale-110 transition-transform">rule</span>
+<h3 class="font-headline-sm text-headline-sm mb-2">SLA Metrics</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Real-time compliance monitoring across 24 regional districts.</p>
+</a>
+<a class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant shadow-sm hover:shadow-md transition-all group" href="#">
+<span class="material-symbols-outlined text-primary mb-4 block group-hover:scale-110 transition-transform">security</span>
+<h3 class="font-headline-sm text-headline-sm mb-2">Access Control</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Manage role-based permissions and regional authority keys.</p>
+</a>
+<a class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant shadow-sm hover:shadow-md transition-all group" href="#">
+<span class="material-symbols-outlined text-primary mb-4 block group-hover:scale-110 transition-transform">inventory_2</span>
+<h3 class="font-headline-sm text-headline-sm mb-2">Global Archive</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Searchable database of historic projects dating back 10 years.</p>
+</a>
+</div>
+</section>
+<!-- Bottom Map Section (Asymmetric / Modern) -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-gutter items-start">
+<div class="lg:col-span-8 bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden h-[500px] relative">
+<div class="absolute inset-0 bg-surface-dim">
+<img alt="Map of State Infrastructure" class="w-full h-full object-cover grayscale opacity-50 contrast-125" data-alt="A high-tech digital cartographic visualization of a metropolitan area. The map uses a sophisticated dark-mode aesthetic with navy and charcoal tones. Major arterial roads and infrastructure nodes are highlighted with glowing neon lines in primary blue and amber. Floating data points and translucent HUD elements provide real-time status updates, creating a feel of a sophisticated command and control system." data-location="New York City" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBisAOyA2i6UnnmBV17_nmDyZ8K2iGJteXcVn7eszHwLmqzeTvyVfWBiJwjrHi6wqVd42aqb5CAfv9pK9VU1RhekbMMnoWaSw9mziSiZilkQXY_2XbcFIYPGkICvAZuaLy4Zn675NpOzX1udp-sC__jUB0ZTyHbMSuFYM9sr4863Wh5_Q6z6QfJGQ727_qQfkHujPnShjZ6PrJX1hXcHZzCCtxBwwUEdtz4eBuE2vsBEtzg1uSCqzxAQ4OL2jbqNcJT2YjbqYzoNS8"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
+</div>
+<!-- Map Controls -->
+<div class="absolute top-4 left-4 flex flex-col gap-2">
+<button class="w-10 h-10 bg-white rounded-lg shadow-sm flex items-center justify-center hover:bg-surface-container-low transition-colors"><span class="material-symbols-outlined">add</span></button>
+<button class="w-10 h-10 bg-white rounded-lg shadow-sm flex items-center justify-center hover:bg-surface-container-low transition-colors"><span class="material-symbols-outlined">remove</span></button>
+</div>
+<div class="absolute bottom-4 right-4 bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-sm flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-error animate-pulse"></span>
+<span class="font-label-md text-label-md text-on-surface">3 Active Major Breaches</span>
+</div>
+</div>
+<div class="lg:col-span-4 space-y-gutter">
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant shadow-sm">
+<h3 class="font-headline-sm text-headline-sm mb-4">State Overview</h3>
+<div class="space-y-4">
+<div class="flex flex-col gap-1">
+<div class="flex justify-between items-end">
+<span class="text-label-md font-label-md text-on-surface-variant">General Health</span>
+<span class="text-headline-sm font-headline-sm text-on-tertiary-container">88%</span>
+</div>
+<div class="w-full bg-surface-container-high h-2 rounded-full overflow-hidden">
+<div class="bg-on-tertiary-container h-full w-[88%]"></div>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<div class="flex justify-between items-end">
+<span class="text-label-md font-label-md text-on-surface-variant">Budget Utilization</span>
+<span class="text-headline-sm font-headline-sm text-secondary">64%</span>
+</div>
+<div class="w-full bg-surface-container-high h-2 rounded-full overflow-hidden">
+<div class="bg-secondary h-full w-[64%]"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-primary text-on-primary p-6 rounded-xl shadow-sm space-y-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-fixed">info</span>
+<h3 class="font-headline-sm text-headline-sm">System Sync Status</h3>
+</div>
+<p class="font-body-sm text-body-sm text-primary-fixed">All district databases were successfully synchronized 14 minutes ago. Global parity is maintained.</p>
+<button class="w-full py-2 bg-primary-fixed text-on-primary-fixed rounded-lg font-label-md text-label-md hover:bg-white transition-colors">Force Global Refresh</button>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- FAB for Report -->
+<button class="fixed bottom-margin-desktop right-margin-desktop w-14 h-14 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all z-50 group">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">assignment_late</span>
+<span class="absolute right-16 bg-primary text-on-primary px-3 py-1.5 rounded-lg font-label-md text-label-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">Immediate Action Report</span>
+</button>
+</body></html>

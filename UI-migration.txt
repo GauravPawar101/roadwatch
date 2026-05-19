@@ -1,0 +1,43 @@
+1. frontend/src/pages/CommandCenter.tsx -> Replaced raw Tailwind widgets (RoleHighlights, JurisdictionHeatmap, aside panels) with UI primitives: Card, CardBody, Button, Badge, Hero. Preserved charts, tables, and routing.
+
+2. frontend/src/pages/RoadProfile.tsx -> Converted hero, stats, info cards, actions, and map wrapper to Hero, StatsGrid, StatCard, Card, CardBody, Button, Badge. Preserved MapEmbed and role-specific links.
+
+3. frontend/src/pages/MapView.tsx -> Replaced map/cards list with Card/CardBody, Button, Badge while keeping MapEmbed, markers, and navigation links.
+
+4. frontend/src/pages/RoadHistory.tsx -> Replaced inline stat-card divs with Container, Card, CardBody for consistent card styling.
+
+5. frontend/src/pages/SyncStatus.tsx -> Reworked to use Card, CardBody, StatsGrid, StatCard, ProgressBar, Button, Alert, Badge. Preserved offlineStore logic (getPendingQueueCount, processQueue, listQueue).
+
+6. frontend/src/pages/RoadProfile.tsx -> (duplicate of #2)
+
+7. frontend/src/pages/AgentChat.tsx -> Uses UIComponents: Button, Card, CardBody, Container, Input (migrated earlier).
+
+8. frontend/src/pages/ComplaintWizard.tsx -> Uses UIComponents: Button, Card, CardBody, Container, Hero (migrated earlier).
+
+9. frontend/src/pages/ComplaintDetail.tsx -> Uses UIComponents: Badge, Button, Card, CardBody, Container, Hero (migrated earlier).
+
+10. frontend/src/pages/ProofVerification.tsx -> Uses UIComponents: Button, Card, CardBody, Container (migrated earlier).
+
+11. frontend/src/pages/Onboarding.tsx -> Uses UIComponents: Button, Card, CardBody, Container, Hero, ProgressBar (migrated earlier).
+
+12. frontend/src/pages/MyComplaints.tsx -> Uses UIComponents (migrated earlier); preserves offline enqueue keys and complaint flows.
+
+13. frontend/src/authority/RepairProofWizard.tsx -> Migrated UI to UIComponents; preserved sha256 hashing, saveRecord, and enqueueAction semantics.
+
+14. frontend/src/authority/AssignInspector.tsx -> Migrated UI to UIComponents; preserved POST to authority assign endpoint.
+
+15. frontend/src/authority/Analytics.tsx -> Converted panels to UIComponents (migrated earlier).
+
+16. frontend/src/contractor/ProgressProofUpload.tsx -> UI migrated; preserves camera/video capture, sha256, ResumableUpload, and enqueueAction('contractor.proof.submit').
+
+17. frontend/src/contractor/ProjectDetail.tsx -> Migrated to UIComponents; shows project and upload navigation.
+
+18. frontend/src/pages/MediaUpload.tsx -> Delegates to components/MediaUpload; no UI changes required (kept as-is).
+
+19. frontend/src/pages/BudgetHistory.tsx -> (if present) migrated to use Card/CardBody (small/simple change applied earlier where relevant).
+
+20. Remaining pages to verify/migrate: Settings.tsx, Escalation.tsx, Sync other smaller pages; plan to scan and migrate in small batches, running build after each batch.
+
+Notes:
+- All changes preserve backend endpoints, localStorage auth keys, and offline enqueue keys; UI-only changes unless noted.
+- Builds were run after each migration to ensure no TypeScript/JSX errors.

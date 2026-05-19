@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CivicGuard - Contractor Login</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-surface-variant": "#44474e",
+                      "on-primary": "#ffffff",
+                      "status-resolved": "#003f25",
+                      "on-primary-fixed-variant": "#2e476e",
+                      "outline": "#74777f",
+                      "on-surface": "#0b1c30",
+                      "surface-bright": "#f8f9ff",
+                      "primary-fixed-dim": "#aec7f5",
+                      "on-background": "#0b1c30",
+                      "on-tertiary-fixed-variant": "#005231",
+                      "on-tertiary-fixed": "#002111",
+                      "tertiary-container": "#002614",
+                      "background": "#f8f9ff",
+                      "inverse-primary": "#aec7f5",
+                      "surface-tint": "#465f87",
+                      "primary": "#00091b",
+                      "on-tertiary-container": "#43976a",
+                      "secondary-fixed": "#d3e4ff",
+                      "surface-container-high": "#dce9ff",
+                      "primary-container": "#002045",
+                      "outline-variant": "#c4c6cf",
+                      "tertiary-fixed": "#9ff5c1",
+                      "inverse-on-surface": "#eaf1ff",
+                      "tertiary": "#000b04",
+                      "error": "#ba1a1a",
+                      "status-pending": "#fff7ed",
+                      "surface-dim": "#cbdbf5",
+                      "surface-container-lowest": "#ffffff",
+                      "secondary-fixed-dim": "#a2c9ff",
+                      "on-primary-fixed": "#001b3c",
+                      "on-error": "#ffffff",
+                      "surface-container-low": "#eff4ff",
+                      "primary-fixed": "#d6e3ff",
+                      "surface": "#f8f9ff",
+                      "on-primary-container": "#7089b3",
+                      "surface-variant": "#d3e4fe",
+                      "surface-tint-blue": "#f8f9ff",
+                      "on-error-container": "#93000a",
+                      "secondary-container": "#7db6ff",
+                      "on-secondary-fixed": "#001c38",
+                      "inverse-surface": "#213145",
+                      "surface-container-highest": "#d3e4fe",
+                      "secondary": "#1960a3",
+                      "on-secondary": "#ffffff",
+                      "error-container": "#ffdad6",
+                      "on-secondary-fixed-variant": "#004881",
+                      "status-pending-text": "#7c2d12",
+                      "surface-container": "#e5eeff",
+                      "on-tertiary": "#ffffff",
+                      "on-secondary-container": "#00477f",
+                      "tertiary-fixed-dim": "#83d8a6",
+                      "status-resolved-text": "#ffffff"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "margin-desktop": "64px",
+                      "margin-mobile": "16px",
+                      "container-max": "1280px",
+                      "base": "8px",
+                      "gutter": "24px"
+              },
+              "fontFamily": {
+                      "body-sm": ["Inter"],
+                      "label-md": ["Inter"],
+                      "display-lg": ["Inter"],
+                      "headline-md": ["Inter"],
+                      "body-md": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "headline-sm": ["Inter"],
+                      "headline-lg": ["Inter"],
+                      "display-lg-mobile": ["Inter"]
+              },
+              "fontSize": {
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                      "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                      "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                      "headline-lg": ["30px", {"lineHeight": "38px", "fontWeight": "600"}],
+                      "display-lg-mobile": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .geometric-bg {
+            background-color: #f8f9ff;
+            background-image: radial-gradient(circle at 2px 2px, #e5eeff 1px, transparent 0);
+            background-size: 40px 40px;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col geometric-bg">
+<header class="bg-surface-container-lowest border-b border-outline-variant shadow-sm flex justify-between items-center h-16 px-margin-desktop w-full sticky top-0 z-50">
+<div class="flex items-center gap-2">
+<span class="text-headline-md font-headline-md font-bold text-on-surface">CivicGuard</span>
+</div>
+<div class="hidden md:flex items-center gap-base">
+<span class="material-symbols-outlined text-primary" data-icon="help_outline">help_outline</span>
+<span class="text-label-md font-label-md text-on-surface-variant">Support Portal</span>
+</div>
+</header>
+<main class="flex-grow flex items-center justify-center px-margin-mobile py-margin-desktop">
+<div class="w-full max-container-max max-w-[480px]">
+<div class="bg-surface-container-lowest border border-outline-variant p-10 rounded-xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)]">
+<div class="mb-8 text-center">
+<h1 class="text-headline-lg font-headline-lg text-on-surface mb-2">Contractor Login</h1>
+<p class="text-body-md font-body-md text-on-surface-variant">Access the Infrastructure Accountability Portal</p>
+</div>
+<div class="mb-6 p-4 bg-error-container border border-error text-on-error-container rounded-lg flex gap-3 items-start">
+<span class="material-symbols-outlined text-error" data-icon="error">error</span>
+<div>
+<p class="text-label-md font-label-md font-semibold">Authentication Failed</p>
+<p class="text-body-sm font-body-sm">The Contractor ID or password you entered is incorrect. Please verify your credentials and try again.</p>
+</div>
+</div>
+<form class="space-y-6">
+<div>
+<label class="block text-label-md font-label-md text-on-surface mb-2" for="contractor-id">Contractor Identifier</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" data-icon="badge">badge</span>
+<input class="w-full pl-10 pr-4 py-3 bg-surface-container-lowest border border-outline rounded-xl focus:ring-2 focus:ring-primary focus:border-primary transition-all text-body-md font-body-md" id="contractor-id" placeholder="CG-XXXX-XXXX" type="text"/>
+</div>
+</div>
+<div>
+<div class="flex justify-between items-center mb-2">
+<label class="text-label-md font-label-md text-on-surface" for="password">Security Password</label>
+<a class="text-body-sm font-body-sm text-secondary font-semibold hover:underline" href="#">Forgot password?</a>
+</div>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" data-icon="lock">lock</span>
+<input class="w-full pl-10 pr-12 py-3 bg-surface-container-lowest border border-outline rounded-xl focus:ring-2 focus:ring-primary focus:border-primary transition-all text-body-md font-body-md" id="password" placeholder="••••••••" type="password"/>
+<button class="absolute right-3 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface transition-colors" type="button">
+<span class="material-symbols-outlined" data-icon="visibility_off">visibility_off</span>
+</button>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<input class="w-4 h-4 text-primary border-outline rounded focus:ring-primary" id="remember" type="checkbox"/>
+<label class="text-body-sm font-body-sm text-on-surface-variant" for="remember">Keep me logged in for 24 hours</label>
+</div>
+<button class="w-full flex items-center justify-center gap-3 bg-primary text-on-primary py-3 px-6 rounded-xl font-semibold text-body-md active:scale-95 transition-all opacity-90 cursor-not-allowed" disabled="" type="submit">
+<svg class="animate-spin h-5 w-5 text-on-primary" fill="none" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+<path class="opacity-75" d="4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor"></path>
+</svg>
+                        Verifying Credentials...
+                    </button>
+</form>
+<div class="mt-8 pt-6 border-t border-outline-variant flex flex-col gap-4">
+<p class="text-center text-body-sm font-body-sm text-on-surface-variant">
+                        Authorized personnel only. All access attempts are logged for security.
+                    </p>
+<div class="flex justify-center gap-gutter text-label-md font-label-md text-secondary">
+<a class="hover:underline" href="#">Legal Notice</a>
+<a class="hover:underline" href="#">Contact Support</a>
+</div>
+</div>
+</div>
+<div class="mt-12 grid grid-cols-1 md:grid-cols-2 gap-gutter opacity-60 grayscale hover:grayscale-0 transition-all duration-500">
+<div class="flex items-center gap-4 bg-surface-container-low p-4 rounded-xl border border-outline-variant">
+<img alt="Construction detail" class="w-16 h-16 rounded-lg object-cover" data-alt="Close up of a professional civil engineering site with blueprints and safety gear on a clean surface. The lighting is bright and industrial, using a professional corporate palette of deep blues and architectural grays. High trust, institutional quality aesthetic with sharp focus." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA0n30vy86g3re23FIOTpV1IfggSj1iEx21_58jCXK9TYiy2EPNC8CJlw81RPJ1E_4DGKvX5XWdXMF-hDduA-J41ymp_Ay2JXZzTYq3Aeb1xRVKlXqDQeacXaQJl9xk0s3sx3O_dGkVK2yg4aB_mzyEe-JWy8T9PjEiijOja7tOfstI1zQN_ULk5dvrr4o6cpm0PIJo8S3SxZom4rJSIsigmjQOqBDHkfRP94Afbue18hHgf9GioQCeK54rFqFGQuOV25CNP40U-cE"/>
+<div>
+<p class="font-bold text-on-surface text-body-sm">Global Compliance</p>
+<p class="text-[12px] text-on-surface-variant">ISO 27001 Certified Infrastructure</p>
+</div>
+</div>
+<div class="flex items-center gap-4 bg-surface-container-low p-4 rounded-xl border border-outline-variant">
+<img alt="Digital security" class="w-16 h-16 rounded-lg object-cover" data-alt="A clean, macro photograph of a secure server room or high-end network hardware illuminated by soft blue LEDs. The atmosphere is professional, sterile, and technologically advanced, reflecting radical transparency and deep trust. The color palette is dominated by slate blues and crisp whites." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBosF649YOfUkVby2cbh1J8LTU-sbMtYA12k97fBHBolC7XAgfCX7Rpfc3SXitcn4FvcVwG3o6S9AcUyZ9kxvJ68W-1dlnKOgq8YGiR5NvYKBYzBZcNvPwujc7dUX446H-_vnUEPIbGHd8Zuqyy3hLOCY_eM-G2F4VK1dvQVcQg-h19kfOFmV3tDMkZWMthEb1zTCrdw1_Hkyhr9_airecWP8xF94511Gz7Jzp1lfk_BoCt80opDMwpzjpmKBNRkSW1GT5jtxD18Kw"/>
+<div>
+<p class="font-bold text-on-surface text-body-sm">Encrypted Access</p>
+<p class="text-[12px] text-on-surface-variant">End-to-end report encryption</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+<footer class="bg-surface-container-low px-margin-desktop py-base border-t border-outline-variant">
+<div class="max-w-container-max mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+<p class="text-body-sm font-body-sm text-on-surface-variant">© 2024 CivicGuard Institutional. All rights reserved.</p>
+<div class="flex gap-gutter">
+<span class="text-label-md font-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]" data-icon="language">language</span>
+                    Global Access
+                </span>
+<span class="text-label-md font-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]" data-icon="security">security</span>
+                    SAML 2.0 Enabled
+                </span>
+</div>
+</div>
+</footer>
+<div class="fixed top-20 right-10 pointer-events-none opacity-5">
+<span class="material-symbols-outlined text-[320px]" data-icon="foundation">foundation</span>
+</div>
+<div class="fixed bottom-10 left-10 pointer-events-none opacity-5">
+<span class="material-symbols-outlined text-[240px]" data-icon="engineering">engineering</span>
+</div>
+</body></html>

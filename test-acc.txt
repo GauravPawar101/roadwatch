@@ -1,0 +1,725 @@
+RoadWatch test accounts
+
+Canonical auth routes:
+- Citizen: /auth/citizen/login and /auth/citizen/signup
+- Authority: /auth/authority/login and /auth/authority/signup
+- Contractor: /auth/contractor/login and /auth/contractor/signup
+
+Seeded demo identifiers:
+
+Admin / CE
+- username: admin.ce
+- phone: +919900000001
+- role: CE
+- districts: ALL
+- zones: ALL
+
+District officers / EE
+- username: ee.new-delhi-south-delhi.01
+- phone: +919910000001
+- role: EE
+- districts: New Delhi, South Delhi
+
+- username: ee.mumbai.02
+- phone: +919910000002
+- role: EE
+- districts: Mumbai
+
+- username: ee.pune.03
+- phone: +919910000003
+- role: EE
+- districts: Pune
+
+Citizens
+- username: citizen.01
+- phone: +919920000001
+- role: CITIZEN
+- district: New Delhi
+
+- username: citizen.05
+- phone: +919920000005
+- role: CITIZEN
+- district: Lucknow
+
+- username: citizen.10
+- phone: +919920000010
+- role: CITIZEN
+- district: Mumbai
+
+Contractor users
+- username: superbuild-infra
+- email: superbuild-infra@roadwatch.local
+- phone: +919930000001
+- role: CONTRACTOR
+- districts: New Delhi, South Delhi
+
+- username: delta-roads-pvt-ltd
+- email: delta-roads-pvt-ltd@roadwatch.local
+- phone: +919930000002
+- role: CONTRACTOR
+- districts: Mumbai
+
+Notes
+- Seeded demo users are created as local identifiers for the role dashboards and backend lookups.
+- The seed script sets passwords for the accounts listed above (admin, first 3 officers, first 3 citizens, first 3 contractor users).
+- Password for these test accounts: pass@123
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+
+
+--- Auto-added test credentials (seed-demo-data) ---
+Role: CE
+  username: admin.ce
+  phone: +919900000001
+  password: pass@123
+
+Role: EE
+  username: ee.new-delhi-south-delhi.01
+  phone: +919910000001
+  password: pass@123
+
+Role: EE
+  username: ee.mumbai.02
+  phone: +919910000002
+  password: pass@123
+
+Role: EE
+  username: ee.pune.03
+  phone: +919910000003
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.01
+  phone: +919920000001
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.02
+  phone: +919920000002
+  password: pass@123
+
+Role: CITIZEN
+  username: citizen.03
+  phone: +919920000003
+  password: pass@123
+
+Role: CONTRACTOR
+  username: superbuild-infra
+  email: superbuild-infra@roadwatch.local
+  phone: +919930000001
+  password: pass@123
+
+Role: CONTRACTOR
+  username: delta-roads-pvt-ltd
+  email: delta-roads-pvt-ltd@roadwatch.local
+  phone: +919930000002
+  password: pass@123
+
+Role: CONTRACTOR
+  username: northline-infrastructure
+  email: northline-infrastructure@roadwatch.local
+  phone: +919930000003
+  password: pass@123
+

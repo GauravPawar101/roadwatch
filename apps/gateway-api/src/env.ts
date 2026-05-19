@@ -2,12 +2,18 @@ import { z } from 'zod';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).optional().default('development'),
-  PORT: z.coerce.number().int().positive().optional().default(3000),
-  DATABASE_URL: z
-    .string()
-    .optional()
-    .default('postgres://roadwatch_admin:development_password@localhost:5432/roadwatch_local'),
+  PORT: z.coerce.number().int().positive().optional().default(3100),
+  CASSANDRA_CONTACT_POINTS: z.string().optional().default('127.0.0.1:9042'),
+  CASSANDRA_KEYSPACE: z.string().optional().default('roadwatch'),
+  CASSANDRA_LOCAL_DC: z.string().optional().default('datacenter1'),
+  CASSANDRA_USERNAME: z.string().optional(),
+  CASSANDRA_PASSWORD: z.string().optional(),
   JWT_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
+  // Backwards-compatible: ACCESS_SECRET used for access tokens, REFRESH_SECRET for refresh tokens.
+  ACCESS_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
+  REFRESH_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
+  ACCESS_TOKEN_EXPIRES_MINUTES: z.coerce.number().int().positive().optional().default(15),
+  REFRESH_TOKEN_EXPIRES_DAYS: z.coerce.number().int().positive().optional().default(7),
   OTP_TTL_SECONDS: z.coerce.number().int().positive().optional().default(300),
   ALLOW_DEV_OTP_ECHO: z.coerce.boolean().optional().default(true),
 
@@ -48,6 +54,10 @@ const envSchema = z.object({
   LLAMACPP_BASE_URL: z.string().optional(),
   LLAMACPP_MODEL: z.string().optional().default('llama'),
 
+  // Pinata / IPFS
+  PINATA_JWT: z.string().optional(),
+  PINATA_GATEWAY: z.string().optional().default('https://gateway.pinata.cloud/ipfs'),
+
   // Comma-separated priority list, e.g. "gemini,ollama,llamacpp"
   LLM_FALLBACK_ORDER: z.string().optional().default('gemini,ollama,llamacpp')
 });
@@ -57,4 +67,26 @@ export type Env = z.infer<typeof envSchema>;
 export function getEnv(): Env {
   // eslint-disable-next-line no-process-env
   return envSchema.parse(process.env);
+}
+
+export function assertRequiredInfrastructure(): void {
+  const env = process.env;
+
+  const redisConfigured = Boolean(env.UPSTASH_REDIS_REST_URL?.trim() && env.UPSTASH_REDIS_REST_TOKEN?.trim());
+  if (!redisConfigured) {
+    throw new Error('Redis is required but UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN is missing');
+  }
+
+  const upstashKafkaConfigured = Boolean(
+    env.UPSTASH_KAFKA_REST_URL?.trim() &&
+      ((env.UPSTASH_KAFKA_REST_USERNAME?.trim() && env.UPSTASH_KAFKA_REST_PASSWORD?.trim()) ||
+        env.UPSTASH_KAFKA_REST_TOKEN?.trim())
+  );
+  const localKafkaConfigured = Boolean((env.KAFKA_BROKERS ?? env.KAFKA_BROKER ?? '').trim());
+
+  if (!upstashKafkaConfigured && !localKafkaConfigured) {
+    throw new Error(
+      'Kafka is required but neither Upstash Kafka REST credentials nor KAFKA_BROKER/KAFKA_BROKERS are configured'
+    );
+  }
 }

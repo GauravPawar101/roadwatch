@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f8f9ff;
+      color: #0b1c30;
+      margin: 0;
+      overflow-x: hidden;
+    }
+    .surface-card {
+      background: #ffffff;
+      border: 1px solid #dce9ff;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+    }
+    .brand-gradient {
+      background: linear-gradient(135deg, #002045 0%, #1960a3 100%);
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+  </style>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-dim": "#cbdbf5",
+            "surface-tint": "#455f88",
+            "secondary-fixed-dim": "#a2c9ff",
+            "on-secondary-fixed": "#001c38",
+            "tertiary-container": "#003f25",
+            "inverse-on-surface": "#eaf1ff",
+            "surface-container-lowest": "#ffffff",
+            "on-tertiary-fixed": "#002111",
+            "outline": "#74777f",
+            "on-surface-variant": "#43474e",
+            "tertiary-fixed-dim": "#83d8a6",
+            "secondary-container": "#7db6ff",
+            "on-surface": "#0b1c30",
+            "on-primary-fixed": "#001b3c",
+            "error-container": "#ffdad6",
+            "on-secondary": "#ffffff",
+            "surface-bright": "#f8f9ff",
+            "secondary-fixed": "#d3e4ff",
+            "surface-container-high": "#dce9ff",
+            "on-secondary-fixed-variant": "#004881",
+            "inverse-surface": "#213145",
+            "on-primary-container": "#86a0cd",
+            "error": "#ba1a1a",
+            "outline-variant": "#c4c6cf",
+            "on-error": "#ffffff",
+            "primary-fixed": "#d6e3ff",
+            "on-primary-fixed-variant": "#2d476f",
+            "on-error-container": "#93000a",
+            "primary-fixed-dim": "#adc7f7",
+            "background": "#f8f9ff",
+            "on-tertiary-fixed-variant": "#005231",
+            "on-primary": "#ffffff",
+            "surface-container-low": "#eff4ff",
+            "primary": "#002045",
+            "surface-container-highest": "#d3e4fe",
+            "on-tertiary-container": "#5caf81",
+            "tertiary": "#002715",
+            "surface": "#f8f9ff",
+            "primary-container": "#1a365d",
+            "on-background": "#0b1c30",
+            "on-tertiary": "#ffffff",
+            "on-secondary-container": "#00477f",
+            "inverse-primary": "#adc7f7",
+            "tertiary-fixed": "#9ff5c1",
+            "secondary": "#1960a3",
+            "surface-variant": "#d3e4fe",
+            "surface-container": "#e5eeff"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "base": "8px",
+            "margin-desktop": "64px",
+            "container-max": "1280px",
+            "gutter": "24px",
+            "margin-mobile": "16px",
+            "xs": "4px", "xxl": "80px", "md": "16px", "xl": "48px", "sm": "8px", "lg": "24px"
+          },
+          "fontFamily": {
+            "sans": ["Inter", "sans-serif"]
+          },
+          "fontSize": {
+            "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+            "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+            "headline-lg": ["30px", {"lineHeight": "38px", "fontWeight": "600"}],
+            "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+            "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+            "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+            "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+            "title-lg": ["24px", {"lineHeight": "1.4", "letterSpacing": "-0.01em", "fontWeight": "600"}]
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-background selection:bg-secondary/20">
+<!-- TopAppBar -->
+<header class="bg-surface-container-lowest border-b border-outline-variant z-50 sticky top-0">
+<div class="flex justify-between items-center px-margin-desktop py-base max-w-[1280px] mx-auto w-full h-16">
+<div class="text-headline-sm font-bold text-primary">
+      Infrastructure Grievance Platform
+    </div>
+<nav class="hidden md:flex items-center gap-xl">
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-md" href="#">Report Issue</a>
+<a class="text-primary border-b-2 border-primary pb-1 font-semibold text-label-md" href="#">Track Progress</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-md" href="#">Community Map</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-md" href="#">Help</a>
+</nav>
+<div class="flex items-center gap-md">
+<button class="material-symbols-outlined text-on-surface-variant">search</button>
+<button class="px-6 py-2 rounded-lg brand-gradient text-white text-label-md font-semibold hover:opacity-90 transition-all active:scale-95">Sign In</button>
+</div>
+</div>
+</header>
+<main class="max-w-[1280px] mx-auto px-margin-desktop py-xl">
+<!-- Hero Title Section -->
+<div class="mb-xl">
+<div class="flex items-center gap-sm mb-sm">
+<span class="px-3 py-1 rounded-full bg-secondary-container/30 text-secondary font-semibold text-label-md">In Progress</span>
+<span class="text-on-surface-variant text-[12px] uppercase tracking-widest font-bold">Case #IGP-88291-TX</span>
+</div>
+<h1 class="text-display-lg text-on-surface mb-md">Major Pothole &amp; Structural Degradation: West 14th St</h1>
+<div class="flex items-center gap-md text-on-surface-variant">
+<div class="flex items-center gap-xs">
+<span class="material-symbols-outlined text-[18px]">calendar_today</span>
+<span class="text-body-md">Reported: Oct 24, 2024</span>
+</div>
+<div class="flex items-center gap-xs">
+<span class="material-symbols-outlined text-[18px]">location_on</span>
+<span class="text-body-md">Austin, TX</span>
+</div>
+</div>
+</div>
+<!-- Main Content Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter items-start">
+<!-- Left Column: Evidence & Timeline -->
+<div class="lg:col-span-8 space-y-gutter">
+<!-- Evidence Gallery -->
+<section class="surface-card rounded-xl p-lg">
+<div class="flex justify-between items-center mb-lg">
+<h2 class="text-title-lg text-on-surface">Evidence Gallery</h2>
+<button class="text-secondary font-semibold text-label-md flex items-center gap-xs hover:underline">
+<span class="material-symbols-outlined text-[18px]">download</span> Download All
+          </button>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-3 gap-md">
+<div class="aspect-video rounded-lg overflow-hidden group relative cursor-pointer border border-outline-variant bg-surface-container-low">
+<img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" data-alt="A close-up high-resolution photograph of a deep, jagged pothole in dark asphalt during twilight." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCDaucMZaLdgP1BjhVaufppsq-8SIEUNsvVd3I_3Jg0yJVuaYkd2YAasQELvjpnPZpg5nski_eqgee-565h0V_A3VhJzXjHijiczRBl8HLcohL5SofwKYglQgFlOYB9GFDYBC_MvfR_Ldy9IBwBJYoYy3s2kPW02hNkwsQ0S9QNjaecH_jqDkeHqXPkuTpiSKnYzh_ZcSrWGXwjVXR8ij15HMiVVelkJNzxS3F8Usy5Fg4WPj07m5bTc5QB_PB5b8SCgyi0u_oo-gw"/>
+<div class="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="material-symbols-outlined text-white">zoom_in</span>
+</div>
+</div>
+<div class="aspect-video rounded-lg overflow-hidden group relative cursor-pointer border border-outline-variant bg-surface-container-low">
+<img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" data-alt="A wide-angle professional photograph showing a residential street with several damaged areas marked by bright orange spray paint." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBHMLQF3ghgNGc3PrQYeVFpoh7pgAAUsBR5WX8xNsHmI4TwaHOsdWCBq3HN_XuC6plXJ67UCkMfk9GQjF8hLoktBzLTbdTxO1WgRSBTksek0D15ugLBp60t4JcwhSSktY9DnZtg9WzuFevZjeLyHcDgkEYOOpGIAqELnMtYAddXqerSrK37Rg0TmASPSjfD5RtV2AK2xWTk3aZMXKkrsS7Flst1mzGvtOZMJr10xEMCp-3YToArmz12_uxiqL0TydDmDRAtA7lz3s4"/>
+<div class="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="material-symbols-outlined text-white">zoom_in</span>
+</div>
+</div>
+<div class="aspect-video rounded-lg overflow-hidden group relative cursor-pointer border border-outline-variant bg-surface-container-low">
+<img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" data-alt="A vertical detailed shot of a measuring tape extended across a wide crack in the concrete of a public bridge." src="https://lh3.googleusercontent.com/aida-public/AB6AXuArUwo3FZLRVRss9HX8eOR8-t8N-8sJmdQIPqIz7h8E7xrhWqU9vyejXm3Ql5PExbam3CZkFaWWukUD2gBA2AIqJHnt_PWSidlj3FvAXFFB4RMVxaIdl04fWJwCHeHCbfIOdCTFKOTm3ZH71Tql-TsBaQY-hERq3awaKyL_ufEd7oLETHvuKeLghwSmfWzaBRPSVKxyeLb5Msn75BF9r173YmKBCRzbOGFOWwthJuPjUsexYhbW3_KAykQiYg6ihoYWNoCSc0YnISI"/>
+<div class="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="material-symbols-outlined text-white">zoom_in</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Assigned Personnel Panel (Citizen View) -->
+<section class="surface-card rounded-xl p-lg" data-purpose="AssignedPeoplePanel">
+<h2 class="text-title-lg text-on-surface mb-lg">Assigned Personnel</h2>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-lg" data-purpose="CitizenAssignedPeopleGroup">
+<!-- Person 1: Lead Inspector -->
+<div class="p-md bg-surface-container-low rounded-lg border border-outline-variant" data-purpose="AssignedPersonContact">
+<div class="flex items-start gap-md">
+<div class="w-12 h-12 rounded-full bg-secondary-container/20 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-secondary text-[24px]">engineering</span>
+</div>
+<div class="space-y-sm">
+<div>
+<p class="text-body-md font-bold text-on-surface">Marcus Thorne</p>
+<p class="text-label-md text-secondary font-medium">Lead Inspector</p>
+</div>
+<div class="space-y-1">
+<a class="flex items-center gap-xs text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="mailto:m.thorne.pw@austin.gov">
+<span class="material-symbols-outlined text-[16px]">mail</span>
+                    m.thorne.pw@austin.gov
+                  </a>
+<p class="flex items-center gap-xs text-body-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">call</span>
+                    +1 (512) 555-0192 (Office)
+                  </p>
+</div>
+</div>
+</div>
+</div>
+<!-- Person 2: Site Supervisor -->
+<div class="p-md bg-surface-container-low rounded-lg border border-outline-variant" data-purpose="AssignedPersonContact">
+<div class="flex items-start gap-md">
+<div class="w-12 h-12 rounded-full bg-secondary-container/20 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-secondary text-[24px]">construction</span>
+</div>
+<div class="space-y-sm">
+<div>
+<p class="text-body-md font-bold text-on-surface">Sarah Jenkins</p>
+<p class="text-label-md text-secondary font-medium">Site Supervisor</p>
+</div>
+<div class="space-y-1">
+<a class="flex items-center gap-xs text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="mailto:s.jenkins.ops@austin.gov">
+<span class="material-symbols-outlined text-[16px]">mail</span>
+                    s.jenkins.ops@austin.gov
+                  </a>
+<p class="flex items-center gap-xs text-body-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">call</span>
+                    +1 (512) 555-0144 (Office)
+                  </p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Timeline -->
+<section class="surface-card rounded-xl p-lg">
+<h2 class="text-title-lg text-on-surface mb-xl">Progress Timeline</h2>
+<div class="relative space-y-xl before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-surface-container-high">
+<!-- Event 1 -->
+<div class="relative pl-gutter">
+<div class="absolute left-0 top-1 w-6 h-6 rounded-full bg-white border-2 border-secondary flex items-center justify-center z-10 shadow-sm">
+<div class="w-2 h-2 rounded-full bg-secondary"></div>
+</div>
+<div class="flex flex-col md:flex-row md:justify-between md:items-start">
+<div>
+<h3 class="text-body-md font-bold text-on-surface">Contractor Arrived &amp; Site Survey</h3>
+<p class="text-on-surface-variant text-body-md mt-1">Austin Road Services (Team B) completed initial depth measurements and core sampling.</p>
+</div>
+<span class="text-body-sm text-outline font-medium mt-2 md:mt-0 bg-surface-container px-2 py-1 rounded">Today, 10:24 AM</span>
+</div>
+</div>
+<!-- Event 2 -->
+<div class="relative pl-gutter">
+<div class="absolute left-0 top-1 w-6 h-6 rounded-full bg-white border-2 border-outline-variant flex items-center justify-center z-10">
+<div class="w-2 h-2 rounded-full bg-outline-variant"></div>
+</div>
+<div class="flex flex-col md:flex-row md:justify-between md:items-start">
+<div>
+<h3 class="text-body-md font-bold text-on-surface">Resource Allocation</h3>
+<p class="text-on-surface-variant text-body-md mt-1">Emergency repair materials dispatched from Central Depot. ETA 4 hours.</p>
+</div>
+<span class="text-body-sm text-outline font-medium mt-2 md:mt-0">Oct 25, 02:15 PM</span>
+</div>
+</div>
+<!-- Event 3 -->
+<div class="relative pl-gutter">
+<div class="absolute left-0 top-1 w-6 h-6 rounded-full bg-white border-2 border-outline-variant flex items-center justify-center z-10">
+<div class="w-2 h-2 rounded-full bg-outline-variant"></div>
+</div>
+<div class="flex flex-col md:flex-row md:justify-between md:items-start">
+<div>
+<h3 class="text-body-md font-bold text-on-surface">Verified by AI Inspector</h3>
+<p class="text-on-surface-variant text-body-md mt-1">Structural integrity risk score: 8.4/10. Case prioritized for 24-hour resolution.</p>
+</div>
+<span class="text-body-sm text-outline font-medium mt-2 md:mt-0">Oct 24, 05:40 PM</span>
+</div>
+</div>
+<!-- Event 4 -->
+<div class="relative pl-gutter">
+<div class="absolute left-0 top-1 w-6 h-6 rounded-full bg-white border-2 border-outline-variant flex items-center justify-center z-10">
+<div class="w-2 h-2 rounded-full bg-outline-variant"></div>
+</div>
+<div class="flex flex-col md:flex-row md:justify-between md:items-start">
+<div>
+<h3 class="text-body-md font-bold text-on-surface">Report Filed</h3>
+<p class="text-on-surface-variant text-body-md mt-1">Grievance submitted via Community Mobile App with 3 photos attached.</p>
+</div>
+<span class="text-body-sm text-outline font-medium mt-2 md:mt-0">Oct 24, 05:12 PM</span>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Right Column: Location & Action Panel -->
+<div class="lg:col-span-4 space-y-gutter">
+<!-- Location Map -->
+<section class="surface-card rounded-xl overflow-hidden">
+<div class="p-lg">
+<h2 class="text-title-lg text-on-surface mb-sm">Incident Location</h2>
+<p class="text-on-surface-variant text-[14px] flex items-center gap-xs">
+<span class="material-symbols-outlined text-[14px]">pin_drop</span>
+            30.2672° N, 97.7431° W
+          </p>
+</div>
+<div class="h-64 relative bg-surface-container">
+<img class="w-full h-full object-cover grayscale opacity-80" data-alt="A detailed digital map interface showing an urban street grid in Austin, Texas." data-location="Austin, Texas" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAZ3pE3z0KD0ZDkxScI5FI8fQPz8z5VI5m3YXe7c3HyDseS93serQzFIn7qz3SUih1iCHWYQ-NrzvV3YHz__H4eU_C4BAauP6Pl_lDjq_qIqM6qGTSnEAhOdg8uFDr0AP6F7BiMKJ1qV0Ls3kQHeHqlUGT3iUD0XyU-9OPiTRBkKUS90EEwgUmUDcRn2I8VMs8yA3z6U28kbpqRxUp50ETpxPZGRziP0QeoG5UCQTr4H8kFLhGDMteZ9MCIEAo-RaQmKt1WpC5kX_w"/>
+<div class="absolute bottom-4 right-4 brand-gradient p-3 rounded-lg shadow-xl">
+<span class="material-symbols-outlined text-white">directions</span>
+</div>
+</div>
+</section>
+<!-- Action Panel -->
+<section class="surface-card rounded-xl p-lg">
+<h2 class="text-title-lg text-on-surface mb-lg">Institutional Actions</h2>
+<div class="space-y-md">
+<button class="w-full py-3 rounded-lg brand-gradient text-white font-bold text-label-md flex items-center justify-center gap-sm shadow-md hover:opacity-95 transition-all active:scale-95">
+<span class="material-symbols-outlined">verified</span> Verify Resolution
+          </button>
+<button class="w-full py-3 rounded-lg bg-surface-container text-on-surface font-bold text-label-md flex items-center justify-center gap-sm border border-outline-variant hover:bg-surface-container-high transition-colors active:scale-95">
+<span class="material-symbols-outlined">report_problem</span> Escalate Case
+          </button>
+<button class="w-full py-3 rounded-lg bg-surface-container text-on-surface font-bold text-label-md flex items-center justify-center gap-sm border border-outline-variant hover:bg-surface-container-high transition-colors active:scale-95">
+<span class="material-symbols-outlined">chat_bubble</span> Contact Ombudsman
+          </button>
+</div>
+<div class="mt-lg pt-lg border-t border-outline-variant">
+<div class="flex items-center gap-sm mb-sm">
+<div class="w-10 h-10 rounded-full bg-secondary-container/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary">account_balance</span>
+</div>
+<div>
+<p class="text-on-surface font-semibold text-label-md">Assigned Authority</p>
+<p class="text-on-surface-variant text-[12px]">Public Works Dept (District 4)</p>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+</main>
+<!-- Footer -->
+<footer class="bg-primary text-white mt-xxl border-t border-outline-variant/10">
+<div class="flex flex-col md:flex-row justify-between items-center px-margin-desktop py-gutter max-w-[1280px] mx-auto w-full">
+<div class="text-label-md font-bold mb-md md:mb-0">
+      Infrastructure Grievance Platform
+    </div>
+<div class="flex gap-lg">
+<a class="text-primary-fixed-dim hover:text-white transition-opacity text-label-md" href="#">Open Data</a>
+<a class="text-primary-fixed-dim hover:text-white transition-opacity text-label-md" href="#">Privacy</a>
+<a class="text-primary-fixed-dim hover:text-white transition-opacity text-label-md" href="#">Terms</a>
+<a class="text-primary-fixed-dim hover:text-white transition-opacity text-label-md" href="#">Government Contacts</a>
+</div>
+<div class="mt-md md:mt-0 text-body-sm opacity-60">
+      © 2024 Global Infrastructure Grievance Platform.
+    </div>
+</div>
+</footer>
+</body></html>

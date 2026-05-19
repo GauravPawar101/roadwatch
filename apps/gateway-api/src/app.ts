@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import morgan from 'morgan';
+import { getServiceGraph, getSystemHealth } from './health.js';
 import { requireAuth } from './rbac.js';
 import { addSseClient } from './realtime/sse.js';
 import adminRouter from './routes/admin.js';
@@ -15,11 +16,52 @@ import rtiRouter from './routes/rti.js';
 
 export function createApp() {
   const app = express();
-  app.use(cors());
+
+  // Configure CORS: allow origins from environment or sensible defaults
+  const allowedOrigins = (process.env.CORS_ORIGIN || process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  app.use(cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.length === 0 || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin']
+  }));
   app.use(express.json({ limit: '2mb' }));
   app.use(morgan('dev'));
 
+  // Basic health check
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+  // Comprehensive health check with service status
+  app.get('/health/status', async (_req, res) => {
+    try {
+      const healthReport = await getSystemHealth();
+      const statusCode = healthReport.overallStatus === 'healthy' ? 200 : 503;
+      res.status(statusCode).json(healthReport);
+    } catch (error) {
+      res.status(503).json({
+        status: 'unhealthy',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // Service dependency graph
+  app.get('/health/services', (_req, res) => {
+    res.json({
+      services: getServiceGraph(),
+      timestamp: new Date()
+    });
+  });
 
   app.use('/auth', authRouter);
   // Mounting public router under /public to serve citizen dashboard + onboarding endpoints without authentication

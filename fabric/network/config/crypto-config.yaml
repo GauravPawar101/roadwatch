@@ -1,0 +1,30 @@
+# Hyperledger Fabric Crypto Material Configuration
+# Generates certificates and keys for peer organizations and orderer
+
+OrdererOrgs:
+  - Name: Orderer
+    Domain: orderer.roadwatch.com
+    EnableNodeOUs: true
+    Specs:
+      - Hostname: orderer1
+      - Hostname: orderer2
+      - Hostname: orderer3
+
+PeerOrgs:
+  - Name: NHAI
+    Domain: nhai.roadwatch.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      Start: 0
+    Users:
+      Count: 1
+
+  - Name: RoadWatch
+    Domain: roadwatch.roadwatch.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      Start: 0
+    Users:
+      Count: 1

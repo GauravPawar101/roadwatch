@@ -1,5 +1,3 @@
-import { Kafka } from 'kafkajs';
-
 type UpstashProduceRequest = {
   topic: string;
   value: string;
@@ -29,10 +27,11 @@ async function upstashProduce(req: UpstashProduceRequest): Promise<void> {
   const baseUrl = getUpstashBaseUrl();
   const basicToken = getUpstashBasicAuthToken();
   if (!baseUrl) throw new Error('UPSTASH_KAFKA_REST_URL is required for Upstash Kafka REST mode');
-  if (!basicToken)
+  if (!basicToken) {
     throw new Error(
       'UPSTASH_KAFKA_REST_TOKEN (preferred) or UPSTASH_KAFKA_REST_USERNAME + UPSTASH_KAFKA_REST_PASSWORD are required for Upstash Kafka REST mode'
     );
+  }
 
   const res = await fetch(`${baseUrl}/produce`, {
     method: 'POST',
@@ -56,15 +55,16 @@ async function upstashProduce(req: UpstashProduceRequest): Promise<void> {
   }
 }
 
-function parseBrokers(): string[] {
-  const brokers = process.env.KAFKA_BROKERS ?? process.env.KAFKA_BROKER ?? 'localhost:9092';
-  return brokers
-    .split(',')
-    .map((b) => b.trim())
-    .filter(Boolean);
-}
+async function getKafkaJsProducer() {
+  const kafkaJsModule = await import('kafkajs').catch(() => null);
+  const Kafka = kafkaJsModule?.Kafka;
+  if (!Kafka) return null;
 
-function getKafkaJsProducer() {
+  const brokers = (process.env.KAFKA_BROKERS ?? process.env.KAFKA_BROKER ?? 'localhost:9092')
+    .split(',')
+    .map((broker) => broker.trim())
+    .filter(Boolean);
+
   const saslUsername = process.env.KAFKA_SASL_USERNAME;
   const saslPassword = process.env.KAFKA_SASL_PASSWORD;
   const saslMechanism = (process.env.KAFKA_SASL_MECHANISM ?? 'scram-sha-256') as
@@ -75,7 +75,7 @@ function getKafkaJsProducer() {
 
   const kafka = new Kafka({
     clientId: process.env.KAFKA_CLIENT_ID || 'roadwatch-backend',
-    brokers: parseBrokers(),
+    brokers,
     ssl: Boolean(process.env.KAFKA_SSL) || (Boolean(saslUsername) && Boolean(saslPassword)),
     sasl:
       saslUsername && saslPassword
@@ -100,15 +100,21 @@ function getKafkaJsProducer() {
  *
  * Fallback mode (KafkaJS): broker/SASL env vars.
  */
-export async function emitComplaintEvent(event: unknown) {
-  const topic = process.env.KAFKA_TOPIC_COMPLAINTS?.trim() || 'complaints';
-
+export async function emitComplaintEvent(
+  event: unknown,
+  topic = process.env.KAFKA_TOPIC_COMPLAINTS?.trim() || 'complaint.submitted'
+) {
   if (getUpstashBaseUrl()) {
     await upstashProduce({ topic, value: JSON.stringify(event) });
     return;
   }
 
-  const producer = getKafkaJsProducer();
+  const producer = await getKafkaJsProducer();
+  if (!producer) {
+    console.warn(`[kafka] Skipping ${topic} publish because KafkaJS is not installed in this backend package`);
+    return;
+  }
+
   await producer.connect();
   try {
     await producer.send({

@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Obsidian Prism | Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .prism-gradient {
+            background: linear-gradient(45deg, #8B5CF6 0%, #06B6D4 100%);
+        }
+        .glass-card {
+            backdrop-filter: blur(12px);
+            background: rgba(18, 33, 49, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .bg-mesh {
+            background-color: #051424;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.15) 0px, transparent 50%);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-surface": "#d4e4fa",
+                      "inverse-primary": "#5f5e5f",
+                      "background": "#051424",
+                      "surface-container": "#122131",
+                      "primary-container": "#0b0b0c",
+                      "on-primary-container": "#7b797a",
+                      "outline": "#919094",
+                      "surface-variant": "#273647",
+                      "tertiary-fixed-dim": "#4cd7f6",
+                      "error": "#ffb4ab",
+                      "on-primary": "#313031",
+                      "outline-variant": "#46464a",
+                      "on-secondary-fixed-variant": "#5516be",
+                      "surface-dim": "#051424",
+                      "on-primary-fixed": "#1c1b1c",
+                      "primary-fixed": "#e5e2e3",
+                      "surface-tint": "#c8c6c7",
+                      "on-secondary-fixed": "#23005c",
+                      "on-surface-variant": "#c7c6ca",
+                      "secondary-container": "#571bc1",
+                      "surface-bright": "#2c3a4c",
+                      "error-container": "#93000a",
+                      "on-tertiary-fixed": "#001f26",
+                      "tertiary-fixed": "#acedff",
+                      "primary": "#c8c6c7",
+                      "primary-fixed-dim": "#c8c6c7",
+                      "on-tertiary-fixed-variant": "#004e5c",
+                      "surface": "#051424",
+                      "tertiary": "#4cd7f6",
+                      "on-secondary-container": "#c4abff",
+                      "on-tertiary": "#003640",
+                      "on-error-container": "#ffdad6",
+                      "on-tertiary-container": "#00869c",
+                      "inverse-surface": "#d4e4fa",
+                      "on-primary-fixed-variant": "#474647",
+                      "surface-container-low": "#0d1c2d",
+                      "secondary-fixed-dim": "#d0bcff",
+                      "inverse-on-surface": "#233143",
+                      "on-error": "#690005",
+                      "surface-container-lowest": "#010f1f",
+                      "secondary-fixed": "#e9ddff",
+                      "surface-container-high": "#1c2b3c",
+                      "secondary": "#d0bcff",
+                      "tertiary-container": "#000d11",
+                      "on-background": "#d4e4fa",
+                      "on-secondary": "#3c0091",
+                      "surface-container-highest": "#273647"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "sm": "8px",
+                      "gutter": "24px",
+                      "xxl": "80px",
+                      "md": "16px",
+                      "unit": "4px",
+                      "xs": "4px",
+                      "xl": "48px",
+                      "lg": "24px",
+                      "margin": "32px"
+              },
+              "fontFamily": {
+                      "body-md": ["Inter"],
+                      "display-xl": ["Inter"],
+                      "headline-md": ["Inter"],
+                      "headline-lg": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "title-lg": ["Inter"],
+                      "label-md": ["Inter"],
+                      "caption": ["Inter"]
+              },
+              "fontSize": {
+                      "body-md": ["16px", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                      "display-xl": ["64px", {"lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "800"}],
+                      "headline-md": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "headline-lg": ["40px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "body-lg": ["18px", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                      "title-lg": ["24px", {"lineHeight": "1.4", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                      "label-md": ["14px", {"lineHeight": "1.2", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                      "caption": ["12px", {"lineHeight": "1.4", "letterSpacing": "0em", "fontWeight": "400"}]
+              }
+            },
+          },
+        }
+      </script>
+</head>
+<body class="bg-background text-on-surface font-body-md bg-mesh min-h-screen">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/60 backdrop-blur-xl border-b border-white/10 shadow-sm">
+<div class="flex justify-between items-center px-lg h-xxl max-w-[1200px] mx-auto">
+<div class="flex items-center gap-sm">
+<img alt="Obsidian Prism Logo" class="w-10 h-10" src="data:image/png;base64,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"/>
+<span class="font-display-xl text-headline-md tracking-tighter text-primary">OBSIDIAN</span>
+</div>
+<nav class="hidden md:flex items-center gap-lg">
+<a class="font-body-md text-body-md text-tertiary border-b-2 border-tertiary pb-1" href="#">Overview</a>
+<a class="font-body-md text-body-md text-on-surface-variant hover:text-on-surface transition-colors active:scale-95 duration-200" href="#">Analytics</a>
+<a class="font-body-md text-body-md text-on-surface-variant hover:text-on-surface transition-colors active:scale-95 duration-200" href="#">Assets</a>
+<a class="font-body-md text-body-md text-on-surface-variant hover:text-on-surface transition-colors active:scale-95 duration-200" href="#">Settings</a>
+</nav>
+<div class="flex items-center gap-md">
+<button class="material-symbols-outlined text-on-surface-variant hover:bg-white/5 p-sm rounded-full transition-all duration-300">search</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:bg-white/5 p-sm rounded-full transition-all duration-300">notifications</button>
+<div class="w-8 h-8 rounded-full bg-surface-variant border border-outline-variant overflow-hidden">
+<img alt="User profile avatar" data-alt="A professional headshot of a person with neutral lighting, focused expression, set against a dark architectural background. The image has a subtle cool color grade to match a high-end cybernetic tech aesthetic. Deep shadows and crisp highlights emphasize professional precision and modern corporate style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC5OxyDI9yRvPSmY2W87gk_iTZ5uAqIQL7YDWvhVA4PQ9pzI-7-IZkJPWn7lqSDR3hxwJPEGKl4RdYHCvOKxqrfuHiOmfiT-PcMhSEiW7lOaYo6FkUtN80z8qhNK3oFb6W5gwx1S48Nz10U3ZGe-Rg86dHe03UOE4XM0yapy1YFm2MVcHPgiDHRk9uy11qfl3sgKq1wqLiuw_0q-jC4Pc9W0W4-JnclkrHJFEcA6_4yJUmfB8fkxm7MCgvl36Dc7lWttQnP40z_4iE"/>
+</div>
+</div>
+</div>
+</header>
+<main class="pt-xxl">
+<!-- Hero Section -->
+<section class="relative w-full overflow-hidden px-lg py-xxl">
+<div class="max-w-[1200px] mx-auto relative z-10">
+<div class="max-w-2xl">
+<h1 class="font-display-xl text-display-xl text-on-surface mb-md">
+                        Unleash the Power of Precision
+                    </h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant mb-xl">
+                        Navigate the complexity of global markets with real-time data analytics, predictive modeling, and immersive visual insights. Obsidian Prism turns raw entropy into actionable clarity.
+                    </p>
+<div class="flex gap-md">
+<button class="prism-gradient px-xl py-md rounded-lg font-label-md text-label-md text-white shadow-lg hover:shadow-cyan-500/20 transition-all active:scale-95">
+                            Launch Terminal
+                        </button>
+<button class="glass-card px-xl py-md rounded-lg font-label-md text-label-md text-on-surface hover:bg-white/10 transition-all active:scale-95">
+                            View Documentation
+                        </button>
+</div>
+</div>
+</div>
+<!-- Abstract Background Decoration -->
+<div class="absolute top-0 right-0 -z-10 w-1/2 h-full opacity-30">
+<div class="absolute top-1/4 right-1/4 w-96 h-96 rounded-full prism-gradient blur-[120px] opacity-20"></div>
+<div class="absolute bottom-1/4 right-0 w-64 h-64 rounded-full bg-tertiary blur-[100px] opacity-10"></div>
+<svg class="absolute top-1/2 right-10 -translate-y-1/2 w-[500px] h-[500px] text-white/5" viewbox="0 0 400 400">
+<path d="M200 0 L400 200 L200 400 L0 200 Z" fill="none" stroke="currentColor" stroke-width="1"></path>
+<path d="M200 50 L350 200 L200 350 L50 200 Z" fill="none" stroke="currentColor" stroke-width="0.5"></path>
+<circle cx="200" cy="200" fill="none" r="100" stroke="currentColor" stroke-dasharray="8 8" stroke-width="0.5"></circle>
+</svg>
+</div>
+</section>
+<!-- Stats Section -->
+<section class="px-lg pb-xxl">
+<div class="max-w-[1200px] mx-auto grid grid-cols-1 md:grid-cols-3 gap-lg">
+<!-- Card 1: Total Revenue -->
+<div class="glass-card p-lg rounded-xl transition-all duration-300 hover:border-tertiary/50 group">
+<div class="flex justify-between items-start mb-md">
+<div class="p-sm rounded-lg bg-tertiary/10 text-tertiary">
+<span class="material-symbols-outlined" data-weight="fill">monetization_on</span>
+</div>
+<span class="text-tertiary font-label-md text-label-md">+12%</span>
+</div>
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-xs">Total Revenue</h3>
+<div class="flex items-baseline gap-xs">
+<span class="font-headline-md text-headline-md text-on-surface">$1.2M</span>
+</div>
+<div class="mt-md w-full bg-white/5 h-1 rounded-full overflow-hidden">
+<div class="prism-gradient h-full w-[75%]"></div>
+</div>
+</div>
+<!-- Card 2: Active Users -->
+<div class="glass-card p-lg rounded-xl transition-all duration-300 hover:border-secondary/50 group">
+<div class="flex justify-between items-start mb-md">
+<div class="p-sm rounded-lg bg-secondary/10 text-secondary">
+<span class="material-symbols-outlined" data-weight="fill">group</span>
+</div>
+<span class="text-secondary font-label-md text-label-md">+5%</span>
+</div>
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-xs">Active Users</h3>
+<div class="flex items-baseline gap-xs">
+<span class="font-headline-md text-headline-md text-on-surface">45.8k</span>
+</div>
+<div class="mt-md w-full bg-white/5 h-1 rounded-full overflow-hidden">
+<div class="bg-secondary h-full w-[60%]"></div>
+</div>
+</div>
+<!-- Card 3: Network Health -->
+<div class="glass-card p-lg rounded-xl transition-all duration-300 hover:border-white/30 group">
+<div class="flex justify-between items-start mb-md">
+<div class="p-sm rounded-lg bg-white/5 text-on-surface">
+<span class="material-symbols-outlined">api</span>
+</div>
+<span class="text-on-surface-variant font-label-md text-label-md">Stable</span>
+</div>
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-xs">Network Health</h3>
+<div class="flex items-baseline gap-xs">
+<span class="font-headline-md text-headline-md text-on-surface">99.9%</span>
+</div>
+<div class="mt-md flex gap-1">
+<div class="h-1 flex-1 rounded-full prism-gradient"></div>
+<div class="h-1 flex-1 rounded-full prism-gradient"></div>
+<div class="h-1 flex-1 rounded-full prism-gradient"></div>
+<div class="h-1 flex-1 rounded-full prism-gradient"></div>
+<div class="h-1 flex-1 rounded-full bg-white/10"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- Bento Grid Preview -->
+<section class="px-lg pb-xxl">
+<div class="max-w-[1200px] mx-auto">
+<div class="grid grid-cols-1 md:grid-cols-4 md:grid-rows-2 gap-lg h-auto md:h-[600px]">
+<div class="md:col-span-2 md:row-span-2 glass-card rounded-xl p-lg flex flex-col justify-between overflow-hidden relative">
+<div>
+<h4 class="font-title-lg text-title-lg text-on-surface mb-sm">Asset Distribution</h4>
+<p class="text-on-surface-variant font-body-md text-body-md">Real-time tracking of global computational resources.</p>
+</div>
+<div class="mt-xl flex-grow flex items-center justify-center">
+<!-- Abstract visual placeholder -->
+<div class="relative w-full h-full flex items-center justify-center">
+<div class="absolute inset-0 prism-gradient opacity-10 rounded-full blur-3xl"></div>
+<svg class="w-full h-full max-h-[300px] text-tertiary" viewbox="0 0 200 200">
+<circle cx="100" cy="100" fill="none" r="80" stroke="currentColor" stroke-dasharray="1 4" stroke-width="0.5"></circle>
+<circle cx="100" cy="100" fill="none" r="60" stroke="currentColor" stroke-width="1"></circle>
+<path d="M100 20 L100 180 M20 100 L180 100" opacity="0.3" stroke="currentColor" stroke-width="0.5"></path>
+<circle cx="140" cy="60" fill="currentColor" r="4"></circle>
+<circle cx="60" cy="140" fill="#8B5CF6" r="6"></circle>
+<circle cx="160" cy="120" fill="currentColor" r="3"></circle>
+</svg>
+</div>
+</div>
+</div>
+<div class="md:col-span-2 glass-card rounded-xl p-lg overflow-hidden flex flex-col">
+<div class="flex justify-between items-center mb-md">
+<h4 class="font-title-lg text-title-lg text-on-surface">Recent Alerts</h4>
+<button class="text-tertiary font-label-md text-label-md hover:underline">View All</button>
+</div>
+<div class="space-y-md">
+<div class="flex items-center gap-md p-sm rounded-lg hover:bg-white/5 transition-colors cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-error"></div>
+<div class="flex-grow">
+<p class="text-on-surface font-body-md text-body-md">Node #842 High Latency</p>
+<p class="text-on-surface-variant font-caption text-caption">2 minutes ago • Singapore Cluster</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant">chevron_right</span>
+</div>
+<div class="flex items-center gap-md p-sm rounded-lg hover:bg-white/5 transition-colors cursor-pointer border-t border-white/5 pt-md">
+<div class="w-2 h-2 rounded-full bg-tertiary"></div>
+<div class="flex-grow">
+<p class="text-on-surface font-body-md text-body-md">New Integration Verified</p>
+<p class="text-on-surface-variant font-caption text-caption">15 minutes ago • System</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant">chevron_right</span>
+</div>
+</div>
+</div>
+<div class="md:col-span-1 glass-card rounded-xl p-lg flex flex-col items-center justify-center text-center">
+<span class="material-symbols-outlined text-headline-lg text-tertiary mb-sm" data-weight="fill">shield_with_heart</span>
+<h5 class="text-on-surface font-label-md text-label-md">Vault Secure</h5>
+<p class="text-on-surface-variant font-caption text-caption">Quantum Encryption Active</p>
+</div>
+<div class="md:col-span-1 prism-gradient rounded-xl p-lg flex flex-col justify-between group cursor-pointer overflow-hidden relative">
+<div class="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors"></div>
+<div class="relative z-10">
+<h5 class="text-white font-title-lg text-title-lg leading-tight">Upgrade to Prism Pro</h5>
+</div>
+<div class="relative z-10 flex justify-end">
+<span class="material-symbols-outlined text-white text-headline-md group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer -->
+<footer class="w-full py-xl bg-surface-container-lowest border-t border-white/5">
+<div class="flex flex-col md:flex-row justify-between items-center px-lg max-w-[1200px] mx-auto gap-md">
+<div class="flex items-center gap-sm">
+<img alt="Obsidian Prism Logo" class="w-6 h-6 grayscale opacity-50" src="data:image/png;base64,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"/>
+<span class="font-label-md text-label-md text-primary">OBSIDIAN PRISM</span>
+</div>
+<div class="flex gap-lg">
+<a class="font-caption text-caption text-on-surface-variant hover:text-tertiary transition-colors cursor-pointer" href="#">Privacy Policy</a>
+<a class="font-caption text-caption text-on-surface-variant hover:text-tertiary transition-colors cursor-pointer" href="#">Terms of Service</a>
+<a class="font-caption text-caption text-on-surface-variant hover:text-tertiary transition-colors cursor-pointer" href="#">Legal</a>
+</div>
+<p class="font-caption text-caption text-on-surface-variant">
+                © 2024 Obsidian Prism. All rights reserved.
+            </p>
+</div>
+</footer>
+</body></html>

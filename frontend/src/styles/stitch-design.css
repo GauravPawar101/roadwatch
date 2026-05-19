@@ -1,26 +1,31 @@
 /* Stitch Design System Variables & Utilities */
 
 :root {
-  --surface-dim: #051424;
-  --outline: #919094;
-  --tertiary: #4cd7f6;
-  --surface: #051424;
-  --tertiary-container: #000d11;
-  --background: #051424;
-  --on-surface: #d4e4fa;
-  --on-surface-variant: #c7c6ca;
-  --primary: #c8c6c7;
-  --secondary: #d0bcff;
-  --surface-container-highest: #273647;
-  --surface-container-high: #1c2b3c;
-  --surface-container: #122131;
-  --surface-container-lowest: #010f1f;
-  --surface-bright: #2c3a4c;
-  --error: #ffb4ab;
-  --error-container: #93000a;
-  --secondary-container: #571bc1;
-  --on-secondary-container: #c4abff;
-  --outline-variant: #46464a;
+  --surface-dim: #cbdbf5;
+  --outline: #74777f;
+  --tertiary: #000b04;
+  --surface: #f8f9ff;
+  --tertiary-container: #002614;
+  --background: #f8f9ff;
+  --on-surface: #0b1c30;
+  --on-surface-variant: #44474e;
+  --primary: #00091b;
+  --secondary: #1960a3;
+  --surface-container-highest: #d3e4fe;
+  --surface-container-high: #dce9ff;
+  --surface-container: #e5eeff;
+  --surface-container-lowest: #ffffff;
+  --surface-bright: #f8f9ff;
+  --error: #ba1a1a;
+  --error-container: #ffdad6;
+  --secondary-container: #7db6ff;
+  --on-secondary-container: #00477f;
+  --outline-variant: #c4c6cf;
+  --status-pending: #fff7ed;
+  --status-pending-text: #7c2d12;
+  --status-resolved: #003f25;
+  --status-resolved-text: #ffffff;
+  --on-tertiary-container: #43976a;
 }
 
 /* Base page styles */
@@ -44,19 +49,55 @@ body {
 
 /* Utility for subtle translucent backgrounds used across stitch screens */
 .glass-panel {
-  background: rgba(18, 33, 49, 0.7);
+  background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--outline-variant);
   border-radius: 0.75rem;
+  box-shadow: 0 4px 20px rgba(0, 9, 27, 0.04);
 }
+
+/* Layout utilities */
+.p-lg { padding: 22px !important; }
+.p-md { padding: 16px !important; }
+.p-sm { padding: 12px !important; }
+.rounded-xl { border-radius: 28px !important; }
+.rounded-2xl { border-radius: 32px !important; }
+.container-max { max-width: 1440px; margin: 0 auto; padding: 32px 24px 48px; }
+.page-radial-bg { background: radial-gradient(circle at top right, rgba(25, 96, 163, 0.05), transparent 35%), radial-gradient(circle at top left, rgba(0, 32, 69, 0.03), transparent 35%), var(--background); }
+.grid-two-col { display: grid; grid-template-columns: 1.25fr 0.9fr; gap: 20px; }
+
+/* Shadow variants */
+.shadow-lg { box-shadow: 0 8px 30px rgba(0, 9, 27, 0.06); }
+
+/* Small uppercase label */
+.muted-upper { color: var(--on-surface-variant); font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em; }
+
+/* Chip / badge */
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: var(--on-surface-variant); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* Buttons */
+.btn-muted-gradient { background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%); color: #08111f; border: none; padding: 12px 16px; font-weight: 800; border-radius: 16px; cursor: pointer; }
+.btn-ghost { border: 1px solid var(--outline); background: transparent; color: var(--on-surface); padding: 12px 16px; border-radius: 16px; cursor: pointer; }
+
+/* Inspector list item */
+.inspector-btn { text-align: left; width: 100%; border-radius: 22px; padding: 18px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: var(--on-surface); cursor: pointer; }
+.inspector-btn.selected { border-color: rgba(76,215,246,0.6); background: rgba(76,215,246,0.08); }
+
+/* Form inputs */
+.form-input { border-radius: 12px; padding: 10px 12px; border: 1px solid var(--outline-variant); background: var(--surface-container-lowest); color: var(--on-surface); }
+.form-textarea { min-height: 92px; border-radius: 12px; padding: 12px; border: 1px solid var(--outline-variant); background: var(--surface-container-lowest); color: var(--on-surface); resize: vertical; }
+
+/* Progress bar gradient */
+.progress-gradient { background: linear-gradient(90deg, #8b5cf6 0%, #06b6d4 100%); }
 
 /* Alias used across the codebase (cards in many components) */
 .glass-card {
-  background: rgba(18, 33, 49, 0.6);
+  background: rgba(255, 255, 255, 0.75);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--outline-variant);
   border-radius: 0.75rem;
+  box-shadow: 0 4px 20px rgba(0, 9, 27, 0.04);
 }
 
 /* Prism Gradient */
@@ -95,19 +136,19 @@ body {
   align-items: center;
   gap: 0.5rem;
   padding: 1rem 1.5rem;
-  background: linear-gradient(45deg, #8b5cf6, #4cd7f6);
+  background: linear-gradient(135deg, var(--primary-container) 0%, var(--secondary) 100%);
   color: white;
   border: none;
   border-radius: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
-  box-shadow: 0 2px 8px rgba(76, 215, 246, 0.2);
+  box-shadow: 0 2px 8px rgba(25, 96, 163, 0.15);
 }
 
 .btn-primary:hover {
   opacity: 0.95;
-  box-shadow: 0 0 15px rgba(76, 215, 246, 0.3);
+  box-shadow: 0 4px 15px rgba(25, 96, 163, 0.25);
 }
 
 .btn-primary:active {
@@ -116,23 +157,23 @@ body {
 
 /* Card Styles */
 .card {
-  background: rgba(18, 33, 49, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
   border-radius: 0.75rem;
   padding: 1.5rem;
   transition: all 0.2s;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
 }
 
 .card:hover {
-  border-color: rgba(76, 215, 246, 0.2);
+  border-color: var(--outline);
   transform: translateY(-2px);
 }
 
 /* Status Badges */
 .badge-error {
-  background-color: rgba(255, 180, 171, 0.1);
-  color: #ffb4ab;
+  background-color: var(--error-container);
+  color: var(--error);
   padding: 0.25rem 0.75rem;
   border-radius: 9999px;
   font-size: 0.875rem;
@@ -140,8 +181,8 @@ body {
 }
 
 .badge-success {
-  background-color: rgba(76, 215, 246, 0.1);
-  color: #4cd7f6;
+  background-color: rgba(67, 151, 106, 0.12);
+  color: #005231;
   padding: 0.25rem 0.75rem;
   border-radius: 9999px;
   font-size: 0.875rem;
@@ -149,8 +190,8 @@ body {
 }
 
 .badge-warning {
-  background-color: rgba(208, 188, 255, 0.1);
-  color: #d0bcff;
+  background-color: var(--status-pending);
+  color: var(--status-pending-text);
   padding: 0.25rem 0.75rem;
   border-radius: 9999px;
   font-size: 0.875rem;
@@ -248,3 +289,106 @@ body {
 .animate-pulse {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+/* Small utility classes to replace common inline styles from stitch export */
+.stitch-mt-6 { margin-top: 6px !important; }
+.stitch-mt-8 { margin-top: 8px !important; }
+.stitch-mt-12 { margin-top: 12px !important; }
+.stitch-mt-16 { margin-top: 16px !important; }
+.stitch-mt-20 { margin-top: 20px !important; }
+.stitch-gap-8 { gap: 8px !important; }
+.stitch-gap-12 { gap: 12px !important; }
+.stitch-gap-20 { gap: 20px !important; }
+.stitch-display-grid { display: grid !important; }
+.stitch-display-flex { display: flex !important; }
+.stitch-inline-flex { display: inline-flex !important; }
+.stitch-justify-between { justify-content: space-between !important; }
+.stitch-items-center { align-items: center !important; }
+.stitch-flex-col { flex-direction: column !important; }
+.stitch-flex-wrap { flex-wrap: wrap !important; }
+.stitch-text-muted { color: var(--on-surface-variant) !important; }
+.stitch-font-700 { font-weight: 700 !important; }
+.stitch-font-800 { font-weight: 800 !important; }
+.stitch-font-18 { font-size: 18px !important; }
+.stitch-font-20 { font-size: 20px !important; }
+.stitch-font-24 { font-size: 24px !important; }
+.stitch-font-28 { font-size: 28px !important; }
+.stitch-font-30 { font-size: 30px !important; }
+.stitch-text-12 { font-size: 12px !important; }
+.stitch-rounded-8 { border-radius: 8px !important; }
+.stitch-rounded-12 { border-radius: 12px !important; }
+.stitch-rounded-18 { border-radius: 18px !important; }
+.stitch-w-100p { width: 100% !important; }
+.stitch-img-cover { width:100% !important; height:208px !important; object-fit:cover !important; border-radius:8px !important; }
+.stitch-maxw-900 { max-width: 900px !important; margin: 20px auto !important; }
+.stitch-maxw-1100 { max-width: 1100px !important; margin: 20px auto !important; }
+.stitch-center-text { text-align: center !important; }
+.stitch-border-left-error { border-left: 4px solid var(--error) !important; padding-left: 16px !important; }
+.stitch-grid-auto-fit-220 { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important; gap: 12px !important; }
+.stitch-grid-auto-fit-200 { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important; gap: 12px !important; }
+.stitch-minh-300 { min-height: 300px !important; }
+.stitch-text-error { color: var(--error) !important; }
+.stitch-minh-100vh { min-height: 100vh !important; }
+.stitch-grid-4cols { display: grid !important; grid-template-columns: repeat(4, minmax(0,1fr)) !important; gap: 16px !important; }
+
+/* Small positioning/layout helpers used across components */
+.stitch-fixed-bottom-right { position: fixed !important; bottom: 16px !important; right: 16px !important; z-index: 50 !important; }
+.stitch-w-340 { width: 340px !important; }
+.stitch-overflow-hidden { overflow: hidden !important; }
+.stitch-border-bottom { border-bottom: 1px solid var(--outline-variant) !important; }
+.stitch-p-12 { padding: 12px !important; }
+.stitch-p-8 { padding: 8px !important; }
+.stitch-p-14 { padding: 14px !important; }
+.stitch-line-height-16 { line-height: 1.6 !important; }
+.stitch-mr-8 { margin-right: 8px !important; }
+.stitch-mb-12 { margin-bottom: 12px !important; }
+.stitch-w-200 { width: 200px !important; }
+.stitch-display-block { display: block !important; }
+.stitch-place-items-center { place-items: center !important; }
+.stitch-items-start { align-items: flex-start !important; }
+.grid-3cols { display: grid !important; grid-template-columns: repeat(3, 1fr) !important; gap: 12px !important; }
+
+/* Material symbol fill helpers */
+.mat-fill { font-variation-settings: "'FILL' 1" !important; }
+.mat-no-fill { font-variation-settings: "'FILL' 0" !important; }
+.stitch-border-top { border-top: 1px solid var(--outline-variant) !important; }
+.stitch-mb-8 { margin-bottom: 8px !important; }
+.stitch-flex-1 { flex: 1 1 0% !important; }
+
+/* Small padding utility used by map inputs */
+.stitch-pl-10 { padding-left: 40px !important; }
+
+/* Small white text variants used across auth/analytics */
+.stitch-text-white-80 { color: var(--on-surface-variant) !important; }
+.stitch-sm-white { font-size: 14px !important; color: var(--on-surface-variant) !important; }
+
+/* Strong font weight utility */
+.stitch-font-900 { font-weight: 900 !important; }
+
+/* Small text sizes used across the dashboard */
+.stitch-text-13 { font-size: 13px !important; }
+.stitch-text-14 { font-size: 14px !important; }
+.stitch-text-11 { font-size: 11px !important; }
+
+/* Map to frontend theme variables */
+.stitch-text-primary { color: var(--color-text) !important; }
+.stitch-text-secondary { color: var(--color-text-secondary) !important; }
+
+/* Icon sizing utility used by lucide icons */
+.stitch-icon-16 { width: 16px !important; height: 16px !important; display: inline-block !important; vertical-align: middle !important; }
+
+/* Small helper for icon container used in stat tiles */
+.stitch-icon-box { border-radius: 12px !important; background: var(--card-bg) !important; padding: 10px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; }
+
+/* Additional small utilities */
+.stitch-gap-10 { gap: 10px !important; }
+.stitch-mt-14 { margin-top: 14px !important; }
+.stitch-minh-160 { min-height: 160px !important; }
+.stitch-items-end { align-items: end !important; }
+.stitch-justify-items-center { justify-items: center !important; }
+.stitch-minw-300 { min-width: 300px !important; }
+.stitch-flex-0-1-340 { flex: 0 1 340px !important; }
+.stitch-rounded-999 { border-radius: 9999px !important; }
+.stitch-gap-14 { gap: 14px !important; }
+.stitch-mt-18 { margin-top: 18px !important; }
+

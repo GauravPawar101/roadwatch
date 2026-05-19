@@ -1,13 +1,15 @@
+import { getRedisClient } from '@roadwatch/redis';
 import bcrypt from 'bcryptjs';
-import { pool } from '../db.js';
 import { getEnv } from '../env.js';
 import { encryptPhone, hashPhone, maskPhone, normalizePhone, phoneLast4 } from '../security/phone.js';
+
+export type OtpPurpose = 'AUTHORITY' | 'CONTRACTOR' | 'CITIZEN';
 
 function generateOtpCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-export async function requestOtp(phone: string): Promise<{ sessionId: string; devCode?: string }> {
+export async function requestOtp(phone: string, purpose: OtpPurpose): Promise<{ ok: true; devCode?: string } | { ok: false; error: string }> {
   const normalized = normalizePhone(phone);
   const phoneHash = hashPhone(normalized);
   const masked = maskPhone(normalized);
@@ -20,43 +22,95 @@ export async function requestOtp(phone: string): Promise<{ sessionId: string; de
     }
   })();
 
+  const redis = getRedisClient();
+
+  // Rate limiting: otp_rate:{phone_hash} TTL 900s
+  const rateKey = `otp_rate:${phoneHash}`;
+  const rateCount = await redis.incr(rateKey);
+  if (rateCount === 1) {
+    await redis.expire(rateKey, 900);
+  }
+  if (rateCount > 3) {
+    return { ok: false, error: 'Rate limit exceeded' };
+  }
+
   const code = generateOtpCode();
   const codeHash = await bcrypt.hash(code, 10);
-  const expiresAt = new Date(Date.now() + getEnv().OTP_TTL_SECONDS * 1000);
+  const ttlSeconds = getEnv().OTP_TTL_SECONDS;
 
-  const r = await pool.query<{ id: string }>(
-    `INSERT INTO otp_sessions (phone_hash, phone_enc, phone_last4, phone, code_hash, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id;`,
-    [phoneHash, enc, last4, masked, codeHash, expiresAt]
-  );
-  const sessionId = r.rows[0]!.id;
+  const key = `otp:${phoneHash}`;
+  const payload: any = {
+    purpose,
+    phone_hash: phoneHash,
+    phone_enc: enc,
+    phone_last4: last4,
+    phone: masked,
+    code_hash: codeHash,
+    attempts: 0,
+    created_at: Date.now()
+  };
+
+  // Use setEx to ensure compatibility with redis client typings
+  await (redis as any).set(String(key), String(JSON.stringify(payload)));
+  await redis.expire(key, ttlSeconds);
 
   // TODO: SMS integration. For now, log.
-  console.log(`[OTP] phone=${masked} code=${code} session=${sessionId} expires=${expiresAt.toISOString()}`);
-
-  if (getEnv().NODE_ENV !== 'production' && getEnv().ALLOW_DEV_OTP_ECHO) {
-    return { sessionId, devCode: code };
+  console.log(`[OTP] phone=${masked} code=${code} key=${key} expires_in=${ttlSeconds}s`);
+  // In development, return the dev code in the response only for known test numbers.
+  if (getEnv().NODE_ENV !== 'production') {
+    try {
+      // Read test-acc.txt at repo root and extract phone numbers to allow dev echo only for them
+      const { readFile } = await import('fs/promises');
+      const raw = await readFile(new URL('../../test-acc.txt', import.meta.url), 'utf8');
+      const phones: string[] = [];
+      for (const line of raw.split(/\r?\n/)) {
+        const m = line.match(/\+?\d{10,15}/g);
+        if (m) phones.push(...m.map((p) => normalizePhone(p)));
+      }
+      if (phones.includes(normalizePhone(normalized))) {
+        return { ok: true, devCode: code };
+      }
+    } catch (err) {
+      // ignore file read errors and fall back to not returning dev code
+    }
   }
-  return { sessionId };
+
+  return { ok: true };
 }
 
-export async function verifyOtp(params: { phone: string; sessionId: string; code: string }): Promise<boolean> {
+export async function verifyOtp(params: { phone: string; code: string; purpose: OtpPurpose; sessionId?: string }): Promise<boolean> {
   const normalized = normalizePhone(params.phone);
   const phoneHash = hashPhone(normalized);
 
-  const r = await pool.query<{ code_hash: string; expires_at: Date; used: boolean }>(
-    `SELECT code_hash, expires_at, used FROM otp_sessions WHERE id = $1 AND phone_hash = $2 LIMIT 1;`,
-    [params.sessionId, phoneHash]
-  );
-  const row = r.rows[0];
-  if (!row) return false;
-  if (row.used) return false;
-  if (new Date(row.expires_at).getTime() < Date.now()) return false;
+  const redis = getRedisClient();
+  const key = `otp:${phoneHash}`;
+  const raw = await redis.get(key);
+  if (!raw) return false;
+  let row: any;
+  try {
+    row = JSON.parse(String(raw));
+  } catch {
+    return false;
+  }
+  if (row.purpose !== params.purpose) return false;
 
   const ok = await bcrypt.compare(params.code, row.code_hash);
-  if (!ok) return false;
+  if (ok) {
+    await redis.del(key);
+    return true;
+  }
 
-  await pool.query(`UPDATE otp_sessions SET used = true WHERE id = $1;`, [params.sessionId]);
-  return true;
+  // Wrong code: increment attempts, delete on too many attempts
+  row.attempts = (row.attempts || 0) + 1;
+  if (row.attempts > 3) {
+    await redis.del(key);
+    return false;
+  }
+
+  // Preserve remaining TTL when updating attempts
+  let ttl = await redis.ttl(key);
+  if (typeof ttl !== 'number' || ttl <= 0) ttl = getEnv().OTP_TTL_SECONDS;
+  await (redis as any).set(String(key), String(JSON.stringify(row)));
+  await redis.expire(key, ttl);
+  return false;
 }

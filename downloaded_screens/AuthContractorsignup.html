@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Contractor Registration | CivicGuard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Use and respect theme classes defined in the Tailwind config -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-surface-variant": "#44474e",
+                    "on-primary": "#ffffff",
+                    "status-resolved": "#003f25",
+                    "on-primary-fixed-variant": "#2e476e",
+                    "outline": "#74777f",
+                    "on-surface": "#0b1c30",
+                    "surface-bright": "#f8f9ff",
+                    "primary-fixed-dim": "#aec7f5",
+                    "on-background": "#0b1c30",
+                    "on-tertiary-fixed-variant": "#005231",
+                    "on-tertiary-fixed": "#002111",
+                    "tertiary-container": "#002614",
+                    "background": "#f8f9ff",
+                    "inverse-primary": "#aec7f5",
+                    "surface-tint": "#465f87",
+                    "primary": "#00091b",
+                    "on-tertiary-container": "#43976a",
+                    "secondary-fixed": "#d3e4ff",
+                    "surface-container-high": "#dce9ff",
+                    "primary-container": "#002045",
+                    "outline-variant": "#c4c6cf",
+                    "tertiary-fixed": "#9ff5c1",
+                    "inverse-on-surface": "#eaf1ff",
+                    "tertiary": "#000b04",
+                    "error": "#ba1a1a",
+                    "status-pending": "#fff7ed",
+                    "surface-dim": "#cbdbf5",
+                    "surface-container-lowest": "#ffffff",
+                    "secondary-fixed-dim": "#a2c9ff",
+                    "on-primary-fixed": "#001b3c",
+                    "on-error": "#ffffff",
+                    "surface-container-low": "#eff4ff",
+                    "primary-fixed": "#d6e3ff",
+                    "surface": "#f8f9ff",
+                    "on-primary-container": "#7089b3",
+                    "surface-variant": "#d3e4fe",
+                    "surface-tint-blue": "#f8f9ff",
+                    "on-error-container": "#93000a",
+                    "secondary-container": "#7db6ff",
+                    "on-secondary-fixed": "#001c38",
+                    "inverse-surface": "#213145",
+                    "surface-container-highest": "#d3e4fe",
+                    "secondary": "#1960a3",
+                    "on-secondary": "#ffffff",
+                    "error-container": "#ffdad6",
+                    "on-secondary-fixed-variant": "#004881",
+                    "status-pending-text": "#7c2d12",
+                    "surface-container": "#e5eeff",
+                    "on-tertiary": "#ffffff",
+                    "on-secondary-container": "#00477f",
+                    "tertiary-fixed-dim": "#83d8a6",
+                    "status-resolved-text": "#ffffff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "margin-desktop": "64px",
+                    "margin-mobile": "16px",
+                    "container-max": "1280px",
+                    "base": "8px",
+                    "gutter": "24px"
+            },
+            "fontFamily": {
+                    "body-sm": ["Inter"],
+                    "label-md": ["Inter"],
+                    "display-lg": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "body-md": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "display-lg-mobile": ["Inter"]
+            },
+            "fontSize": {
+                    "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                    "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg": ["30px", {"lineHeight": "38px", "fontWeight": "600"}],
+                    "display-lg-mobile": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8f9ff;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .level-1-shadow {
+            box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.05);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex items-center justify-center p-margin-mobile md:p-margin-desktop">
+<!-- Suppressing Navigation Shell for Transactional/Auth Flow -->
+<main class="w-full max-w-[640px] animate-in fade-in duration-700">
+<!-- Logo Header -->
+<div class="flex justify-center mb-base text-center">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-4xl" data-icon="account_balance">account_balance</span>
+<span class="text-headline-md font-headline-md font-bold text-on-surface">CivicGuard</span>
+</div>
+</div>
+<!-- Main Content Card -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl level-1-shadow overflow-hidden">
+<!-- Hero Image for Context -->
+<div class="h-48 w-full relative overflow-hidden">
+<img alt="Infrastructure project site" class="w-full h-full object-cover" data-alt="A professional architectural photograph of a large-scale urban infrastructure project under construction. The scene is illuminated by crisp, mid-day sunlight that highlights the clean lines of steel and concrete. The color palette is dominated by deep blues of the sky and professional greys, reflecting an institutional and stable atmosphere. Workers in safety gear are visible in the distance, conveying a sense of transparency and active progress in a modern city environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA4pYHggAiCcGUWrOMNa8VIhLgEuL6y-_cGImF5nAH6iQTfnvMzxse6PH-Daku_fiu9WIVjYCTyv8IyPGelQRWLO5-tr8-SYO49vjL90fn5esc8XQUlxus0DPIgMHyTxdxbhPVep3Rn945tvUsP3AtCsvKSQqfW1HCABERqjkoxHYN_w4Wyc6eU8BfvAGi5GfT7zEMjf4sF01U-56nZsiyuZ2VqLCCs5RRuZxFpirO8tVYwBhGnC7cbeOHEND_orEZfHP2JDgYSXVw"/>
+<div class="absolute inset-0 bg-gradient-to-t from-primary/60 to-transparent"></div>
+<div class="absolute bottom-4 left-8 right-8">
+<h1 class="text-on-primary font-headline-lg text-headline-lg">Contractor Registration</h1>
+</div>
+</div>
+<!-- Card Body -->
+<div class="p-8 space-y-6">
+<!-- High-Visibility Notice -->
+<div class="bg-surface-container-low border-l-4 border-primary p-6 rounded-r-lg">
+<div class="flex items-start gap-4">
+<span class="material-symbols-outlined text-primary mt-1" data-icon="verified_user">verified_user</span>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface mb-2">Institutional Access Protocol</h2>
+<p class="font-body-md text-body-md text-on-surface-variant leading-relaxed">
+                                CivicGuard operates as a platform for radical transparency. To maintain institutional authority, all contractor accounts require formal vetting against the National Infrastructure Registry.
+                            </p>
+</div>
+</div>
+</div>
+<!-- Guidance Steps -->
+<div class="space-y-4">
+<h3 class="font-label-md text-label-md text-outline uppercase tracking-wider">Required Documentation</h3>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="flex items-center gap-3 p-3 bg-surface-bright border border-outline-variant rounded-xl">
+<span class="material-symbols-outlined text-secondary" data-icon="badge">badge</span>
+<span class="font-body-sm text-body-sm text-on-surface">Valid Trade License</span>
+</div>
+<div class="flex items-center gap-3 p-3 bg-surface-bright border border-outline-variant rounded-xl">
+<span class="material-symbols-outlined text-secondary" data-icon="policy">policy</span>
+<span class="font-body-sm text-body-sm text-on-surface">Insurance Certificates</span>
+</div>
+<div class="flex items-center gap-3 p-3 bg-surface-bright border border-outline-variant rounded-xl">
+<span class="material-symbols-outlined text-secondary" data-icon="history_edu">history_edu</span>
+<span class="font-body-sm text-body-sm text-on-surface">Project Track Record</span>
+</div>
+<div class="flex items-center gap-3 p-3 bg-surface-bright border border-outline-variant rounded-xl">
+<span class="material-symbols-outlined text-secondary" data-icon="account_balance_wallet">account_balance_wallet</span>
+<span class="font-body-sm text-body-sm text-on-surface">Tax Compliance PIN</span>
+</div>
+</div>
+</div>
+<!-- Informational Note -->
+<p class="font-body-sm text-body-sm text-on-surface-variant italic">
+                    Note: Registration is only open to legally registered entities. Individual independent contractors must apply through the CivicGuard Partner Program.
+                </p>
+<!-- Actions -->
+<div class="pt-4 flex flex-col gap-3">
+<button class="bg-primary text-on-primary font-label-md text-label-md h-12 rounded-xl flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all w-full">
+                        Begin Institutional Application
+                        <span class="material-symbols-outlined text-[18px]" data-icon="arrow_forward">arrow_forward</span>
+</button>
+<button class="bg-transparent text-secondary font-label-md text-label-md h-12 rounded-xl flex items-center justify-center gap-2 hover:bg-surface-container-low transition-colors w-full border border-secondary">
+                        Return to Public Portal
+                    </button>
+</div>
+</div>
+<!-- Footer Meta -->
+<div class="bg-surface-container-low px-8 py-4 border-t border-outline-variant flex justify-between items-center">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-on-tertiary-container"></span>
+<span class="text-label-md font-label-md text-on-surface-variant">System Status: Operational</span>
+</div>
+<span class="text-label-md font-label-md text-outline">v2.4.0-Enterprise</span>
+</div>
+</div>
+<!-- Supporting Help Links -->
+<div class="mt-8 flex justify-center gap-8">
+<a class="text-label-md font-label-md text-secondary hover:underline flex items-center gap-1" href="#">
+<span class="material-symbols-outlined text-[16px]" data-icon="help_outline">help_outline</span>
+                Registration Guide
+            </a>
+<a class="text-label-md font-label-md text-secondary hover:underline flex items-center gap-1" href="#">
+<span class="material-symbols-outlined text-[16px]" data-icon="support_agent">support_agent</span>
+                Contact Support
+            </a>
+<a class="text-label-md font-label-md text-secondary hover:underline flex items-center gap-1" href="#">
+<span class="material-symbols-outlined text-[16px]" data-icon="gavel">gavel</span>
+                Legal Terms
+            </a>
+</div>
+</main>
+</body></html>

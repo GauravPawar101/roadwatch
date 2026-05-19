@@ -4,6 +4,8 @@
   "packageManager": "pnpm@8.10.0",
   "workspaces": [
     "apps/*",
+    "backend-api",
+    "frontend",
     "packages/*",
     "packages/core",
     "packages/config",
@@ -23,6 +25,7 @@
     "loadtest": "node tools/load/run-k6.mjs",
     "chaostest": "node tools/chaos/run.mjs",
     "seed:backend": "pnpm -F @roadwatch/gateway-api seed:backend",
+    "seed:demo": "pnpm -F @roadwatch/gateway-api seed:demo",
     "seed:fabric": "tsx scripts/fabric-ledger.ts seed",
     "query:fabric:history": "tsx scripts/fabric-ledger.ts history",
     "query:fabric:by-road": "tsx scripts/fabric-ledger.ts by-road",
@@ -30,7 +33,8 @@
     "start": "pnpm --filter @roadwatch/mobile-host start",
     "ios": "pnpm --filter @roadwatch/mobile-host ios",
     "android": "pnpm --filter @roadwatch/mobile-host android",
-    "pod-install": "pnpm --filter @roadwatch/mobile-host pod-install"
+    "pod-install": "pnpm --filter @roadwatch/mobile-host pod-install",
+    "migrate:pg2cassandra": "node scripts/migrate/index.js"
   },
   "devDependencies": {
     "@grpc/grpc-js": "^1.13.4",

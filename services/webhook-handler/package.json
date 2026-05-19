@@ -1,0 +1,22 @@
+{
+  "name": "@roadwatch/webhook-handler",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "tsx index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "kafkajs": "^2.2.4",
+    "cassandra-driver": "^4.6.0",
+    "axios": "^1.7.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.8.3"
+  }
+}

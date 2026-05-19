@@ -1,4 +1,4 @@
-import { pool } from '../db.js';
+import { execute } from '../cassandra.js';
 import { getEnv } from '../env.js';
 import { decryptPhone } from '../security/phone.js';
 import type { NotificationChannel, NotificationDeliveryStatus } from './domain.js';
@@ -88,49 +88,44 @@ async function dispatchDueDeliveries(): Promise<void> {
   const now = new Date();
 
   // Fetch due deliveries with prefs + user details.
-  const r = await pool.query<DeliveryRow>(
-    `
-    SELECT
-      d.id,
-      d.user_id,
-      u.phone_enc,
-      u.phone_masked,
-      u.phone as phone_legacy,
-      u.role,
-      u.districts,
-      u.zones,
-      d.channel,
-      d.scheduled_for,
-      d.batch_key,
-      n.id as notification_id,
-      n.title,
-      n.body,
-      n.data,
-      n.critical,
-      n.district,
-      n.zone,
-      n.road_id,
-      p.enabled_channels,
-      p.dnd_enabled,
-      p.dnd_start_minutes,
-      p.dnd_end_minutes,
-      p.time_zone,
-      p.authority_batching,
-      p.digest_minutes
-    FROM notification_deliveries d
-    JOIN notifications n ON n.id = d.notification_id
-    JOIN users u ON u.id = d.user_id
-    LEFT JOIN notification_preferences p ON p.user_id = d.user_id
-    WHERE d.status = 'PENDING' AND d.scheduled_for <= now()
-    ORDER BY d.scheduled_for ASC
-    LIMIT 100;
-    `
-  );
-
+  // Fetch due deliveries; join related rows in application code
+  const dRes = await execute('SELECT id, user_id, channel, scheduled_for, batch_key, notification_id FROM notification_deliveries WHERE status = ? AND scheduled_for <= ? LIMIT ?', ['PENDING', new Date(), 100], { prepare: true });
   const digestGroups = new Map<string, DeliveryRow[]>();
   const immediateRows: DeliveryRow[] = [];
 
-  for (const row of r.rows) {
+  for (const d of dRes.rows) {
+    const nRes = await execute('SELECT id, title, body, data, critical, district, zone, road_id FROM notifications WHERE id = ? LIMIT 1', [d.notification_id], { prepare: true });
+    const uRes = await execute('SELECT id, phone_enc, phone_masked, phone, role, districts, zones FROM users WHERE id = ? LIMIT 1', [d.user_id], { prepare: true });
+    const pRes = await execute('SELECT enabled_channels, dnd_enabled, dnd_start_minutes, dnd_end_minutes, time_zone, authority_batching, digest_minutes FROM notification_preferences WHERE user_id = ? LIMIT 1', [d.user_id], { prepare: true });
+    const row: DeliveryRow = {
+      id: d.id,
+      user_id: d.user_id,
+      phone_enc: uRes.rows[0]?.phone_enc ?? null,
+      phone_masked: uRes.rows[0]?.phone_masked ?? null,
+      phone_legacy: uRes.rows[0]?.phone ?? null,
+      role: uRes.rows[0]?.role ?? 'CITIZEN',
+      districts: uRes.rows[0]?.districts ?? [],
+      zones: uRes.rows[0]?.zones ?? [],
+      channel: d.channel,
+      scheduled_for: d.scheduled_for,
+      batch_key: d.batch_key,
+      notification_id: d.notification_id,
+      title: nRes.rows[0]?.title ?? '',
+      body: nRes.rows[0]?.body ?? '',
+      data: nRes.rows[0]?.data ?? {},
+      critical: nRes.rows[0]?.critical ?? false,
+      district: nRes.rows[0]?.district ?? null,
+      zone: nRes.rows[0]?.zone ?? null,
+      road_id: nRes.rows[0]?.road_id ?? null,
+      enabled_channels: pRes.rows[0]?.enabled_channels ?? ['IN_APP', 'FCM'],
+      dnd_enabled: pRes.rows[0]?.dnd_enabled ?? false,
+      dnd_start_minutes: pRes.rows[0]?.dnd_start_minutes ?? 0,
+      dnd_end_minutes: pRes.rows[0]?.dnd_end_minutes ?? 0,
+      time_zone: pRes.rows[0]?.time_zone ?? 'UTC',
+      authority_batching: pRes.rows[0]?.authority_batching ?? 'IMMEDIATE',
+      digest_minutes: pRes.rows[0]?.digest_minutes ?? 60
+    };
+
     if (row.batch_key) {
       const groupKey = `${row.user_id}:${row.channel}:${row.batch_key}`;
       const existing = digestGroups.get(groupKey);
@@ -159,8 +154,8 @@ async function processSingleDelivery(params: { now: Date; row: DeliveryRow }): P
   }
 
   const next = computeNextSchedule({ now, row });
-  if (next.getTime() - now.getTime() > 30_000) {
-    await pool.query(`UPDATE notification_deliveries SET scheduled_for = $1 WHERE id = $2;`, [next, row.id]);
+    if (next.getTime() - now.getTime() > 30_000) {
+    await execute('UPDATE notification_deliveries SET scheduled_for = ? WHERE id = ?', [next, row.id], { prepare: true });
     return;
   }
 
@@ -191,19 +186,13 @@ async function processDigestGroup(params: { now: Date; rows: DeliveryRow[] }): P
 
   const enabledChannels = Array.isArray(first.enabled_channels) ? first.enabled_channels : ['IN_APP', 'FCM'];
   if (!enabledChannels.includes(first.channel)) {
-    await pool.query(
-      `UPDATE notification_deliveries SET status = 'SKIPPED' WHERE id = ANY($1::uuid[]);`,
-      [rows.map((x) => x.id)]
-    );
+    for (const r of rows) await execute('UPDATE notification_deliveries SET status = ? WHERE id = ?', ['SKIPPED', r.id], { prepare: true });
     return;
   }
 
   const next = computeNextSchedule({ now, row: first });
-  if (next.getTime() - now.getTime() > 30_000) {
-    await pool.query(
-      `UPDATE notification_deliveries SET scheduled_for = $1 WHERE id = ANY($2::uuid[]);`,
-      [next, rows.map((x) => x.id)]
-    );
+    if (next.getTime() - now.getTime() > 30_000) {
+    for (const r of rows) await execute('UPDATE notification_deliveries SET scheduled_for = ? WHERE id = ?', [next, r.id], { prepare: true });
     return;
   }
 
@@ -232,33 +221,17 @@ async function processDigestGroup(params: { now: Date; rows: DeliveryRow[] }): P
       roadId: first.road_id
     });
 
-    await pool.query(
-      `UPDATE notification_deliveries SET status = 'SENT', sent_at = now() WHERE id = ANY($1::uuid[]);`,
-      [rows.map((x) => x.id)]
-    );
+    for (const r of rows) await execute('UPDATE notification_deliveries SET status = ?, sent_at = ? WHERE id = ?', ['SENT', new Date(), r.id], { prepare: true });
   } catch (e: any) {
     const msg = e?.message ?? 'Send failed';
-    await pool.query(
-      `UPDATE notification_deliveries SET status = 'FAILED', error = $1 WHERE id = ANY($2::uuid[]);`,
-      [msg, rows.map((x) => x.id)]
-    );
+    for (const r of rows) await execute('UPDATE notification_deliveries SET status = ?, error = ? WHERE id = ?', ['FAILED', msg, r.id], { prepare: true });
   }
 }
 
 async function markDelivery(id: string, status: NotificationDeliveryStatus, error: string | null) {
-  await pool.query(
-    `UPDATE notification_deliveries SET status = $1, sent_at = CASE WHEN $1 = 'SENT' THEN now() ELSE sent_at END, error = $2 WHERE id = $3;`,
-    [status, error, id]
-  );
+  await execute('UPDATE notification_deliveries SET status = ?, sent_at = ?, error = ? WHERE id = ?', [status, status === 'SENT' ? new Date() : null, error, id], { prepare: true });
 }
 
 async function markDeliveries(ids: string[], status: NotificationDeliveryStatus, error: string | null) {
-  await pool.query(
-    `UPDATE notification_deliveries
-     SET status = $1,
-         sent_at = CASE WHEN $1 = 'SENT' THEN now() ELSE sent_at END,
-         error = $2
-     WHERE id = ANY($3::uuid[]);`,
-    [status, error, ids]
-  );
+  for (const id of ids) await execute('UPDATE notification_deliveries SET status = ?, sent_at = ?, error = ? WHERE id = ?', [status, status === 'SENT' ? new Date() : null, error, id], { prepare: true });
 }

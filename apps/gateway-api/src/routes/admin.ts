@@ -20,7 +20,8 @@ router.post('/users', requireAuth, requireRole(['CE']), async (req, res) => {
   const body = z
     .object({
       phone: z.string().min(6),
-      role: z.enum(['CE', 'EE']),
+      username: z.string().min(3).optional(),
+      role: z.enum(['CE', 'EE', 'CONTRACTOR']),
       govtId: z.string().min(1).optional(),
       districts: z.array(z.string()).optional().default([]),
       zones: z.array(z.string()).optional().default([])
@@ -29,6 +30,7 @@ router.post('/users', requireAuth, requireRole(['CE']), async (req, res) => {
 
   const user = await upsertUser({
     phone: body.phone,
+    username: body.username ?? null,
     role: body.role,
     govtId: body.govtId ?? null,
     districts: body.districts,
@@ -38,6 +40,7 @@ router.post('/users', requireAuth, requireRole(['CE']), async (req, res) => {
   res.json({
     user: {
       id: user.id,
+      username: user.username,
       phone: user.phone,
       govtId: user.govtId,
       role: user.role,
@@ -54,10 +57,11 @@ router.get('/users', requireAuth, requireRole(['CE']), async (req, res) => {
     })
     .parse(req.query);
 
-  const users = await listUsers({ roles: ['CE', 'EE'], limit: query.limit });
+  const users = await listUsers({ roles: ['CE', 'EE', 'CONTRACTOR'], limit: query.limit });
   res.json({
     users: users.map((u) => ({
       id: u.id,
+      username: u.username,
       phone: u.phone,
       govtId: u.govtId,
       role: u.role,

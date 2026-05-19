@@ -1,6 +1,6 @@
 import { trackAnalyticsEvent } from '../../analytics/service.js';
 import type { JwtClaims } from '../../auth/jwt.js';
-import { pool } from '../../db.js';
+import { execute } from '../../cassandra.js';
 import { createAndFanoutNotification } from '../../notifications/service.js';
 import { assertDistrictAccess, assertZoneAccess } from '../../rbac.js';
 import { broadcastComplaintEvent } from '../../realtime/sse.js';
@@ -96,24 +96,17 @@ async function updateComplaintStatus(params: {
   const actor = requireActor(params.actor);
   requireAuthorityRole(actor, ['CE', 'EE']);
 
-  const complaint = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng, fabric_txid FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.complaintId]
-  );
-  const row = complaint.rows[0];
+  const complaintRes = await execute('SELECT id, district, zone, status, description, lat, lng, fabric_txid, updated_at FROM complaints WHERE id = ? LIMIT 1', [params.complaintId], { prepare: true });
+  const row = complaintRes.rows[0];
   if (!row) throw new Error('NOT_FOUND');
 
   if (!assertDistrictAccess(actor as any, row.district) || !assertZoneAccess(actor as any, row.zone)) {
     throw new Error('FORBIDDEN');
   }
 
-  await pool.query(`UPDATE complaints SET status = $2, updated_at = now() WHERE id = $1;`, [params.complaintId, params.newStatus]);
+  await execute('UPDATE complaints SET status = ?, updated_at = ? WHERE id = ?', [params.newStatus, new Date(), params.complaintId], { prepare: true });
 
-  await pool.query(
-    `INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details)
-     VALUES ($1, $2, $3, 'COMPLAINT_STATUS_CHANGED', 'complaint', $4, $5);`,
-    [actor.sub, actor.phoneHash, actor.phone, params.complaintId, { from: row.status, to: params.newStatus, notes: params.notes ?? null, assignedTo: params.assignedTo ?? null }]
-  );
+  await execute('INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [actor.sub, actor.phoneHash, actor.phone, 'COMPLAINT_STATUS_CHANGED', 'complaint', params.complaintId, JSON.stringify({ from: row.status, to: params.newStatus, notes: params.notes ?? null, assignedTo: params.assignedTo ?? null }), new Date()], { prepare: true });
 
   await trackAnalyticsEvent({
     type: 'COMPLAINT_STATUS_CHANGED',
@@ -126,10 +119,7 @@ async function updateComplaintStatus(params: {
     properties: { from: row.status, to: params.newStatus, notes: params.notes ?? null, assignedTo: params.assignedTo ?? null }
   });
 
-  const updated = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng, updated_at, fabric_txid FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.complaintId]
-  );
+  const updated = await execute('SELECT id, district, zone, status, description, lat, lng, updated_at, fabric_txid FROM complaints WHERE id = ? LIMIT 1', [params.complaintId], { prepare: true });
   const u = updated.rows[0];
 
   broadcastComplaintEvent({
@@ -170,31 +160,41 @@ async function getJurisdictionAnalytics(params: {
   requireAuthorityRole(actor, ['CE', 'EE']);
 
   // Interpret regionCodes as district codes when provided; otherwise fall back to actor scope.
-  const districts = params.regionCodes?.length ? params.regionCodes : actor.districts;
+  const districts = params.regionCodes?.length ? params.regionCodes : actor.districts || [];
 
   // byStatus
   const where: string[] = [];
   const sqlParams: any[] = [];
 
-  if (actor.role !== 'CE' && !actor.districts.includes('ALL')) {
-    sqlParams.push(actor.districts);
-    where.push(`district = ANY($${sqlParams.length}::text[])`);
+  const actorDistricts = actor.districts || [];
+  if (actor.role !== 'CE' && !actorDistricts.includes('ALL')) {
+    const ds = actorDistricts;
+    if (Array.isArray(ds) && ds.length) {
+      const placeholders = ds.map(() => '?').join(', ');
+      where.push(`district IN (${placeholders})`);
+      sqlParams.push(...ds);
+    }
   } else if (districts?.length && !districts.includes('ALL')) {
     // CE can request filtered districts.
-    sqlParams.push(districts);
-    where.push(`district = ANY($${sqlParams.length}::text[])`);
+    const ds = districts;
+    if (Array.isArray(ds) && ds.length) {
+      const placeholders = ds.map(() => '?').join(', ');
+      where.push(`district IN (${placeholders})`);
+      sqlParams.push(...ds);
+    }
   }
 
-  const byStatusRows = await pool.query(
-    `SELECT status, count(*)::int as count FROM complaints ${where.length ? `WHERE ${where.join(' AND ')}` : ''} GROUP BY status;`,
-    sqlParams
-  );
-
+  // Aggregate by fetching per-district counts and folding in application code.
   const byStatus: Record<string, number> = {};
-  for (const r of byStatusRows.rows) byStatus[r.status] = r.count;
+  for (const d of districts) {
+    const res = await execute('SELECT status FROM complaints WHERE district = ? ALLOW FILTERING', [d], { prepare: true });
+    for (const r of res.rows) {
+      byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+    }
+  }
 
   // budget utilization (same deterministic logic as /authority/budget)
-  const pending = byStatus['PENDING'] ?? 0;
+  const pending = byStatus['FILED'] ?? 0;
   const inProgress = byStatus['IN_PROGRESS'] ?? 0;
   const escalated = byStatus['ESCALATED'] ?? 0;
 
@@ -213,23 +213,25 @@ async function getJurisdictionAnalytics(params: {
     perfParams.push(...sqlParams);
   }
 
-  const perfRows = await pool.query(
-    `
-      SELECT a.contractor_id as contractorId,
-             coalesce(ct.name, a.contractor_id) as contractorName,
-             count(*)::int as assignedCount,
-             sum(case when c.status = 'RESOLVED' then 1 else 0 end)::int as resolvedCount,
-             sum(case when c.status <> 'RESOLVED' then 1 else 0 end)::int as openCount
-      FROM complaint_assignments a
-      JOIN complaints c ON c.id = a.complaint_id
-      LEFT JOIN contractors ct ON ct.id = a.contractor_id
-      ${perfWhere.length ? `WHERE ${perfWhere.join(' AND ')}` : ''}
-      GROUP BY a.contractor_id, ct.name
-      ORDER BY assignedCount DESC
-      LIMIT 25;
-    `,
-    perfParams
-  );
+  // Compute contractor performance by querying assignments and complaints and joining in app code.
+  const contractorMap: Record<string, { contractorName: string; assignedCount: number; resolvedCount: number; openCount: number }> = {};
+  // Fetch assignments for districts
+  for (const d of districts) {
+    const aRes = await execute('SELECT contractor_id, complaint_id FROM complaint_assignments WHERE district = ? ALLOW FILTERING', [d], { prepare: true });
+    for (const a of aRes.rows) {
+      const cid = a.contractor_id;
+      contractorMap[cid] = contractorMap[cid] || { contractorName: cid, assignedCount: 0, resolvedCount: 0, openCount: 0 };
+      contractorMap[cid].assignedCount += 1;
+      const cRes = await execute('SELECT status FROM complaints WHERE id = ? LIMIT 1', [a.complaint_id], { prepare: true });
+      const status = cRes.rows && cRes.rows[0] ? cRes.rows[0].status : null;
+      if (status === 'RESOLVED') contractorMap[cid].resolvedCount += 1;
+      else contractorMap[cid].openCount += 1;
+      const ctRes = await execute('SELECT name FROM contractors WHERE id = ? LIMIT 1', [cid], { prepare: true });
+      if (ctRes.rows && ctRes.rows[0]) contractorMap[cid].contractorName = ctRes.rows[0].name || cid;
+    }
+  }
+
+  const perfRows = Object.entries(contractorMap).map(([contractorId, info]) => ({ contractorId, contractorName: info.contractorName, assignedCount: info.assignedCount, resolvedCount: info.resolvedCount, openCount: info.openCount }));
 
   const groupBy = params.groupBy;
 
@@ -244,7 +246,7 @@ async function getJurisdictionAnalytics(params: {
       estimatedCommittedINR: estimatedCommitted,
       estimatedAvailableINR: estimatedAvailable
     },
-    contractorPerformance: perfRows.rows
+    contractorPerformance: perfRows
   };
 }
 
@@ -260,36 +262,21 @@ async function assignInspector(params: {
   // NOTE: The gateway DB currently tracks contractor assignments (complaint_assignments).
   // This tool maps inspectorId -> contractor_id until a first-class inspector registry exists.
 
-  const complaint = await pool.query(`SELECT id, district, zone, status, lat, lng, fabric_txid FROM complaints WHERE id = $1 LIMIT 1;`, [
-    params.complaintId
-  ]);
-  const row = complaint.rows[0];
+  const complaintRes = await execute('SELECT id, district, zone, status, lat, lng, fabric_txid, created_at FROM complaints WHERE id = ? LIMIT 1', [params.complaintId], { prepare: true });
+  const row = complaintRes.rows[0];
   if (!row) throw new Error('NOT_FOUND');
 
   if (!assertDistrictAccess(actor as any, row.district) || !assertZoneAccess(actor as any, row.zone)) {
     throw new Error('FORBIDDEN');
   }
 
-  const contractor = await pool.query(`SELECT id FROM contractors WHERE id = $1 LIMIT 1;`, [params.inspectorId]);
-  if (!contractor.rows[0]) throw new Error('UNKNOWN_ASSIGNEE');
+  const contractorRes = await execute('SELECT id FROM contractors WHERE id = ? LIMIT 1', [params.inspectorId], { prepare: true });
+  if (!contractorRes.rows || !contractorRes.rows[0]) throw new Error('UNKNOWN_ASSIGNEE');
 
-  await pool.query(
-    `INSERT INTO complaint_assignments (complaint_id, contractor_id, expected_resolution_days, assigned_by_user_id, notes)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (complaint_id)
-     DO UPDATE SET
-       contractor_id = EXCLUDED.contractor_id,
-       assigned_by_user_id = EXCLUDED.assigned_by_user_id,
-       assigned_at = now(),
-       notes = EXCLUDED.notes;`,
-    [params.complaintId, params.inspectorId, null, actor.sub, params.notes ?? null]
-  );
+  // Upsert assignment
+  await execute('INSERT INTO complaint_assignments (complaint_id, contractor_id, expected_resolution_days, assigned_by_user_id, notes, assigned_at) VALUES (?, ?, ?, ?, ?, ?)', [params.complaintId, params.inspectorId, null, actor.sub, params.notes ?? null, new Date()], { prepare: true });
 
-  await pool.query(
-    `INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details)
-     VALUES ($1, $2, $3, 'COMPLAINT_ASSIGNED', 'complaint', $4, $5);`,
-    [actor.sub, actor.phoneHash, actor.phone, params.complaintId, { assigneeId: params.inspectorId, notes: params.notes ?? null }]
-  );
+  await execute('INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [actor.sub, actor.phoneHash, actor.phone, 'COMPLAINT_ASSIGNED', 'complaint', params.complaintId, JSON.stringify({ assigneeId: params.inspectorId, notes: params.notes ?? null }), new Date()], { prepare: true });
 
   await trackAnalyticsEvent({
     type: 'COMPLAINT_ASSIGNED',
@@ -326,11 +313,8 @@ async function uploadRepairProof(params: {
   const actor = requireActor(params.actor);
   requireAuthorityRole(actor, ['CE', 'EE']);
 
-  const complaint = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng, updated_at, fabric_txid FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.complaintId]
-  );
-  const row = complaint.rows[0];
+  const complaintRes2 = await execute('SELECT id, district, zone, status, description, lat, lng, updated_at, fabric_txid FROM complaints WHERE id = ? LIMIT 1', [params.complaintId], { prepare: true });
+  const row = complaintRes2.rows[0];
   if (!row) throw new Error('NOT_FOUND');
 
   if (!assertDistrictAccess(actor as any, row.district) || !assertZoneAccess(actor as any, row.zone)) {
@@ -338,13 +322,9 @@ async function uploadRepairProof(params: {
   }
 
   // Mark resolved and record proof metadata in audit_log details.
-  await pool.query(`UPDATE complaints SET status = 'RESOLVED', updated_at = now() WHERE id = $1;`, [params.complaintId]);
+  await execute('UPDATE complaints SET status = ?, updated_at = ? WHERE id = ?', ['RESOLVED', new Date(), params.complaintId], { prepare: true });
 
-  await pool.query(
-    `INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details)
-     VALUES ($1, $2, $3, 'REPAIR_PROOF_UPLOADED', 'complaint', $4, $5);`,
-    [actor.sub, actor.phoneHash, actor.phone, params.complaintId, { mediaIds: params.mediaIds, workDescription: params.workDescription }]
-  );
+  await execute('INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [actor.sub, actor.phoneHash, actor.phone, 'REPAIR_PROOF_UPLOADED', 'complaint', params.complaintId, JSON.stringify({ mediaIds: params.mediaIds, workDescription: params.workDescription }), new Date()], { prepare: true });
 
   await trackAnalyticsEvent({
     type: 'COMPLAINT_RESOLVED',
@@ -357,10 +337,7 @@ async function uploadRepairProof(params: {
     properties: { proofMediaIds: params.mediaIds, workDescription: params.workDescription }
   });
 
-  const updated = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng, updated_at, fabric_txid FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.complaintId]
-  );
+  const updated = await execute('SELECT id, district, zone, status, description, lat, lng, updated_at, fabric_txid FROM complaints WHERE id = ? LIMIT 1', [params.complaintId], { prepare: true });
   const u = updated.rows[0];
 
   broadcastComplaintEvent({

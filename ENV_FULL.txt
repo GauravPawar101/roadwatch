@@ -1,0 +1,185 @@
+RoadWatch — Full environment variables inventory
+
+This file maps environment variables → recommended .env file to set them in → brief source / where to obtain values.
+
+INSTRUCTIONS
+- For local dev: copy `.env.template` or `.env.example` to `./.env` and edit values.
+- Prefer service-specific `.env` files:
+  - `apps/gateway-api/.env`
+  - `backend-api/.env`
+  - `services/<service-name>/.env`
+  - `frontend/.env`
+
+A. Infrastructure / repo root (./.env)
+- CASSANDRA_CONTACT_POINTS
+  - Where to set: repo root `./.env` or `apps/gateway-api/.env` or `backend-api/.env`
+  - Source/example: `.env.example` / `.env.template`
+  - What it is: Cassandra host:port or comma list (e.g. `127.0.0.1:9042` or `cassandra:9042` in docker)
+
+- CASSANDRA_KEYSPACE
+  - Where to set: repo root or service `.env`
+  - Example: `roadwatch`
+
+- CASSANDRA_LOCAL_DC
+  - Where to set: repo root or service `.env`
+  - Example: `datacenter1`
+
+- KAFKA_BROKERS / KAFKA_BROKER
+  - Where to set: repo root or service `.env` (gateway/backend/service)
+  - Example: `localhost:29092` or `127.0.0.1:9094`
+  - NOTE: Used when running local Kafka (docker). If using Upstash, use the UPSTASH_KAFKA_* vars instead.
+
+- UPSTASH_KAFKA_REST_URL
+- UPSTASH_KAFKA_REST_USERNAME
+- UPSTASH_KAFKA_REST_PASSWORD
+- UPSTASH_KAFKA_REST_TOKEN
+  - Where to set: repo root or `apps/gateway-api/.env` or `backend-api/.env`
+  - Obtain from: Upstash console (REST Kafka credentials)
+
+- REDIS_URL
+  - Where to set: repo root or service `.env`
+  - Example: `redis://127.0.0.1:16379/0` for local, or use Upstash REST below
+
+- UPSTASH_REDIS_REST_URL
+- UPSTASH_REDIS_REST_TOKEN
+  - Where to set: repo root or `apps/gateway-api/.env`
+  - Obtain from: Upstash console
+
+B. apps/gateway-api (recommended: `apps/gateway-api/.env`)
+- PORT
+  - Example: `3100`
+- NODE_ENV
+- LOG_LEVEL
+- JWT_SECRET
+- ACCESS_SECRET
+- REFRESH_SECRET
+  - What/where: JWT signing secrets; generate securely for production. Defaults in `apps/gateway-api/src/env.ts` for local.
+
+- OTP_TTL_SECONDS
+- ALLOW_DEV_OTP_ECHO
+
+- PHONE_HASH_PEPPER
+- PHONE_ENC_KEY
+  - PII protection keys — optional but recommended for production; generate secure values.
+
+- GEMINI_API_KEY
+- GEMINI_MODEL
+- GEMINI_API_BASE_URL
+  - Obtain from: Google Cloud (Generative AI / Gemini API)
+
+- OLLAMA_BASE_URL
+- OLLAMA_MODEL
+- LLAMACPP_BASE_URL
+- LLAMACPP_MODEL
+  - For self-hosted LLM endpoints (Ollama, llama.cpp)
+
+- LLM_FALLBACK_ORDER
+  - Example: `gemini,ollama,llamacpp`
+
+- PINATA_JWT
+- PINATA_GATEWAY
+- PINATA_API_KEY
+- PINATA_API_SECRET
+  - Obtain from: Pinata dashboard
+
+- UPSTASH_REDIS_REST_URL
+- UPSTASH_REDIS_REST_TOKEN
+  - When using Upstash Redis
+
+- KAFKA_BROKER / KAFKA_BROKERS (gateway can publish events)
+- UPSTASH_KAFKA_REST_* (alternative to local Kafka)
+
+- FABRIC-related (only if using Fabric components):
+  - FABRIC_PEER_ENDPOINT
+  - FABRIC_PEER_HOST_ALIAS
+  - FABRIC_TLS_CERT_PATH
+  - FABRIC_MSP_ID
+  - FABRIC_IDENTITY_CERT_PATH
+  - FABRIC_IDENTITY_KEY_PATH
+  - FABRIC_CHANNEL
+  - FABRIC_CHAINCODE
+  - Source/examples: `.env.template`, `fabric/` folder (certs/paths)
+
+C. backend-api (recommended: `backend-api/.env` or repo root `.env`)
+- BACKEND_PORT (default `4001`)
+- CASSANDRA_* (same as A)
+
+- Kafka / Upstash Kafka
+  - KAFKA_BROKERS / KAFKA_BROKER
+  - KAFKA_SASL_USERNAME
+  - KAFKA_SASL_PASSWORD
+  - KAFKA_SASL_MECHANISM
+  - KAFKA_CLIENT_ID
+  - KAFKA_SSL
+  - UPSTASH_KAFKA_REST_URL, UPSTASH_KAFKA_REST_TOKEN, UPSTASH_KAFKA_REST_USERNAME, UPSTASH_KAFKA_REST_PASSWORD
+  - See: `backend-api/src/services/kafka.ts` for exact env keys and fallback order
+
+- UPSTASH_REDIS_REST_URL & UPSTASH_REDIS_REST_TOKEN
+
+- JWT_PUBLIC_KEY (used to verify tokens in `backend-api/src/middleware/jwt.ts`)
+
+- KAFKA_TOPIC_COMPLAINTS (default `complaint.submitted` in code)
+
+D. services (per-service `.env`) — examples in `.env.template`
+- services/webhook-handler/.env
+  - KAFKA_BROKERS
+  - KAFKA_GROUP_ID
+  - KAFKA_CONSUMER_TIMEOUT
+  - SERVICE_NAME
+  - LOG_LEVEL
+  - Optional notification provider keys: TWILIO_*, FCM_SERVER_KEY
+
+- services/scheduler/.env
+  - SERVICE_NAME
+  - SERVICE_PORT
+  - CRON_SYNC_QUEUE
+  - CRON_KARMA_RECALC
+  - CRON_SLA_CHECK
+  - CRON_AUDIT_CLEANUP
+  - CRON_REPORT_GENERATION
+
+- services/fabric-anchor-consumer/.env
+  - KAFKA_BROKERS
+  - FABRIC_* (see B)
+
+E. frontend
+- frontend/.env (or repo root `.env` used by Vite)
+  - VITE_PORT (example `5173`)
+  - VITE_API_BASE (example `http://localhost:3100`)
+  - Confirm variable keys in `frontend/src` code if your app uses a different name
+
+F. third-party provider credentials (obtain from vendor dashboards)
+- TWILIO_ACCOUNT_SID
+- TWILIO_AUTH_TOKEN
+- TWILIO_FROM_NUMBER
+- TWILIO_WHATSAPP_FROM
+  - Provider: Twilio console
+
+- MSG91_AUTH_KEY
+- MSG91_SENDER_ID
+  - Provider: MSG91 dashboard
+
+- FCM_SERVER_KEY
+  - Provider: Firebase console
+
+- GEMINI_API_KEY
+  - Provider: Google Cloud Generative AI / API keys
+
+- PINATA_JWT, PINATA_API_KEY, PINATA_API_SECRET
+  - Provider: Pinata dashboard
+
+- UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN, UPSTASH_KAFKA_REST_*
+  - Provider: Upstash console
+
+G. chaincode / Fabric-specific
+- ALLOWED_CITIZEN_MSPS
+  - Where used: `chaincode/src/contract.ts` (default `CitizenOrgMSP`)
+
+H. test / seed IDs (optional)
+- RW_TEST_COMPLAINT_ID_1, RW_TEST_COMPLAINT_ID_2, RW_TEST_ROAD_ID_1, etc — set in repo root `.env` if you want deterministic seeded IDs (examples in `.env.template`).
+
+If you want, I can:
+- create service `.env` files with local defaults (e.g., `apps/gateway-api/.env` with `CORS_ORIGIN`),
+- or generate a single `.env` in repo root with recommended local values copied from `.env.template` and `apps/gateway-api/.env`.
+
+Tell me which option you prefer and I'll apply it and (optionally) restart services.

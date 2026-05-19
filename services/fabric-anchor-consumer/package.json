@@ -12,10 +12,13 @@
     "@upstash/kafka": "^1.3.5",
     "@grpc/grpc-js": "^1.13.4",
     "@hyperledger/fabric-gateway": "^1.9.1",
-    "pg": "^8.13.1"
+    "drizzle-orm": "^0.44.2",
+    "dotenv": "^16.6.1",
+    "kafkajs": "^2.2.4",
+    "cassandra-driver": "^4.6.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.15.5",
+    
     "tsx": "^4.20.5",
     "typescript": "^5.8.3"
   }

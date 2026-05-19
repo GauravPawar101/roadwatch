@@ -1,25 +1,103 @@
-# Public analytics & reporting
+# RoadWatch - Citizen Complaint Management System
 
-Citizen-facing (no-login) analytics is implemented in the gateway API under `/public/*`, and rendered in the authority portal at `/public`.
+A comprehensive blockchain-enabled platform for managing road infrastructure complaints with real-time analytics, authority workflows, and citizen engagement.
 
-- Analytics model + storage: `docs/analytics-system.md`
-- Ministry report PDF layout: `docs/ministry-report-format.md`
+## 📚 Documentation
 
-Key endpoints:
+All documentation is organized in the [`docs/`](./docs/) folder:
 
-- `GET /public/dashboard`
-- `GET /public/chronic-roads?days=60`
-- `GET /public/hotspots`
-- `GET /public/trends`
-- `GET /public/contractors/scorecard`
-- `GET /public/export/roads.csv` | `GET /public/export/roads.geojson` | `GET /public/export/roads.pdf`
-- `GET /reports/ministry.pdf` (requires `CE` role)
+- **[Getting Started](./docs/infrastructure/setup-checklist.md)** - Complete setup guide
+- **[System Overview](./docs/README.md)** - Architecture and services
+- **[API Documentation](./docs/services/)** - Service-specific guides
+- **[Infrastructure](./docs/infrastructure/)** - Docker, deployment, and operations
+- **[Implementation Guides](./docs/implementation/)** - Feature implementations
 
-Dev commands:
+## 🚀 Quick Start
+
+```bash
+# 1. Install dependencies
+pnpm install
+
+# 2. Start infrastructure
+docker compose --profile kafka up -d
+
+# 3. Seed demo data
+pnpm seed:demo
+
+# 4. Start development servers
+pnpm dev
+```
+
+## 🏗️ Architecture
+
+- **Gateway API** - Central REST API backend
+- **Authority Portal** - React web dashboard for authorities  
+- **Mobile App** - React Native citizen app
+- **Blockchain** - Hyperledger Fabric for immutable audit trails
+- **Event Streaming** - Kafka for real-time processing
+
+## 📊 Key Features
+
+- **Public Analytics** - Citizen-facing dashboard at `/public`
+- **Real-time Updates** - Live complaint tracking and notifications
+- **Blockchain Anchoring** - Immutable complaint history
+- **Multi-role Access** - Citizens, authorities, contractors, admins
+- **Offline Support** - Mobile app works without connectivity
+
+## 🔗 Quick Links
+
+- Analytics: `GET /public/dashboard`
+- Complaint Tracking: `GET /public/chronic-roads?days=60`
+- Ministry Reports: `GET /reports/ministry.pdf` (requires `CE` role)
+
+## 🛠️ Development
 
 - Run everything: `pnpm dev`
 - Gateway API only: `pnpm --filter @roadwatch/gateway-api dev`
-- Authority portal only: `pnpm --filter @roadwatch/authority-portal dev`
+- Frontend only: `pnpm --filter roadwatch-frontend dev`
+
+## Local development ports
+
+- **Cassandra (host)**: 127.0.0.1:9042  (containers use `cassandra:9042`)
+- **Zookeeper (host)**: 127.0.0.1:2181
+- **Kafka (host)**: 127.0.0.1:9094  (containers use `kafka:29092`)
+- **Redis (host)**: 127.0.0.1:16379  (containers use `redis:6379`)
+- **Gateway API**: http://localhost:3100
+- **Backend API**: http://localhost:4001  (if port 4001 is blocked on Windows, `start-all.ps1` will fall back to `5001` and set `BACKEND_PORT` accordingly)
+- **Frontend (Vite)**: http://localhost:5173
+
+Tip: use `start-all.ps1` on Windows or `pnpm dev` to launch everything; `start-all.ps1` now detects a usable `BACKEND_PORT` and exports it for the backend process.
+
+## Safe start / stop behavior
+
+Start/stop scripts and docs now prefer non-destructive operations by default to avoid accidental data loss:
+
+- To stop containers but preserve volumes/data: `docker compose stop` or use the project stop scripts.
+- To restart services: `docker compose up -d` (or `./start-all.sh` / `start-all.ps1`).
+- For Fabric: `fabric/network/scripts/start.sh` preserves generated artifacts by default; pass `--reset` to perform a full teardown and regenerate artifacts.
+- For sample token networks and other scripts that previously used `down -v`, use `docker compose down --volumes` only when you intentionally want to remove volumes/artifacts.
+
+Be cautious with `docker compose down --volumes` — it deletes persistent data (identities, DB files, blocks).
+
+## Local Fabric (dev)
+
+From `fabric/network/`:
+
+- Start the network + create/join the `roadwatch-india` channel:
+   - `./scripts/start.sh`
+- Deploy chaincode (package → install → approve → commit):
+   - `./scripts/deploy-chaincode.sh`
+
+Defaults:
+- `FABRIC_CHANNEL=roadwatch-india`
+- `FABRIC_CHAINCODE=complaint-anchor`
+
+If you change chaincode code and want to redeploy, bump at least one of:
+- `FABRIC_CC_VERSION` (default `0.0.1`)
+- `FABRIC_CC_SEQUENCE` (default `1`)
+
+Optional (seeds some test data):
+- `FABRIC_CC_INVOKE_INIT_LEDGER=1 ./scripts/deploy-chaincode.sh`
 
 Local env/credentials mapping (incl. dev OTP → JWT for authority tool calls): `docs/test-credentials.md`
 
@@ -33,7 +111,7 @@ This service consumes `complaint.submitted` events from Kafka, anchors a Merkle 
 # Onboarding & seeding
 
 - Ops doc: `docs/onboarding-ops.md`
-- Seed regions + road index into Postgres: `pnpm seed:backend -- --file apps/gateway-api/scripts/seeds/india-demo.json`
+- Seed demo data into Postgres: `pnpm seed:demo`
 - Deterministic test IDs (roads/complaints/regions): `scripts/test-ids.env` (export or copy into your `.env`)
 - Seed deterministic complaints into Fabric (requires `FABRIC_*` env vars): `pnpm seed:fabric`
 - Query Fabric complaint history (defaults to `RW_TEST_COMPLAINT_ID_1`): `pnpm query:fabric:history`

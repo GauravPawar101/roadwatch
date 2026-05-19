@@ -1,0 +1,61 @@
+namespace RoadWatch.Models;
+
+enum VerificationStatus : byte { Pending, Verified, Flagged, Rejected }
+enum KarmaTier : byte { Trusted, Standard, AtRisk, Suspended, Banned }
+
+table ImageSubmission {
+  id: string;
+  request_id: string;
+  uploader_id_encrypted: [byte];  // encrypted user ID
+  uploader_pseudonym: string;      // visible to authorities
+  server_received_at: ulong;       // server timestamp in ms
+  exif_timestamp: ulong;           // from EXIF data
+  exif_latitude: double;
+  exif_longitude: double;
+  device_latitude: double;
+  device_longitude: double;
+  nonce: string;                   // short-lived server nonce
+  phash: string;                   // perceptual hash for duplicate detection
+  verified_status: VerificationStatus;
+  storage_path: string;            // path to encrypted image blob
+  metadata: string;                // JSON: geofence_radius, check_results, etc.
+  fabric_tx_id: string;            // fabric transaction ID for immutability
+  created_at: ulong;
+}
+
+table KarmaRecord {
+  id: string;
+  user_id: string;
+  score: int;                      // cumulative karma score
+  tier: KarmaTier;
+  penalty_count: int;              // escalation counter for repeat offenses
+  last_penalty_at: ulong;
+  suspended_until: ulong;          // 0 = not suspended
+  ban_reason: string;              // null or reason for ban
+  created_at: ulong;
+  updated_at: ulong;
+}
+
+table VerificationAudit {
+  id: string;
+  submission_id: string;
+  check_type: string;              // "exif_time", "geofence", "phash", "nonce", etc.
+  check_result: bool;              // passed or failed
+  detail: string;                  // JSON with specifics
+  reviewer_id: string;             // admin ID if human reviewed
+  action: string;                  // "approved", "rejected", "appealed"
+  reason: string;                  // explanation
+  created_at: ulong;
+}
+
+table UserPrivacyProfile {
+  user_id: string;
+  is_admin: bool;
+  is_authority: bool;
+  is_contractor: bool;
+  is_citizen: bool;
+  authority_jurisdiction: string;  // JSON array of area codes
+  created_at: ulong;
+}
+
+root_type ImageSubmission;

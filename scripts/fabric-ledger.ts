@@ -100,62 +100,89 @@ async function seedDeterministicComplaints() {
     const network = gateway.getNetwork(env.channel);
     const contract = network.getContract(env.chaincode);
 
-    const fixtures = [
+    await contract.submitTransaction('InitLedger');
+
+    const rootSeeds = [
+      { regionCode: 'IN-DL', batchSize: 12, seed: 'roadwatch-fabric-seed-1' },
+      { regionCode: 'IN-MH', batchSize: 8, seed: 'roadwatch-fabric-seed-2' }
+    ];
+
+    for (const rootSeed of rootSeeds) {
+      const merkleRoot = crypto.createHash('sha256').update(rootSeed.seed).digest('hex');
+      try {
+        const existingBytes = await contract.evaluateTransaction('VerifyMerkleRoot', merkleRoot);
+        const existing = JSON.parse(Buffer.from(existingBytes).toString('utf8')) as { anchorId?: string };
+        // eslint-disable-next-line no-console
+        console.log(`[fabric-ledger] exists: merkleRoot=${merkleRoot} anchorId=${existing.anchorId ?? 'unknown'}`);
+      } catch {
+        await contract.submitTransaction('SubmitMerkleRoot', merkleRoot, rootSeed.regionCode, String(rootSeed.batchSize));
+        // eslint-disable-next-line no-console
+        console.log(`[fabric-ledger] seeded: merkleRoot=${merkleRoot} region=${rootSeed.regionCode}`);
+      }
+    }
+
+    const escalationFixtures = [
       {
         complaintId: TEST_IDS.complaints.complaint1,
-        roadId: TEST_IDS.roads.road1,
-        authorityOrg: process.env.RW_TEST_AUTHORITY_ORG ?? 'NHAI',
-        locationJson: JSON.stringify({ lat: 28.6139, lng: 77.209 })
+        fromAuthorityId: 'AUTH-DL',
+        toAuthorityId: 'AUTH-MH',
+        tier: 1,
+        daysOpen: 8
       },
       {
         complaintId: TEST_IDS.complaints.complaint2,
-        roadId: TEST_IDS.roads.road3,
-        authorityOrg: process.env.RW_TEST_AUTHORITY_ORG ?? 'NHAI',
-        locationJson: JSON.stringify({ lat: 19.076, lng: 72.8777 })
+        fromAuthorityId: 'AUTH-MH',
+        toAuthorityId: 'AUTH-UP',
+        tier: 2,
+        daysOpen: 14
       }
     ];
 
-    for (const f of fixtures) {
-      const historyBytes = await contract.evaluateTransaction('GetComplaintHistory', f.complaintId);
-      const historyText = Buffer.from(historyBytes).toString('utf8').trim();
-      const history = historyText ? (JSON.parse(historyText) as unknown[]) : [];
-
-      if (Array.isArray(history) && history.length > 0) {
-        // eslint-disable-next-line no-console
-        console.log(`[fabric-ledger] exists: complaintId=${f.complaintId} (history=${history.length})`);
-        continue;
-      }
-
-      const transient = {
-        pii: Buffer.from(
-          JSON.stringify({
-            CitizenID: TEST_IDS.citizenId,
-            Location: f.locationJson,
-            InitialIPFSCid: 'cid-seeded'
-          }),
-          'utf8'
-        )
-      };
-
-      const proposal = contract.newProposal('CreateComplaint', {
-        arguments: [
-          f.complaintId,
-          TEST_IDS.citizenId,
-          f.roadId,
-          f.locationJson,
-          'cid-seeded',
-          f.authorityOrg,
-          'details-hash-seeded'
-        ],
-        transientData: transient
-      });
-
-      const endorsed = await proposal.endorse();
-      const committed = await endorsed.submit();
-      await committed.getStatus();
-
+    for (const escalation of escalationFixtures) {
+      await contract.submitTransaction(
+        'AnchorEscalation',
+        escalation.complaintId,
+        escalation.fromAuthorityId,
+        escalation.toAuthorityId,
+        String(escalation.tier),
+        String(escalation.daysOpen)
+      );
       // eslint-disable-next-line no-console
-      console.log(`[fabric-ledger] seeded: complaintId=${f.complaintId} roadId=${f.roadId}`);
+      console.log(`[fabric-ledger] seeded: complaintId=${escalation.complaintId} escalationTier=${escalation.tier}`);
+    }
+
+    const resolutionFixtures = [
+      {
+        complaintId: TEST_IDS.complaints.complaint1,
+        resolvedBy: 'AUTH-PERSON-DL-01',
+        repairCID: 'Qm' + 'a'.repeat(44),
+        captureHash: crypto.createHash('sha256').update('roadwatch-fabric-resolution-1').digest('hex')
+      },
+      {
+        complaintId: TEST_IDS.complaints.complaint2,
+        resolvedBy: 'AUTH-PERSON-MH-01',
+        repairCID: 'bafy' + 'b'.repeat(55),
+        captureHash: crypto.createHash('sha256').update('roadwatch-fabric-resolution-2').digest('hex')
+      }
+    ];
+
+    for (const resolution of resolutionFixtures) {
+      try {
+        const existingBytes = await contract.evaluateTransaction('GetResolutionProof', resolution.complaintId);
+        const existing = JSON.parse(Buffer.from(existingBytes).toString('utf8')) as { anchorId?: string };
+        // eslint-disable-next-line no-console
+        console.log(`[fabric-ledger] exists: complaintId=${resolution.complaintId} resolution=${existing.anchorId ?? 'present'}`);
+      } catch {
+        await contract.submitTransaction(
+          'AnchorResolution',
+          resolution.complaintId,
+          resolution.resolvedBy,
+          resolution.repairCID,
+          resolution.captureHash
+        );
+        // eslint-disable-next-line no-console
+        console.log(`[fabric-ledger] seeded: complaintId=${resolution.complaintId} resolution anchored`);
+      }
     }
   } finally {
     gateway.close();

@@ -1,19 +1,152 @@
+import 'dotenv/config';
+
 import * as grpc from '@grpc/grpc-js';
 import { connect, signers, type Contract, type Gateway } from '@hyperledger/fabric-gateway';
+import { Client as CassandraClient } from 'cassandra-driver';
 import crypto from 'crypto';
 import { promises as fs } from 'fs';
-import pg from 'pg';
+import { Kafka as KafkaJS } from 'kafkajs';
 
-import { getKafkaClient } from '../../providers/kafka/KafkaClient.js';
+import { getLocalKafkaBrokers } from '../../providers/kafka/index.js';
 import { KafkaProducer } from '../../providers/kafka/KafkaProducer.js';
 import { KafkaTopics, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '../../providers/kafka/topics.js';
 
-const { Pool } = pg;
+type DbClient = CassandraClient;
 
 type Direction = 'left' | 'right';
 type ProofStep = { direction: Direction; hash: string };
 
 type Env = NodeJS.ProcessEnv;
+
+type ConsumedMessage = {
+  topic: string;
+  partition?: number;
+  offset?: string;
+  key?: string | null;
+  value: string;
+  headers?: Record<string, string>;
+};
+
+type PollConsumer = {
+  consume: (args: {
+    consumerGroupId: string;
+    instanceId: string;
+    topics: string[];
+    timeout: number;
+    autoCommit: boolean;
+    autoOffsetReset?: 'earliest' | 'latest';
+  }) => Promise<ConsumedMessage[]>;
+  commit: (args: { consumerGroupId: string; instanceId: string }) => Promise<void>;
+  disconnect?: () => Promise<void>;
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+class LocalKafkaPollConsumer implements PollConsumer {
+  private readonly consumer: ReturnType<KafkaJS['consumer']>;
+  private subscribed = false;
+  private running = false;
+  private runStarted = false;
+  private readonly queue: ConsumedMessage[] = [];
+  private pendingCommitOffsets = new Map<string, string>();
+
+  constructor(private readonly brokers: string[], private readonly groupId: string, private readonly instanceId: string) {
+    const kafka = new KafkaJS({ clientId: 'roadwatch-fabric-anchor-consumer', brokers });
+    this.consumer = kafka.consumer({ groupId, allowAutoTopicCreation: true });
+  }
+
+  private async ensureRunning(fromBeginning: boolean, topics: string[]): Promise<void> {
+    if (!this.running) {
+      await this.consumer.connect();
+      this.running = true;
+    }
+
+    if (!this.subscribed) {
+      for (const topic of topics) {
+        await this.consumer.subscribe({ topic, fromBeginning });
+      }
+      this.subscribed = true;
+    }
+
+    if (this.runStarted) return;
+    this.runStarted = true;
+
+    // Start the background fetch loop once.
+    // Note: this will buffer messages even while we're processing; we commit explicitly.
+    void this.consumer.run({
+      autoCommit: false,
+      eachMessage: async ({ topic, partition, message }) => {
+        const value = message.value ? message.value.toString('utf8') : '';
+        const key = message.key ? message.key.toString('utf8') : null;
+        const headers: Record<string, string> = {};
+        if (message.headers) {
+          for (const [hKey, hVal] of Object.entries(message.headers)) {
+            if (hVal == null) continue;
+            headers[hKey] = Buffer.isBuffer(hVal) ? hVal.toString('utf8') : String(hVal);
+          }
+        }
+
+        this.queue.push({ topic, partition, offset: message.offset, key, value, headers });
+      }
+    });
+  }
+
+  async consume(args: {
+    consumerGroupId: string;
+    instanceId: string;
+    topics: string[];
+    timeout: number;
+    autoCommit: boolean;
+    autoOffsetReset?: 'earliest' | 'latest';
+  }): Promise<ConsumedMessage[]> {
+    if (args.consumerGroupId !== this.groupId) {
+      throw new Error(`LocalKafkaPollConsumer groupId mismatch: expected ${this.groupId}, got ${args.consumerGroupId}`);
+    }
+
+    const fromBeginning = args.autoOffsetReset === 'earliest';
+    await this.ensureRunning(fromBeginning, args.topics);
+
+    const start = Date.now();
+    while (this.queue.length === 0 && Date.now() - start < args.timeout) {
+      await sleep(50);
+    }
+
+    const drained = this.queue.splice(0, this.queue.length);
+    this.pendingCommitOffsets = new Map();
+    for (const msg of drained) {
+      if (msg.partition == null || msg.offset == null) continue;
+      const key = `${msg.topic}:${msg.partition}`;
+      const prev = this.pendingCommitOffsets.get(key);
+      if (!prev || BigInt(msg.offset) > BigInt(prev)) {
+        this.pendingCommitOffsets.set(key, msg.offset);
+      }
+    }
+
+    return drained;
+  }
+
+  async commit(_args: { consumerGroupId: string; instanceId: string }): Promise<void> {
+    if (this.pendingCommitOffsets.size === 0) return;
+
+    const offsets = Array.from(this.pendingCommitOffsets.entries()).map(([key, offset]) => {
+      const [topic, partitionStr] = key.split(':');
+      const partition = Number(partitionStr);
+      const nextOffset = (BigInt(offset) + 1n).toString();
+      return { topic: topic!, partition, offset: nextOffset };
+    });
+
+    await this.consumer.commitOffsets(offsets);
+    this.pendingCommitOffsets.clear();
+  }
+
+  async disconnect(): Promise<void> {
+    if (!this.running) return;
+    await this.consumer.disconnect();
+    this.running = false;
+  }
+}
 
 function requireEnv(value: string | undefined, name: string): string {
   if (!value || value.trim().length === 0) {
@@ -61,7 +194,7 @@ function merkleRoot(leaves: string[]): { root: string; proofs: ProofStep[][] } {
   const proofs: ProofStep[][] = leafHashes.map((_, leafIndex) => {
     const proof: ProofStep[] = [];
     let index = leafIndex;
-    for (let layerIndex = 0; layerIndex < layers.length - 1; layerIndex++) {
+    for (let layerIndex = 0; layerIndex < layers.length - 1; ++layerIndex) {
       const layer = layers[layerIndex]!;
       const isRightNode = index % 2 === 1;
       const siblingIndex = isRightNode ? index - 1 : index + 1;
@@ -84,6 +217,7 @@ async function connectFabric(env: Env = process.env): Promise<{ gateway: Gateway
   const peerHostAlias = requireEnv(env.FABRIC_PEER_HOST_ALIAS, 'FABRIC_PEER_HOST_ALIAS');
   const channelName = requireEnv(env.FABRIC_CHANNEL_NAME, 'FABRIC_CHANNEL_NAME');
   const chaincodeName = requireEnv(env.FABRIC_CHAINCODE_NAME, 'FABRIC_CHAINCODE_NAME');
+  const mspId = requireEnv(env.FABRIC_MSP_ID, 'FABRIC_MSP_ID');
   const x509CertPath = requireEnv(env.FABRIC_X509_CERT_PATH, 'FABRIC_X509_CERT_PATH');
   const x509KeyPath = requireEnv(env.FABRIC_X509_KEY_PATH, 'FABRIC_X509_KEY_PATH');
 
@@ -98,7 +232,7 @@ async function connectFabric(env: Env = process.env): Promise<{ gateway: Gateway
 
   const gateway = connect({
     client: grpcClient,
-    identity: { mspId: 'CitizenOrgMSP', credentials: Uint8Array.from(Buffer.from(certificate)) },
+    identity: { mspId, credentials: Uint8Array.from(Buffer.from(certificate)) },
     signer: signers.newPrivateKeySigner(crypto.createPrivateKey(privateKeyPem)),
     evaluateOptions: () => ({ deadline: Date.now() + 5_000 }),
     endorseOptions: () => ({ deadline: Date.now() + 15_000 }),
@@ -111,70 +245,115 @@ async function connectFabric(env: Env = process.env): Promise<{ gateway: Gateway
   return { gateway, contract };
 }
 
-async function ensureTables(pool: pg.Pool): Promise<void> {
-  await pool.query(`
+async function connectCassandra(env: Env = process.env): Promise<DbClient> {
+  const contactPoints = requireEnv(env.CASSANDRA_CONTACT_POINTS, 'CASSANDRA_CONTACT_POINTS').split(',');
+  const keyspace = requireEnv(env.CASSANDRA_KEYSPACE, 'CASSANDRA_KEYSPACE');
+  const localDataCenter = env.CASSANDRA_LOCAL_DC ?? 'datacenter1';
+
+  const client = new CassandraClient({
+    contactPoints,
+    localDataCenter,
+    keyspace,
+    credentials: env.CASSANDRA_USERNAME && env.CASSANDRA_PASSWORD
+      ? { username: env.CASSANDRA_USERNAME, password: env.CASSANDRA_PASSWORD }
+      : undefined
+  });
+
+  await client.connect();
+  return client;
+}
+
+async function ensureTables(db: DbClient): Promise<void> {
+  // Create keyspace if needed (optional, may be pre-created)
+  const keyspace = requireEnv(process.env.CASSANDRA_KEYSPACE, 'CASSANDRA_KEYSPACE');
+
+  // Processed events table: track which idempotency keys have been processed
+  // Partition key: (consumer_id, key) for efficient lookups per consumer
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS processed_events (
-      key text NOT NULL,
-      consumer_id text NOT NULL,
-      processed_at timestamptz NOT NULL DEFAULT now(),
-      PRIMARY KEY (key, consumer_id)
-    );
+      consumer_id text,
+      key text,
+      processed_at timestamp,
+      PRIMARY KEY (consumer_id, key)
+    ) WITH CLUSTERING ORDER BY (key ASC)
+      AND default_time_to_live = 2592000;
   `);
 
-  await pool.query(`
+  // Event failures table: track retry count and last error
+  // Partition key: (consumer_id, key) for efficient failure lookups
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS event_failures (
-      key text NOT NULL,
-      consumer_id text NOT NULL,
-      failure_count int NOT NULL DEFAULT 0,
+      consumer_id text,
+      key text,
+      failure_count int,
       last_error text,
-      updated_at timestamptz NOT NULL DEFAULT now(),
-      PRIMARY KEY (key, consumer_id)
-    );
+      updated_at timestamp,
+      PRIMARY KEY (consumer_id, key)
+    ) WITH CLUSTERING ORDER BY (key ASC)
+      AND default_time_to_live = 2592000;
   `);
 
-  await pool.query(`
+  // Complaint merkle proofs table: denormalized for fast lookups
+  // Primary partition: complaint_id for direct lookup
+  // Clustering: anchored_at DESC for time-based queries
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS complaint_merkle_proofs (
       complaint_id text PRIMARY KEY,
-      merkle_root text NOT NULL,
-      merkle_proof jsonb NOT NULL,
-      fabric_txid text NOT NULL,
-      batch_id text NOT NULL,
-      anchored_at timestamptz NOT NULL DEFAULT now()
+      merkle_root text,
+      merkle_proof text,
+      fabric_txid text,
+      batch_id text,
+      anchored_at timestamp
     );
-    CREATE INDEX IF NOT EXISTS complaint_merkle_proofs_batch_idx ON complaint_merkle_proofs(batch_id);
+  `);
+
+  // Secondary index on batch_id for batch-based queries
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS complaint_merkle_proofs_by_batch (
+      batch_id text,
+      complaint_id text,
+      merkle_root text,
+      merkle_proof text,
+      fabric_txid text,
+      anchored_at timestamp,
+      PRIMARY KEY (batch_id, complaint_id)
+    ) WITH CLUSTERING ORDER BY (complaint_id ASC);
   `);
 }
 
-async function isProcessed(pool: pg.Pool, consumerId: string, key: string): Promise<boolean> {
-  const res = await pool.query(
-    `SELECT 1 FROM processed_events WHERE key = $1 AND consumer_id = $2 LIMIT 1`,
-    [key, consumerId]
-  );
-  return (res.rowCount ?? 0) > 0;
+async function isProcessed(db: DbClient, consumerId: string, key: string): Promise<boolean> {
+  const query = 'SELECT 1 FROM processed_events WHERE consumer_id = ? AND key = ? LIMIT 1';
+  const result = await db.execute(query, [consumerId, key], { prepare: true });
+  return result.rowLength > 0;
 }
 
-async function markProcessed(pool: pg.Pool, consumerId: string, key: string): Promise<void> {
-  await pool.query(
-    `INSERT INTO processed_events(key, consumer_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-    [key, consumerId]
-  );
+async function markProcessed(db: DbClient, consumerId: string, key: string): Promise<void> {
+  const query = `
+    INSERT INTO processed_events (consumer_id, key, processed_at)
+    VALUES (?, ?, ?)
+  `;
+  await db.execute(query, [consumerId, key, new Date()], { prepare: true });
 }
 
-async function recordFailure(pool: pg.Pool, consumerId: string, key: string, error: string): Promise<number> {
-  const res = await pool.query(
-    `
-      INSERT INTO event_failures(key, consumer_id, failure_count, last_error)
-      VALUES ($1, $2, 1, $3)
-      ON CONFLICT (key, consumer_id)
-      DO UPDATE SET
-        failure_count = event_failures.failure_count + 1,
-        last_error = EXCLUDED.last_error,
-        updated_at = now()
-      RETURNING failure_count;
-    `,
-    [key, consumerId, error]
-  );
-  return res.rows[0]?.failure_count ?? 1;
+async function recordFailure(db: DbClient, consumerId: string, key: string, error: string): Promise<number> {
+  // First, check current failure count
+  const selectQuery = 'SELECT failure_count FROM event_failures WHERE consumer_id = ? AND key = ? LIMIT 1';
+  const selectResult = await db.execute(selectQuery, [consumerId, key], { prepare: true });
+  
+  const currentCount = selectResult.rowLength > 0 
+    ? (selectResult.rows[0] as { failure_count?: number }).failure_count ?? 0
+    : 0;
+  
+  const newCount = currentCount + 1;
+  const now = new Date();
+
+  const insertQuery = `
+    INSERT INTO event_failures (consumer_id, key, failure_count, last_error, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+  `;
+  await db.execute(insertQuery, [consumerId, key, newCount, error, now], { prepare: true });
+
+  return newCount;
 }
 
 function nowIso(): string {
@@ -185,12 +364,22 @@ async function main(): Promise<void> {
   const consumerId = 'fabric-anchor-consumer';
   const env: Env = process.env;
 
-  const databaseUrl = requireEnv(env.DATABASE_URL, 'DATABASE_URL');
-  const pool = new Pool({ connectionString: databaseUrl });
-  await ensureTables(pool);
+  const db = await connectCassandra(env);
+  await ensureTables(db);
 
   const { contract } = await connectFabric(env);
-  const consumer = getKafkaClient().consumer();
+
+  const consumer: PollConsumer = (() => {
+    const brokers = getLocalKafkaBrokers(env);
+    if (!brokers) {
+      throw new Error('Kafka consumer requires either Upstash Kafka env vars or local KAFKA_BROKER(S)');
+    }
+    const consumerGroupId = (env.KAFKA_CONSUMER_GROUP_ID ?? 'fabric-anchor-consumer-v1').trim();
+    const instanceId = (env.KAFKA_CONSUMER_INSTANCE_ID ?? `fabric-anchor-${process.pid}`).trim();
+    if (!consumerGroupId) throw new Error('KAFKA_CONSUMER_GROUP_ID cannot be empty');
+    if (!instanceId) throw new Error('KAFKA_CONSUMER_INSTANCE_ID cannot be empty');
+    return new LocalKafkaPollConsumer(brokers, consumerGroupId, instanceId);
+  })();
   const producer = new KafkaProducer();
 
   const consumerGroupId = (process.env.KAFKA_CONSUMER_GROUP_ID ?? 'fabric-anchor-consumer-v1').trim();
@@ -245,7 +434,7 @@ async function main(): Promise<void> {
       const unique: Array<{ raw: any; event: ComplaintSubmittedEvent }> = [];
       for (const item of batch) {
         const key = item.event.idempotencyKey;
-        if (await isProcessed(pool, consumerId, key)) {
+        if (await isProcessed(db, consumerId, key)) {
           continue;
         }
         unique.push(item);
@@ -262,36 +451,43 @@ async function main(): Promise<void> {
       const { root, proofs } = merkleRoot(leaves);
       const batchId = crypto.randomUUID();
 
-      const txFactory = contract as unknown as {
-        createTransaction?: (name: string) => { submit: (...args: string[]) => Promise<unknown>; getTransactionId?: () => string };
-      };
-      if (!txFactory.createTransaction) {
-        throw new Error('Fabric Contract is missing createTransaction()');
-      }
-
-      const tx = txFactory.createTransaction('AnchorMerkleRoot');
-      await tx.submit(batchId, root, unique.length.toString());
-      const fabricTxId = tx.getTransactionId?.() ?? 'unknown';
+      // Use Fabric Gateway API to submit a transaction and capture its tx ID.
+      const proposal = contract.newProposal('AnchorMerkleRoot', {
+        arguments: [batchId, root, unique.length.toString()]
+      });
+      const fabricTxId = proposal.getTransactionId();
+      const endorsed = await proposal.endorse();
+      const submitted = await endorsed.submit();
+      await submitted.getStatus();
 
       for (let i = 0; i < unique.length; i++) {
         const { event } = unique[i]!;
         const proof = proofs[i]!;
-        await pool.query(
-          `
-            INSERT INTO complaint_merkle_proofs(complaint_id, merkle_root, merkle_proof, fabric_txid, batch_id)
-            VALUES ($1, $2, $3::jsonb, $4, $5)
-            ON CONFLICT (complaint_id)
-            DO UPDATE SET
-              merkle_root = EXCLUDED.merkle_root,
-              merkle_proof = EXCLUDED.merkle_proof,
-              fabric_txid = EXCLUDED.fabric_txid,
-              batch_id = EXCLUDED.batch_id,
-              anchored_at = now();
-          `,
-          [event.complaintId, root, JSON.stringify(proof), fabricTxId, batchId]
+        const now = new Date();
+
+        // Insert into primary table
+        const insertQuery = `
+          INSERT INTO complaint_merkle_proofs 
+            (complaint_id, merkle_root, merkle_proof, fabric_txid, batch_id, anchored_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `;
+        await db.execute(insertQuery, 
+          [event.complaintId, root, JSON.stringify(proof), fabricTxId, batchId, now],
+          { prepare: true }
         );
 
-        await markProcessed(pool, consumerId, event.idempotencyKey);
+        // Insert into batch index table
+        const insertBatchQuery = `
+          INSERT INTO complaint_merkle_proofs_by_batch 
+            (batch_id, complaint_id, merkle_root, merkle_proof, fabric_txid, anchored_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `;
+        await db.execute(insertBatchQuery,
+          [batchId, event.complaintId, root, JSON.stringify(proof), fabricTxId, now],
+          { prepare: true }
+        );
+
+        await markProcessed(db, consumerId, event.idempotencyKey);
 
         await producer.publish(KafkaTopics.complaintAnchored, {
           type: 'complaint.anchored',
@@ -318,10 +514,10 @@ async function main(): Promise<void> {
 
       // Record failures and DLQ any messages that have exceeded retry budget.
       for (const item of batch) {
-        const attempts = await recordFailure(pool, consumerId, item.event.idempotencyKey, error);
+        const attempts = await recordFailure(db, consumerId, item.event.idempotencyKey, error);
         if (attempts >= 3) {
           await sendDlq(item.raw, attempts, error);
-          await markProcessed(pool, consumerId, item.event.idempotencyKey);
+          await markProcessed(db, consumerId, item.event.idempotencyKey);
         }
       }
 
@@ -333,7 +529,7 @@ async function main(): Promise<void> {
       // Only commit offsets if we've DLQ'd all messages in the current batch.
       const remaining = [] as typeof batch;
       for (const item of batch) {
-        if (!(await isProcessed(pool, consumerId, item.event.idempotencyKey))) {
+        if (!(await isProcessed(db, consumerId, item.event.idempotencyKey))) {
           remaining.push(item);
         }
       }
@@ -394,9 +590,9 @@ async function main(): Promise<void> {
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         const key = crypto.randomUUID();
-        const attempts = await recordFailure(pool, consumerId, key, error);
+        const attempts = await recordFailure(db, consumerId, key, error);
         await sendDlq(msg, attempts, error);
-        await markProcessed(pool, consumerId, key);
+        await markProcessed(db, consumerId, key);
       }
     }
 
@@ -413,7 +609,8 @@ async function main(): Promise<void> {
 
   clearInterval(timer);
   await flush('timer');
-  await pool.end();
+  await consumer.disconnect?.();
+  await db.shutdown();
 }
 
 main().catch(err => {

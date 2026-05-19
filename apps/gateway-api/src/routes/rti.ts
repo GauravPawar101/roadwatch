@@ -5,7 +5,7 @@ import fs from 'fs/promises';
 import multer from 'multer';
 import path from 'path';
 import { z } from 'zod';
-import { pool } from '../db.js';
+import { execute } from '../cassandra.js';
 import { calculateRtiDeadlines } from '../legal/rtiDeadlines.js';
 
 const router = express.Router();
@@ -36,8 +36,8 @@ function mustToken(req: express.Request): string {
 }
 
 async function assertTokenAccess(rtiId: string, token: string) {
-  const r = await pool.query(`SELECT id FROM rti_requests WHERE id = $1 AND tracking_token = $2::uuid`, [rtiId, token]);
-  if (r.rowCount === 0) {
+  const r = await execute('SELECT id FROM rti_requests WHERE id = ? AND tracking_token = ?', [rtiId, token], { prepare: true });
+  if (!r.rows || r.rows.length === 0) {
     const err = new Error('Invalid token');
     (err as any).statusCode = 403;
     throw err;
@@ -88,20 +88,12 @@ router.post('/', async (req, res) => {
 
   const trackingToken = crypto.randomUUID();
 
-  const r = await pool.query(
-    `INSERT INTO rti_requests (
-      complaint_id, country_code, authority_name, subject, request_text,
-      status, submitted_at, response_due_at, first_appeal_last_date, second_appeal_last_date,
-      tracking_token
-    ) VALUES (
-      $1, $2, $3, $4, $5,
-      $6, $7, $8, $9, $10,
-      $11::uuid
-    )
-    RETURNING id, complaint_id, country_code, authority_name, subject, request_text, status,
-              submitted_at, response_due_at, first_appeal_last_date, second_appeal_last_date,
-              tracking_token, public_opt_in_at, public_share_token, created_at, updated_at;`,
+  // Generate RTI id client-side and insert into Cassandra
+  const rtiId = `RTI-${crypto.randomUUID()}`;
+  await execute(
+    'INSERT INTO rti_requests (id, complaint_id, country_code, authority_name, subject, request_text, status, submitted_at, response_due_at, first_appeal_last_date, second_appeal_last_date, tracking_token, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [
+      rtiId,
       body.complaintId ?? null,
       body.countryCode.toUpperCase(),
       body.authorityName,
@@ -112,25 +104,43 @@ router.post('/', async (req, res) => {
       deadlines?.responseDueAt ?? null,
       deadlines?.firstAppealLastDate ?? null,
       deadlines?.secondAppealLastDate ?? null,
-      trackingToken
-    ]
+      trackingToken,
+      new Date(),
+      new Date()
+    ],
+    { prepare: true }
   );
 
-  const row = r.rows[0];
-
-  await pool.query(`INSERT INTO rti_events (rti_id, type, properties) VALUES ($1, $2, $3::jsonb)`, [
-    row.id,
+  await execute('INSERT INTO rti_events (rti_id, type, properties, occurred_at) VALUES (?, ?, ?, ?)', [
+    rtiId,
     body.status === 'FILED' ? 'RTI_FILED' : 'RTI_DRAFT_CREATED',
-    JSON.stringify({ basis: deadlines?.basis ?? null })
-  ]);
+    JSON.stringify({ basis: deadlines?.basis ?? null }),
+    new Date()
+  ], { prepare: true });
 
+  // Return a shape similar to Postgres row
   res.json({
     rti: {
-      ...row,
+      id: rtiId,
+      complaint_id: body.complaintId ?? null,
+      country_code: body.countryCode.toUpperCase(),
+      authority_name: body.authorityName,
+      subject: body.subject,
+      request_text: body.requestText,
+      status: body.status,
+      submitted_at: submittedAt,
+      response_due_at: deadlines?.responseDueAt ?? null,
+      first_appeal_last_date: deadlines?.firstAppealLastDate ?? null,
+      second_appeal_last_date: deadlines?.secondAppealLastDate ?? null,
+      tracking_token: trackingToken,
+      public_opt_in_at: null,
+      public_share_token: null,
+      created_at: new Date(),
+      updated_at: new Date(),
       deadlines: deadlines
         ? {
-            responseDueAt: row.response_due_at,
-            firstAppealLastDate: row.first_appeal_last_date,
+            responseDueAt: deadlines.responseDueAt,
+            firstAppealLastDate: deadlines.firstAppealLastDate,
             basis: deadlines.basis
           }
         : null
@@ -154,26 +164,21 @@ router.put('/:id/draft', async (req, res) => {
     .refine((x) => Object.keys(x).length > 0, { message: 'No fields to update' })
     .parse(req.body);
 
-  const existing = await pool.query(`SELECT status FROM rti_requests WHERE id = $1 LIMIT 1`, [params.id]);
-  if (existing.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+  const existing = await execute('SELECT status, authority_name, subject, request_text, complaint_id FROM rti_requests WHERE id = ? LIMIT 1', [params.id], { prepare: true });
+  if (!existing.rows || existing.rows.length === 0) return res.status(404).json({ error: 'Not found' });
   if (existing.rows[0].status !== 'DRAFT') return res.status(409).json({ error: 'Only DRAFT RTIs can be edited' });
 
-  await pool.query(
-    `UPDATE rti_requests
-     SET authority_name = COALESCE($2, authority_name),
-         subject = COALESCE($3, subject),
-         request_text = COALESCE($4, request_text),
-         complaint_id = COALESCE($5, complaint_id),
-         updated_at = now()
-     WHERE id = $1`,
-    [params.id, body.authorityName ?? null, body.subject ?? null, body.requestText ?? null, body.complaintId ?? null]
-  );
+  // Merge updates in application code and persist
+  const merged = {
+    authority_name: body.authorityName ?? existing.rows[0].authority_name,
+    subject: body.subject ?? existing.rows[0].subject,
+    request_text: body.requestText ?? existing.rows[0].request_text,
+    complaint_id: body.complaintId ?? existing.rows[0].complaint_id
+  };
 
-  await pool.query(`INSERT INTO rti_events (rti_id, type, properties) VALUES ($1, $2, $3::jsonb)`, [
-    params.id,
-    'RTI_DRAFT_UPDATED',
-    JSON.stringify({ updated: Object.keys(body) })
-  ]);
+  await execute('UPDATE rti_requests SET authority_name = ?, subject = ?, request_text = ?, complaint_id = ?, updated_at = ? WHERE id = ?', [merged.authority_name, merged.subject, merged.request_text, merged.complaint_id, new Date(), params.id], { prepare: true });
+
+  await execute('INSERT INTO rti_events (rti_id, type, properties, occurred_at) VALUES (?, ?, ?, ?)', [params.id, 'RTI_DRAFT_UPDATED', JSON.stringify({ updated: Object.keys(body) }), new Date()], { prepare: true });
 
   res.json({ ok: true });
 });
@@ -191,26 +196,14 @@ router.post('/:id/file', async (req, res) => {
     })
     .parse(req.body ?? {});
 
-  const existing = await pool.query(
-    `SELECT id, status, country_code, submitted_at
-     FROM rti_requests
-     WHERE id = $1
-     LIMIT 1`,
-    [params.id]
-  );
-  if (existing.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+  const existing = await execute('SELECT id, status, country_code, submitted_at FROM rti_requests WHERE id = ? LIMIT 1', [params.id], { prepare: true });
+  if (!existing.rows || existing.rows.length === 0) return res.status(404).json({ error: 'Not found' });
 
   const currentStatus = existing.rows[0].status as string;
   if (currentStatus !== 'DRAFT') {
     // Idempotent: if already filed, return current row.
-    const row = await pool.query(
-      `SELECT id, complaint_id, country_code, authority_name, subject, request_text, status,
-              submitted_at, response_due_at, first_appeal_last_date, second_appeal_last_date,
-              public_opt_in_at, public_share_token, created_at, updated_at
-       FROM rti_requests WHERE id = $1`,
-      [params.id]
-    );
-    return res.json({ ok: true, rti: row.rows[0] });
+    const rowRes = await execute('SELECT id, complaint_id, country_code, authority_name, subject, request_text, status, submitted_at, response_due_at, first_appeal_last_date, second_appeal_last_date, public_opt_in_at, public_share_token, created_at, updated_at FROM rti_requests WHERE id = ?', [params.id], { prepare: true });
+    return res.json({ ok: true, rti: rowRes.rows[0] });
   }
 
   const submittedAt = body.submittedAt ? new Date(body.submittedAt) : new Date();
@@ -220,33 +213,13 @@ router.post('/:id/file', async (req, res) => {
     isLifeOrLiberty: body.isLifeOrLiberty
   });
 
-  await pool.query(
-    `UPDATE rti_requests
-     SET status = 'FILED',
-         submitted_at = $2,
-         response_due_at = $3,
-         first_appeal_last_date = $4,
-         second_appeal_last_date = $5,
-         updated_at = now()
-     WHERE id = $1`,
-    [params.id, submittedAt, deadlines.responseDueAt, deadlines.firstAppealLastDate, deadlines.secondAppealLastDate ?? null]
-  );
+  await execute('UPDATE rti_requests SET status = ?, submitted_at = ?, response_due_at = ?, first_appeal_last_date = ?, second_appeal_last_date = ?, updated_at = ? WHERE id = ?', ['FILED', submittedAt, deadlines.responseDueAt, deadlines.firstAppealLastDate, deadlines.secondAppealLastDate ?? null, new Date(), params.id], { prepare: true });
 
-  await pool.query(`INSERT INTO rti_events (rti_id, type, properties) VALUES ($1, $2, $3::jsonb)`, [
-    params.id,
-    'RTI_FILED',
-    JSON.stringify({ basis: deadlines.basis })
-  ]);
+  await execute('INSERT INTO rti_events (rti_id, type, properties, occurred_at) VALUES (?, ?, ?, ?)', [params.id, 'RTI_FILED', JSON.stringify({ basis: deadlines.basis }), new Date()], { prepare: true });
 
-  const row = await pool.query(
-    `SELECT id, complaint_id, country_code, authority_name, subject, request_text, status,
-            submitted_at, response_due_at, first_appeal_last_date, second_appeal_last_date,
-            public_opt_in_at, public_share_token, created_at, updated_at
-     FROM rti_requests WHERE id = $1`,
-    [params.id]
-  );
+  const rowRes = await execute('SELECT id, complaint_id, country_code, authority_name, subject, request_text, status, submitted_at, response_due_at, first_appeal_last_date, second_appeal_last_date, public_opt_in_at, public_share_token, created_at, updated_at FROM rti_requests WHERE id = ?', [params.id], { prepare: true });
 
-  res.json({ ok: true, rti: row.rows[0], deadlines: { ...deadlines } });
+  res.json({ ok: true, rti: rowRes.rows[0], deadlines: { ...deadlines } });
 });
 
 router.get('/:id', async (req, res) => {
@@ -254,33 +227,12 @@ router.get('/:id', async (req, res) => {
   const token = mustToken(req);
   await assertTokenAccess(params.id, token);
 
-  const rti = await pool.query(
-    `SELECT id, complaint_id, country_code, authority_name, subject, request_text, status,
-            submitted_at, response_due_at, first_appeal_last_date, second_appeal_last_date,
-            public_opt_in_at, public_share_token, created_at, updated_at
-     FROM rti_requests WHERE id = $1`,
-    [params.id]
-  );
+  const rtiRes = await execute('SELECT id, complaint_id, country_code, authority_name, subject, request_text, status, submitted_at, response_due_at, first_appeal_last_date, second_appeal_last_date, public_opt_in_at, public_share_token, created_at, updated_at FROM rti_requests WHERE id = ?', [params.id], { prepare: true });
+  const responses = await execute('SELECT id, received_at, file_mime, file_sha256, notes, created_at FROM rti_responses WHERE rti_id = ? ORDER BY created_at DESC', [params.id], { prepare: true });
+  const attachments = await execute('SELECT id, kind, file_mime, file_sha256, note, created_at FROM rti_attachments WHERE rti_id = ? ORDER BY created_at DESC', [params.id], { prepare: true });
+  const events = await execute('SELECT id, type, occurred_at, properties FROM rti_events WHERE rti_id = ? ORDER BY occurred_at ASC', [params.id], { prepare: true });
 
-  const responses = await pool.query(
-    `SELECT id, received_at, file_mime, file_sha256, notes, created_at
-     FROM rti_responses WHERE rti_id = $1 ORDER BY created_at DESC`,
-    [params.id]
-  );
-
-  const attachments = await pool.query(
-    `SELECT id, kind, file_mime, file_sha256, note, created_at
-     FROM rti_attachments WHERE rti_id = $1 ORDER BY created_at DESC`,
-    [params.id]
-  );
-
-  const events = await pool.query(
-    `SELECT id, type, occurred_at, properties
-     FROM rti_events WHERE rti_id = $1 ORDER BY occurred_at ASC`,
-    [params.id]
-  );
-
-  res.json({ rti: rti.rows[0], responses: responses.rows, attachments: attachments.rows, events: events.rows });
+  res.json({ rti: rtiRes.rows[0], responses: responses.rows, attachments: attachments.rows, events: events.rows });
 });
 
 router.post('/:id/status', async (req, res) => {
@@ -294,11 +246,8 @@ router.post('/:id/status', async (req, res) => {
     })
     .parse(req.body);
 
-  await pool.query(`UPDATE rti_requests SET status = $2, updated_at = now() WHERE id = $1`, [params.id, body.status]);
-  await pool.query(`INSERT INTO rti_events (rti_id, type, properties) VALUES ($1, $2, '{}'::jsonb)`, [
-    params.id,
-    `RTI_${body.status}`
-  ]);
+  await execute('UPDATE rti_requests SET status = ?, updated_at = ? WHERE id = ?', [body.status, new Date(), params.id], { prepare: true });
+  await execute('INSERT INTO rti_events (rti_id, type, properties, occurred_at) VALUES (?, ?, ?, ?)', [params.id, `RTI_${body.status}`, JSON.stringify({}), new Date()], { prepare: true });
 
   res.json({ ok: true });
 });
@@ -313,17 +262,10 @@ router.post('/:id/response', upload.single('response'), async (req, res) => {
   const notes = typeof req.body?.notes === 'string' ? req.body.notes : null;
   const fileSha = await sha256File(req.file.path);
 
-  await pool.query(
-    `INSERT INTO rti_responses (rti_id, file_path, file_mime, file_sha256, notes)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [params.id, req.file.path, req.file.mimetype ?? null, fileSha, notes]
-  );
+  await execute('INSERT INTO rti_responses (id, rti_id, file_path, file_mime, file_sha256, notes, received_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [crypto.randomUUID(), params.id, req.file.path, req.file.mimetype ?? null, fileSha, notes, new Date(), new Date()], { prepare: true });
 
-  await pool.query(`UPDATE rti_requests SET status = 'RESPONDED', updated_at = now() WHERE id = $1`, [params.id]);
-  await pool.query(
-    `INSERT INTO rti_events (rti_id, type, properties) VALUES ($1, $2, $3::jsonb)`,
-    [params.id, 'RTI_RESPONSE_UPLOADED', JSON.stringify({ fileSha256: fileSha, mime: req.file.mimetype ?? null })]
-  );
+  await execute('UPDATE rti_requests SET status = ?, updated_at = ? WHERE id = ?', ['RESPONDED', new Date(), params.id], { prepare: true });
+  await execute('INSERT INTO rti_events (rti_id, type, properties, occurred_at) VALUES (?, ?, ?, ?)', [params.id, 'RTI_RESPONSE_UPLOADED', JSON.stringify({ fileSha256: fileSha, mime: req.file.mimetype ?? null }), new Date()], { prepare: true });
 
   res.json({ ok: true, fileSha256: fileSha });
 });
@@ -341,20 +283,13 @@ router.post('/:id/attachments', upload.array('files', 10), async (req, res) => {
 
   const saved: Array<{ sha256: string; mime: string | null }> = [];
 
-  for (const file of files) {
+    for (const file of files) {
     const fileSha = await sha256File(file.path);
-    await pool.query(
-      `INSERT INTO rti_attachments (rti_id, kind, file_path, file_mime, file_sha256, note)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [params.id, kind, file.path, file.mimetype ?? null, fileSha, note]
-    );
+    await execute('INSERT INTO rti_attachments (id, rti_id, kind, file_path, file_mime, file_sha256, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [crypto.randomUUID(), params.id, kind, file.path, file.mimetype ?? null, fileSha, note, new Date()], { prepare: true });
     saved.push({ sha256: fileSha, mime: file.mimetype ?? null });
   }
 
-  await pool.query(
-    `INSERT INTO rti_events (rti_id, type, properties) VALUES ($1, $2, $3::jsonb)`,
-    [params.id, 'RTI_ATTACHMENTS_ADDED', JSON.stringify({ count: files.length, kind })]
-  );
+  await execute('INSERT INTO rti_events (rti_id, type, properties, occurred_at) VALUES (?, ?, ?, ?)', [params.id, 'RTI_ATTACHMENTS_ADDED', JSON.stringify({ count: files.length, kind }), new Date()], { prepare: true });
 
   res.json({ ok: true, files: saved });
 });
@@ -373,19 +308,13 @@ router.post('/:id/escalate', async (req, res) => {
 
   const shareToken = body.makePublic ? crypto.randomUUID() : null;
 
-  await pool.query(
-    `UPDATE rti_requests
-     SET public_opt_in_at = now(),
-         public_share_token = COALESCE(public_share_token, $2::uuid),
-         updated_at = now()
-     WHERE id = $1`,
-    [params.id, shareToken]
-  );
+  // Read current value and update atomically in app
+  const cur = await execute('SELECT public_share_token FROM rti_requests WHERE id = ? LIMIT 1', [params.id], { prepare: true });
+  const existingShare = cur.rows && cur.rows[0] ? cur.rows[0].public_share_token : null;
+  const shareToSet = existingShare ?? shareToken;
+  await execute('UPDATE rti_requests SET public_opt_in_at = ?, public_share_token = ?, updated_at = ? WHERE id = ?', [new Date(), shareToSet, new Date(), params.id], { prepare: true });
 
-  await pool.query(
-    `INSERT INTO rti_events (rti_id, type, properties) VALUES ($1, $2, $3::jsonb)`,
-    [params.id, 'RTI_ESCALATED', JSON.stringify({ channel: body.channel, makePublic: body.makePublic })]
-  );
+  await execute('INSERT INTO rti_events (rti_id, type, properties, occurred_at) VALUES (?, ?, ?, ?)', [params.id, 'RTI_ESCALATED', JSON.stringify({ channel: body.channel, makePublic: body.makePublic }), new Date()], { prepare: true });
 
   res.json({
     ok: true,
@@ -401,41 +330,17 @@ router.get('/:id/evidence.zip', async (req, res) => {
   const token = mustToken(req);
   await assertTokenAccess(params.id, token);
 
-  const rti = await pool.query(`SELECT * FROM rti_requests WHERE id = $1 LIMIT 1`, [params.id]);
-  if (rti.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+  const rtiRes = await execute('SELECT * FROM rti_requests WHERE id = ? LIMIT 1', [params.id], { prepare: true });
+  if (!rtiRes.rows || rtiRes.rows.length === 0) return res.status(404).json({ error: 'Not found' });
 
-  const events = await pool.query(`SELECT id, type, occurred_at, properties FROM rti_events WHERE rti_id = $1 ORDER BY occurred_at ASC`, [
-    params.id
-  ]);
-  const responses = await pool.query(
-    `SELECT id, received_at, file_path, file_mime, file_sha256, notes, created_at
-     FROM rti_responses WHERE rti_id = $1 ORDER BY created_at ASC`,
-    [params.id]
-  );
-  const attachments = await pool.query(
-    `SELECT id, kind, file_path, file_mime, file_sha256, note, created_at
-     FROM rti_attachments WHERE rti_id = $1 ORDER BY created_at ASC`,
-    [params.id]
-  );
+  const events = await execute('SELECT id, type, occurred_at, properties FROM rti_events WHERE rti_id = ?', [params.id], { prepare: true });
+  const responses = await execute('SELECT id, received_at, file_path, file_mime, file_sha256, notes, created_at FROM rti_responses WHERE rti_id = ?', [params.id], { prepare: true });
+  const attachments = await execute('SELECT id, kind, file_path, file_mime, file_sha256, note, created_at FROM rti_attachments WHERE rti_id = ?', [params.id], { prepare: true });
 
-  const linkedComplaintId = rti.rows[0].complaint_id as string | null;
-  const complaintRow = linkedComplaintId
-    ? (
-        await pool.query(`SELECT * FROM complaints WHERE id = $1 LIMIT 1`, [linkedComplaintId])
-      ).rows[0] ?? null
-    : null;
+  const linkedComplaintId = rtiRes.rows[0].complaint_id as string | null;
+  const complaintRow = linkedComplaintId ? (await execute('SELECT * FROM complaints WHERE id = ? LIMIT 1', [linkedComplaintId], { prepare: true })).rows[0] ?? null : null;
 
-  const auditRows = linkedComplaintId
-    ? (
-        await pool.query(
-          `SELECT id, action, target_type, target_id, details, fabric_txid, created_at
-           FROM audit_log
-           WHERE target_type = 'COMPLAINT' AND target_id = $1
-           ORDER BY created_at ASC`,
-          [linkedComplaintId]
-        )
-      ).rows
-    : [];
+  const auditRows = linkedComplaintId ? (await execute(`SELECT id, action, target_type, target_id, details, fabric_txid, created_at FROM audit_log WHERE target_type = ? AND target_id = ?`, ['COMPLAINT', linkedComplaintId], { prepare: true })).rows : [];
 
   const fabricTxids = new Set<string>();
   if (complaintRow?.fabric_txid) fabricTxids.add(String(complaintRow.fabric_txid));
@@ -450,15 +355,15 @@ router.get('/:id/evidence.zip', async (req, res) => {
     fabricTxids: Array.from(fabricTxids.values())
   };
 
-  const rtiJsonText = JSON.stringify(rti.rows[0], null, 2);
+  const rtiJsonText = JSON.stringify(rtiRes.rows[0], null, 2);
   const eventsJsonText = JSON.stringify(events.rows, null, 2);
   const responsesJsonText = JSON.stringify(
-    responses.rows.map((x) => ({ ...x, file_path: undefined })),
+    responses.rows.map((x: any) => ({ ...x, file_path: undefined })),
     null,
     2
   );
   const attachmentsJsonText = JSON.stringify(
-    attachments.rows.map((x) => ({ ...x, file_path: undefined })),
+    attachments.rows.map((x: any) => ({ ...x, file_path: undefined })),
     null,
     2
   );

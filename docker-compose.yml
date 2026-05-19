@@ -1,87 +1,213 @@
-version: '3.8'
-
+# Development environment - all services run locally
 services:
-  # ----------------------------------------------------
-  # 🐘 PostgreSQL (Materialized Logical Views & JWT Auth)
-  # ----------------------------------------------------
-  postgres:
-    image: postgres:15-alpine
-    container_name: roadwatch_postgres
+  # Cassandra - Local Development (replacement for Postgres)
+  cassandra:
+    image: cassandra:4.1
+    container_name: roadwatch_cassandra
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: roadwatch_admin
-      POSTGRES_PASSWORD: development_password
-      POSTGRES_DB: roadwatch_local
+      CASSANDRA_START_RPC: 'true'
     ports:
-      # React Native emulators map implicitly directly strictly into standard localhost boundaries securely
-      - "5433:5432"
+      - "9042:9042"
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - cassandra_data:/var/lib/cassandra
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U roadwatch_admin -d roadwatch_local"]
+      test: ["CMD-SHELL", "cqlsh -e \"describe cluster\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - roadwatch
+
+  # Kafka - Local Message Broker
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.7.0
+    container_name: roadwatch_zookeeper
+    restart: unless-stopped
+    environment:
+      ZK_SERVER_HEAP: "-Xms128m -Xmx256m"
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 5
+      ZOOKEEPER_INIT_LIMIT: 10
+    ports:
+      - "2181:2181"
+    networks:
+      - roadwatch
+
+  kafka:
+    image: confluentinc/cp-kafka:7.7.0
+    container_name: roadwatch_kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_started
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_HEAP_OPTS: "-Xms128m -Xmx512m"
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9094,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_LOG_RETENTION_HOURS: 24
+    ports:
+      - "9094:9092"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:29092"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+    networks:
+      - roadwatch
 
-  # ----------------------------------------------------
-  # ⚡ Kafka (KRaft Mode Engine - No Zookeeper Required)
-  # ----------------------------------------------------
-  kafka:
-    profiles: ["local-kafka"]
-    image: bitnami/kafka:latest
-    container_name: roadwatch_kafka
+  # Redis - Local Cache
+  redis:
+    image: redis:7.2-alpine
+    container_name: roadwatch_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
     ports:
-      # Crucial: 9092 is mapped for node bridging natively!
-      - "9092:9092"
-      - "9093:9093"
-    environment:
-      - KAFKA_ENABLE_KRAFT=yes
-      - KAFKA_CFG_PROCESS_ROLES=broker,controller
-      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
-      # Maps local Android simulator 10.0.2.2 boundaries dynamically if bridging limits remotely
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
-      - KAFKA_BROKER_ID=1
-      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
-      - ALLOW_PLAINTEXT_LISTENER=yes
-    volumes:
-      - kafka_data:/bitnami/kafka
+      - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - roadwatch
 
-  # ----------------------------------------------------
-  # 🌐 Node.js API Backend (React Native -> Express Gateway)
-  # ----------------------------------------------------
-  api-backend:
-    profiles: ["stub-api"]
-    image: node:18-alpine
-    container_name: roadwatch_api
-    working_dir: /usr/src/app
-    ports:
-      # Mobile boundaries: 
-      # - iOS hits HTTP://localhost:3000
-      # - Android hits HTTP://10.0.2.2:3000
-      - "3000:3000"
-    environment:
-      - DATABASE_URL=postgres://roadwatch_admin:development_password@postgres:5432/roadwatch_local
-      - KAFKA_BROKER=kafka:9092
-      - JWT_SECRET=local_development_cryptographic_secret
-    # Explicit inline script execution dynamically starting an Express + KafkaJS stub actively directly!
-    command: >
-      sh -c "npm install express pg kafkajs cors && 
-             echo \"
-             const express = require('express');
-             const cors = require('cors');
-             const app = express();
-             app.use(cors());
-             app.get('/health', (req, res) => res.json({ status: 'RoadWatch Custom Edge API Active!' }));
-             app.listen(3000, () => console.log('Edge Sync Server Mounted exactly on port 3000'));
-             \" > server.js && 
-             node server.js"
+  # Scheduler - Background jobs & Cron jobs (Local Dev)
+  scheduler:
+    build:
+      context: .
+      dockerfile: services/scheduler/Dockerfile
+    container_name: roadwatch_scheduler
+    restart: unless-stopped
     depends_on:
-      postgres:
+      cassandra:
         condition: service_healthy
       kafka:
         condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      NODE_ENV: development
+      DEBUG: 'roadwatch:*'
+      CASSANDRA_CONTACT_POINTS: cassandra:9042
+      CASSANDRA_KEYSPACE: roadwatch
+      CASSANDRA_LOCAL_DC: datacenter1
+      SERVICE_NAME: scheduler
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BROKERS: kafka:29092
+      CRON_SYNC_QUEUE: "*/5 * * * *"
+      CRON_KARMA_RECALC: "0 * * * *"
+      CRON_SLA_CHECK: "*/30 * * * *"
+      CRON_AUDIT_CLEANUP: "0 2 * * *"
+      CRON_REPORT_GENERATION: "0 1 * * *"
+      LOG_LEVEL: debug
+    networks:
+      - roadwatch
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Webhook Handler - Event Scheduler & Kafka Consumer (Local Dev)
+  webhook-handler:
+    build:
+      context: .
+      dockerfile: services/webhook-handler/Dockerfile
+    container_name: roadwatch_webhook_handler
+    restart: unless-stopped
+    depends_on:
+      cassandra:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      NODE_ENV: development
+      DEBUG: 'roadwatch:*'
+      CASSANDRA_CONTACT_POINTS: cassandra:9042
+      CASSANDRA_KEYSPACE: roadwatch
+      CASSANDRA_LOCAL_DC: datacenter1
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_GROUP_ID: webhook-handler-dev
+      KAFKA_CONSUMER_TIMEOUT: "3000"
+      SERVICE_NAME: webhook-handler
+      REDIS_URL: redis://redis:6379/1
+      LOG_LEVEL: debug
+    networks:
+      - roadwatch
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Fabric Anchor Consumer - Blockchain Consumer (Local Dev)
+  fabric-anchor-consumer:
+    build:
+      context: .
+      dockerfile: services/fabric-anchor-consumer/Dockerfile
+    container_name: roadwatch_fabric_anchor_consumer
+    restart: unless-stopped
+    depends_on:
+      cassandra:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      NODE_ENV: development
+      DEBUG: 'roadwatch:*'
+      CASSANDRA_CONTACT_POINTS: cassandra:9042
+      CASSANDRA_KEYSPACE: roadwatch
+      CASSANDRA_LOCAL_DC: datacenter1
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_GROUP_ID: fabric-anchor-consumer-dev
+      REDIS_URL: redis://redis:6379/2
+      FABRIC_PEER_ENDPOINT: peer0.nhai.example.com:7051
+      FABRIC_MSP_ID: NHAIMSP
+      FABRIC_CHANNEL_NAME: roadwatch-india
+      FABRIC_CHAINCODE_NAME: complaint-anchor
+      LOG_LEVEL: debug
+    networks:
+      - roadwatch
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # One-time Cassandra initialization (runs cql script)
+  cassandra-init:
+    image: cassandra:4.1
+    container_name: roadwatch_cassandra_init
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["until cqlsh cassandra -e 'describe cluster' 2>/dev/null; do sleep 2; done; cqlsh cassandra -f /scripts/init.cql || true; sleep 1"]
+    volumes:
+      - ./docker/cassandra:/scripts:ro
+    networks:
+      - roadwatch
+
+networks:
+  roadwatch:
+    driver: bridge
 
 volumes:
-  pg_data:
-  kafka_data:
+  cassandra_data:
