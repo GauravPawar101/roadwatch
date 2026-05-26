@@ -37,10 +37,11 @@ export default function Onboarding() {
   }
 
   return (
+    <div className="page-radial-bg min-h-screen py-12 text-on-surface">
     <Container className="min-h-screen" maxWidth="960px">
       <Hero title="Set up your civic dashboard in under a minute." subtitle="Choose how you want to use RoadWatch and personalize updates." />
 
-      <Card>
+      <Card className="glass-panel rounded-2xl">
         <CardBody>
           <div className="stitch-display-flex stitch-justify-between stitch-items-center">
             <div>Step {step} of {totalSteps}</div>
@@ -123,5 +124,6 @@ export default function Onboarding() {
         </CardBody>
       </Card>
     </Container>
+    </div>
   )
 }

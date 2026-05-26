@@ -1,259 +1,47 @@
-Migration plan: Postgres -> Cassandra (ordered file-by-file changes)
+Migration plan: Postgres primary (Cassandra removed from documentation/tracking)
 
 1) docker-compose.yml -> [edit]
-- Replace Postgres service block with a Cassandra service:
-  - service name: `cassandra` using image `cassandra:4.1` (expose 9042)
-  - add volume `cassandra_data` and a healthcheck using `cqlsh`.
-- Add one-time service `cassandra-init` to run `cqlsh -f /scripts/init.cql` after cassandra is healthy.
-- For every service that had `depends_on: postgres` change to depend on `cassandra` (scheduler, webhook-handler, fabric-anchor-consumer, etc.).
-- Remove `DATABASE_URL` env entries from services and add:
-  - `CASSANDRA_CONTACT_POINTS: cassandra:9042`
-  - `CASSANDRA_KEYSPACE: roadwatch`
-  - `CASSANDRA_LOCAL_DC: datacenter1`
+- Ensure Postgres service is present (or active) and Cassandra service is removed for local dev.
+- Update all services to depend on `postgres` readiness.
+- Replace all `CASSANDRA_*` env vars with Postgres vars:
+  - `DATABASE_URL=postgresql://postgres:postgres@postgres:5432/roadwatch` (or compose/env equivalents)
+  - optionally `POSTGRES_HOST`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`.
 
-2) docker/cassandra/init.cql -> [add]
-- Create new file with keyspace and initial CQL table definitions (core PoC tables):
-  - `CREATE KEYSPACE IF NOT EXISTS roadwatch WITH replication = {'class':'SimpleStrategy','replication_factor':1};`
-  - `complaints(id text PRIMARY KEY, status text, metadata text, anchored_tx_hash text, anchored_at timestamp, updated_at timestamp)`
-  - `event_logs(id timeuuid PRIMARY KEY, event_type text, entity_id text, entity_type text, event_data text, created_at timestamp)`
-  - `notifications(id timeuuid PRIMARY KEY, user_id text, type text, title text, body text, data text, created_at timestamp)`
-  - `notification_delivery_logs(id timeuuid PRIMARY KEY, notification_id text, channel text, status text, created_at timestamp)`
-  - Add additional tables: `users`, `contractors`, `roads_catalog`, `districts`, `road_assignments`, `analytics_events`, `otp_sessions`, etc. Map columns from existing SQL DDLs.
+2) docker/postgres/init.sql -> [add/confirm]
+- Use this file as the canonical schema init for the `roadwatch` database.
+- Run it on container startup (or as a one-time init step).
 
 3) .env.template and per-app .env files -> [edit]
-- Remove/replace `DATABASE_URL`, `POSTGRES_*` variables with Cassandra vars:
-  - `CASSANDRA_CONTACT_POINTS=cassandra:9042`
-  - `CASSANDRA_KEYSPACE=roadwatch`
-  - (optional) `CASSANDRA_LOCAL_DC=datacenter1`
-- Update README/dev docs to show Cassandra start commands.
+- Remove/avoid `CASSANDRA_*` variables from the primary dev flow.
+- Keep only Postgres variables required by each service.
+- Add a single source of truth for `DATABASE_URL` (or POSTGRES_* fields).
 
 4) package.json edits (multiple packages) -> [edit]
-- Replace `pg` dependency with `cassandra-driver` (^4.x) in packages that list `pg`:
-  - services/webhook-handler/package.json
-  - services/scheduler/package.json
-  - services/fabric-anchor-consumer/package.json
-  - services/media-ingest/package.json
-  - apps/gateway-api/package.json
-  - packages/core/package.json
-- Remove `@types/pg` dev deps where present (Cassandra driver has its own types).
-- Run `pnpm install` / `npm install` after edits.
+- Ensure `pg` is the active DB driver again for Node services that run SQL.
+- Remove `cassandra-driver` dependencies from runtime packages (leave only if some legacy script still needs it).
 
-5) services/webhook-handler/index.ts -> [edit]
-- Replace `import pg from 'pg'` and `const { Pool } = pg` with:
-  - `import { Client, types } from 'cassandra-driver';`
-  - create client: `const client = new Client({ contactPoints: (process.env.CASSANDRA_CONTACT_POINTS||'127.0.0.1').split(','), localDataCenter: process.env.CASSANDRA_LOCAL_DC||'datacenter1', keyspace: process.env.CASSANDRA_KEYSPACE||'roadwatch' });`
-  - `await client.connect()` on startup and `await client.shutdown()` on shutdown.
-- Replace `pool.query(sql, params)` calls with `await client.execute(cql, params, { prepare: true })`.
-- For JSON mutations (jsonb_set), perform select+merge in JS then update the `metadata` column storing JSON as `text`.
-- For append-only logs, use `types.TimeUuid.now()` for `id` and insert rows.
-- Remove `ON CONFLICT`, `RETURNING`, and other Postgres-specific SQL. Use idempotent `INSERT IF NOT EXISTS` where safe or explicit `UPDATE`.
+5) services/* DB usage -> [edit]
+- Replace any remaining `cassandra-driver` client usage with `pg` pool usage.
+- Replace CQL statements with SQL.
+- Ensure health checks use a Postgres lightweight query (e.g., `SELECT 1`).
 
-6) services/scheduler/index.ts -> [edit]
-- Same client replacement as webhook-handler.
-- Replace all `pool.query` uses (cron tasks) with corresponding CQL operations.
-- Rework queries that rely on `INTERVAL`, `NOW() - INTERVAL 'X'` to compute timestamps in JS and use `<=` or `>=` comparisons in CQL.
-- Replace `RETURNING` logic: select keys before/after as needed.
+6) apps/gateway-api DB layer -> [major edit]
+- Ensure `apps/gateway-api/src/db.ts` uses `pg` (Pool) and SQL queries.
+- Remove Cassandra compatibility shim (`pool.query` over cassandra.js) if present.
+- Ensure seed scripts use `pg` and Postgres DDL/INSERT/UPDATE.
 
-7) services/fabric-anchor-consumer/index.ts -> [edit]
-- Replace pg Pool with Cassandra client.
-- Replace all SQL queries with CQL equivalents, using denormalized lookups where JOINs were used.
+7) packages/core DB adapter -> [edit]
+- Ensure Postgres adapter files are present and compile.
+- Remove cassandra-only code paths from core (unless purely optional/legacy).
 
-8) apps/gateway-api/src/db.ts -> [major edit]
-- Replace `import pg from 'pg'` and Pool with Cassandra Client initialization.
-- Rewrite `initDb()` migration logic:
-  - Do NOT attempt to translate DDL directly; instead:
-    - Keep a seed/migration script that creates CQL tables (migrate to `docker/cassandra/init.cql`).
-    - Remove `CREATE EXTENSION`, `ALTER TABLE`, `CHECK`, `FOREIGN KEY` statements — Cassandra has no equivalents.
-- Replace helper functions that use SQL arrays (`text[]`) and `jsonb` with functions that use `list<text>`/`map<text,text>` or JSON strings.
-- Update `getUserByPhone`, `getUserByIdentifier`, `upsertUser` etc. to use proper partition keys (e.g., `users_by_phonehash` table) and `client.execute`.
-- This is a large change: design denormalized tables first, then implement API functions to use them.
+8) scripts/tooling -> [review & edit]
+- Replace any tooling that assumes CQL (`.cql`/`cqlsh`) with SQL/`psql` or pg-native code.
 
-9) apps/gateway-api/scripts/seed-backend.ts -> [edit]
-- Replace `pg.Pool` usage and DDL with Cassandra seeding:
-  - Move most `CREATE TABLE` SQL into `docker/cassandra/init.cql`.
-  - Implement seed-upsert functions that `INSERT` into Cassandra tables (use idempotent keys, `INSERT ... IF NOT EXISTS` or `UPDATE`).
-- Rewrite `upsertDistrict`, `upsertRoad`, `upsertContractor`, `upsertAuthorityDirectory`, `createRoadAssignment` to perform CQL `INSERT`/`UPDATE` with JSON metadata handling on app side.
+9) Tests & CI -> [edit]
+- Update tests to use Postgres test DB connections.
+- Remove Cassandra-only env vars from test harness.
 
-10) apps/gateway-api/src/health.ts -> [edit]
-- Replace Postgres health check with Cassandra health check using a lightweight CQL: `SELECT release_version FROM system.local` or `SELECT now() FROM system.local`.
-- Update service dependency listing from `postgres` to `cassandra`.
+10) Final cleanup -> [apply]
+- Remove Cassandra-only docs references and env vars from the dev flow.
+- Keep a rollback note: do not delete Cassandra runtime code until Postgres-primary works end-to-end.
 
-11) apps/gateway-api/scripts/seed-backend.ts and dist counterparts -> [edit]
-- Ensure any compiled/dist files are updated or re-built after source changes.
-
-12) backend-api/src/index.ts -> [edit]
-- If it references `DATABASE_URL`, replace defaulting logic and DB client with Cassandra client where needed.
-
-13) packages/core/package.json & code -> [edit]
-- If `packages/core` imports `pg` or exposes DB helpers, update to use Cassandra client or provide an adapter interface.
-
-14) services/media-ingest & other services -> [edit]
-- Replace `pg` usage with Cassandra client and translate simple queries.
-
-15) scripts and tooling that assume SQL features -> [review & edit]
-- Examples: migrations, tests, seed scripts, monitoring/health checks.
-- Remove Postgres-specific SQL uses (jsonb_set, json_build_object, array ops, ON CONFLICT, RETURNING, foreign keys, CHECK constraints).
-
-16) Data migration scripts -> [add]
-- Create `scripts/migrate-postgres-to-cassandra/` with Node script(s) that:
-  - Connect to Postgres (temporary) and stream data via `COPY` or `SELECT` in batches.
-  - For each entity, transform rows to Cassandra-compatible inserts (merge JSON fields into text, expand arrays to lists/sets, denormalize join results into multiple tables as required).
-  - Insert into Cassandra using `cassandra-driver` with prepared statements and TTLs where appropriate.
-- Run this script once after Postgres and Cassandra are both available (or export/import via intermediate JSON files).
-
-17) Global code changes & patterns -> [apply across repo]
-- Search & replace patterns:
-  - `import pg from 'pg'` -> `import { Client, types } from 'cassandra-driver'`
-  - `const { Pool } = pg;` -> `const client = new Client({...})`
-  - `await pool.query(sql, params)` -> `await client.execute(cql, params, { prepare: true })`
-- Replace `NOW()` and `CURRENT_TIMESTAMP` usage with `new Date()` in app code.
-- Replace `ON CONFLICT` upserts with application-level merge or Cassandra `INSERT`/`UPDATE` semantics.
-- Replace JSONB operations with app-side JSON parsing + update of `metadata` text column.
-- Replace array operators and Postgres-specific functions with list/set columns or separate denormalized tables.
-
-18) Documentation & README -> [edit]
-- Update `README.md` / `docs/deployment.md` to document new Cassandra requirement and how to run `docker-compose up cassandra cassandra-init` and data-migration steps.
-
-19) Tests & CI -> [edit]
-- Update tests that assume Postgres SQL semantics. Replace with mocks or use an integration test harness for Cassandra.
-
-20) Final cleanup -> [apply]
-- Remove Postgres-related volumes (`pg_data`), env vars, and dependencies where no longer needed.
-- Keep a rollback plan: do not delete Postgres code until Cassandra migration is verified.
-
-Notes and considerations (must read before editing code):
-- Cassandra is not a relational DB: schema design must be query-driven and denormalized. Do NOT attempt 1:1 table translations for complex JOIN-heavy queries.
-- Start by designing denormalized tables for high-read paths (gateway-api endpoints, notification flows, complaint queries). Create mapping doc before converting `apps/gateway-api`.
-- Keep a compatibility shim (optional): implement a small DB adapter module that exports the same function names used by services but maps to Cassandra; this reduces repetitive edits.
-
-Search checklist (run these to find remaining references):
-- grep -R "import pg from 'pg'" **
-- grep -R "\bpg:\b" **
-- grep -R "DATABASE_URL" **
-- grep -R "jsonb|ON CONFLICT|RETURNING|json_build_object|jsonb_set|\bARRAY\b|INTERVAL\b" **
-
-
-If you want, I can now produce the `migration.txt` file in the repo root (I will create it exactly as above). Tell me to proceed and I will create/update the file. Otherwise, copy the contents above into `migration.txt` yourself.
-
-------------------------------------------------------------
-Remaining files that still reference Postgres / SQL (update these)
-------------------------------------------------------------
-Make these changes: replace pg usage with Cassandra client, convert SQL strings to CQL or app-side logic, and remove Postgres-specific SQL constructs.
-
-- .env.template -> Contains `DATABASE_URL=postgres://...` and `POSTGRES_*` vars. Replace or remove.
-- docker/.env.example -> Contains Postgres docker env vars (`POSTGRES_*`).
-- docker-compose.yml -> still contains `pg_data:` volume and other Postgres references in docs; remove leftover Postgres artifacts if fully switching.
-- apps/gateway-api/src/db.ts -> Major: imports pg and uses `pool.query` and many Postgres-specific DDLs. Must be rewritten to use Cassandra client and denormalized CQL schema.
-- apps/gateway-api/scripts/seed-backend.ts -> Uses `pg` and extensive CREATE TABLE / INSERT / ON CONFLICT. Move DDL to `docker/cassandra/init.cql` and rewrite seed functions to use CQL inserts/updates.
-- apps/gateway-api/dist/db.js -> Compiled JS includes SQL strings (update src and rebuild; optionally remove dist until migration complete).
-- apps/gateway-api/dist/analytics/service.js -> Compiled code references `pool.query` and SQL; update source and rebuild.
-- apps/gateway-api/src/routes/rti.ts -> Uses `pool.query` with parameterized SQL and RETURNING; rewrite to use Cassandra patterns.
-- apps/gateway-api/src/security/retention.ts -> Uses `pool.query`.
-- apps/gateway-api/dist/agent/tools/authorityTools.js -> Compiled file referencing SQL.
-- backend-api/src/index.ts -> References `pool.query('SELECT 1')` and `DATABASE_URL` defaulting.
-- backend-api/src/routes/complaints.ts -> Multiple `pool.query` calls; rewrite to CQL and denormalized queries.
-- backend-api/src/services/webhook.ts -> Uses `pool.connect()` and ON CONFLICT in SQL.
-- services/scheduler/index.ts -> Uses `pg` and many SQL queries in cron jobs.
-- services/media-ingest/src/index.js -> Uses `pool.query` with `ON CONFLICT` and INSERT/UPDATE for media and pinata_webhook_retries.
-- services/media-ingest/src/processor.js -> Uses `pool.query` for embeddings upsert.
-- services/fabric-anchor-consumer/index.ts -> Imports `pg` and uses pool queries.
-- services/webhook-handler/index.ts -> Partially migrated; still has `pool.query` usages and `pool.end()` in shutdown handlers. Remove remaining `pool` usage and replace with `client.execute` and `client.shutdown()`.
-- packages/core/package.json -> Lists `pg` in dependencies; update to `cassandra-driver` or remove if not needed.
-
-Notes:
-- Many compiled `dist/` files contain SQL strings; update the corresponding `src/` files and rebuild. Do NOT directly edit `dist/` files as they are generated.
-- Documentation (`README.md`, docs/*.md) still reference Postgres; update docs but they are lower priority.
-
-If you want, I can generate a focused patch for a single service (choose one) to convert all `pool.query` usages and deps, or produce per-file diffs for the list above. Tell me which service to convert next, or confirm you will handle these files and I will re-check after you edit them.
-
-------------------------------------------------------------
-CURRENT: Files still referencing Postgres / SQL (action required)
-------------------------------------------------------------
-Below are files found by scanning the repo that still contain Postgres imports, `pool.query` usage, or Postgres-specific SQL (`ON CONFLICT`, `jsonb`, `RETURNING`, etc.). For each file I provide the exact change steps you should apply.
-
-1) apps/gateway-api/src/db.ts
-- Changes:
-  - Remove: `import pg from 'pg'` and Pool usage.
-  - Add: `import { Client, types } from 'cassandra-driver'` and initialize `client` with `CASSANDRA_CONTACT_POINTS`, `CASSANDRA_LOCAL_DC`, `CASSANDRA_KEYSPACE`.
-  - Move DDL: copy `CREATE TABLE` statements into `docker/cassandra/init.cql` and remove Postgres DDL from `initDb()`.
-  - Rewrite helpers: replace `await pool.query(sql, params)` with `await client.execute(cql, params, { prepare: true })` and adjust any SQL syntax to CQL or JS-side logic (no `jsonb_set`, no `ON CONFLICT`).
-  - Replace `text[]` and `jsonb` usage with `list<text>`/`map<text,text>` or JSON strings in CQL schema and application code.
-
-2) apps/gateway-api/scripts/seed-backend.ts
-- Changes:
-  - Move DDL to `docker/cassandra/init.cql` and remove `pg` DDL calls.
-  - Replace `upsert*` functions to use `client.execute` with `INSERT`/`UPDATE` (prepare statements), performing JSON merges in JS.
-  - Use stable ids as partition keys; do not rely on FK constraints.
-
-3) apps/gateway-api/src/analytics/service.ts
-- Changes:
-  - Replace SQL `INSERT INTO analytics_events (...)` and `SELECT` analytics queries with CQL equivalents using `client.execute`.
-  - For aggregation queries (counts by status/date), consider using pre-aggregated tables or application-side aggregation after fetching scan results (Cassandra is not ideal for ad-hoc aggregations).
-
-4) apps/gateway-api/src/agent/tools/authorityTools.ts
-- Changes:
-  - Replace multiple `pool.query` calls with Cassandra client calls.
-  - Simple `SELECT ... WHERE id = $1` → `SELECT ... FROM complaints WHERE id = ?` (if complaints table uses id as partition key).
-  - `UPDATE complaints SET status = $2, updated_at = now()` → compute timestamp in JS and `UPDATE complaints SET status = ?, updated_at = ? WHERE id = ?`.
-
-5) apps/gateway-api/src/routes/rti.ts
-- Changes:
-  - Replace `INSERT ... RETURNING` patterns with `INSERT` then `SELECT` (if needed) or `INSERT` with known id values.
-  - Insert `rti_events` into a CQL `rti_events` table (timeuuid primary key) instead of `jsonb` operations.
-
-6) apps/gateway-api/src/security/retention.ts
-- Changes:
-  - Replace `pool.query` based deletions with CQL `DELETE` using appropriate partition/clustering keys and timestamps computed in JS.
-
-7) apps/gateway-api/dist/*.js (db.js, analytics/service.js, agent/tools/*.js)
-- Changes:
-  - Do not edit `dist/` directly. Edit corresponding `src/` files above and rebuild the project (`pnpm -w build` or the repo's build command) so `dist/` is regenerated without SQL.
-
-8) backend-api/src/index.ts
-- Changes:
-  - Replace `await pool.query('SELECT 1')` health checks with Cassandra client lightweight query (e.g., `SELECT release_version FROM system.local`).
-  - Remove `DATABASE_URL` defaulting; use `CASSANDRA_CONTACT_POINTS` and `CASSANDRA_KEYSPACE`.
-
-9) backend-api/src/routes/complaints.ts
-- Changes:
-  - Replace all `pool.query` calls with `client.execute` and adjust SQL to CQL; denormalize joins into additional tables or perform multiple queries as needed.
-
-10) backend-api/src/services/webhook.ts
-- Changes:
-  - Replace `pool.connect()` usage and `ON CONFLICT` upserts with select+insert/update flows using Cassandra client.
-
-11) services/scheduler/index.ts
-- Changes:
-  - Replace all `pool.query` cron-job queries with `client.execute` and compute time-based comparisons in JS (no `NOW() - INTERVAL` usage in CQL).
-
-12) services/media-ingest/src/index.js and services/media-ingest/src/processor.js
-- Changes:
-  - Replace `pool.query` inserts/updates for `media`, `embeddings`, `pinata_webhook_retries` with `client.execute` into Cassandra tables. Define CQL schema for `media` and `embeddings` (e.g., `embeddings(upload_id text PRIMARY KEY, embedding blob)` or `list<float>` depending on driver support).
-
-13) services/fabric-anchor-consumer/index.ts
-- Changes:
-  - Replace `import pg from 'pg'` and `Pool` usage with Cassandra client and convert SQL queries to `client.execute`.
-
-14) services/webhook-handler/index.ts
-- Status: partially migrated by PoC. Confirmed all `pool.query` usages removed and shutdown now uses `client.shutdown()`.
-
-15) packages/core/package.json and related code
-- Changes:
-  - If `packages/core` depends on `pg`, update its `package.json` to use `cassandra-driver` or remove the dependency and refactor DB helper modules to a DB adapter.
-
-16) .env files (non-example)
-- Files:
-  - apps/gateway-api/.env (contains `DATABASE_URL`)
-  - services/fabric-anchor-consumer/.env
-  - Others possibly in services/ (search for `DATABASE_URL` without `.example`)
-- Changes: Replace `DATABASE_URL` with `CASSANDRA_CONTACT_POINTS`, `CASSANDRA_KEYSPACE`, and `CASSANDRA_LOCAL_DC` where appropriate. (These are runtime files; change carefully.)
-
---
-If you want, I can generate per-file patches for any one service in this list (recommended: `apps/gateway-api/src/db.ts` or `services/scheduler/index.ts`). Tell me which service to convert next and I'll produce a precise patch that:
-  - changes `package.json` deps (replace `pg` with `cassandra-driver`),
-  - replaces imports and pool initialization with a Cassandra client wrapper,
-  - converts all `pool.query` calls in that service to `client.execute` with prepared statements,
-  - updates `.env.example` for that service, and
-  - run a quick lint/typecheck where possible.
-
-Reply with the service name to convert next (e.g., `apps/gateway-api` or `services/scheduler`), or say "I'll handle these" and I'll re-scan after your edits.

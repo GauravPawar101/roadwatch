@@ -6,33 +6,62 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+NETWORK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$NETWORK_DIR/../.." && pwd)"
+
+source "$NETWORK_DIR/scripts/env.sh"
 
 # Prefer repo-local Fabric binaries if present.
 if [ -d "$ROOT_DIR/bin" ]; then
   export PATH="$ROOT_DIR/bin:$PATH"
 fi
 
-# peer reads core.yaml from FABRIC_CFG_PATH; core.yaml expects organizations/* relative to it.
-cp -f "$ROOT_DIR/config/core.yaml" "$PWD/core.yaml" >/dev/null 2>&1 || true
-export FABRIC_CFG_PATH="$PWD"
+ensureFabricImage() {
+  local SOURCE_IMAGE="$1"
+  local TARGET_IMAGE="$2"
 
-CHANNEL="${FABRIC_CHANNEL:-roadwatch-india}"
-CC_NAME="${FABRIC_CHAINCODE:-complaint-anchor}"
+  if docker image inspect "$TARGET_IMAGE" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "==> Pulling Fabric image: $SOURCE_IMAGE"
+  docker pull "$SOURCE_IMAGE"
+
+  if [ "$SOURCE_IMAGE" != "$TARGET_IMAGE" ]; then
+    docker tag "$SOURCE_IMAGE" "$TARGET_IMAGE"
+  fi
+}
+
+ensureFabricChaincodeImages() {
+  # Fabric still resolves the chaincode builder/runtime images from the legacy
+  # hyperledger/* namespace in core.yaml, so make sure those local tags exist.
+  ensureFabricImage "ghcr.io/hyperledger/fabric-ccenv:2.5" "hyperledger/fabric-ccenv:2.5"
+  ensureFabricImage "ghcr.io/hyperledger/fabric-baseos:2.5" "hyperledger/fabric-baseos:2.5"
+  ensureFabricImage "ghcr.io/hyperledger/fabric-javaenv:2.5" "hyperledger/fabric-javaenv:2.5"
+  ensureFabricImage "ghcr.io/hyperledger/fabric-nodeenv:2.5" "hyperledger/fabric-nodeenv:2.5"
+}
+
+# peer reads core.yaml from FABRIC_CFG_PATH; core.yaml expects organizations/* relative to it.
+cp -f "$ROOT_DIR/config/core.yaml" "$NETWORK_DIR/core.yaml" >/dev/null 2>&1 || true
+export FABRIC_CFG_PATH="$NETWORK_DIR"
+
+CHANNEL="${FABRIC_CHANNEL:-$FABRIC_CHANNEL_NAME}"
+CC_NAME="${FABRIC_CHAINCODE:-$FABRIC_CHAINCODE_NAME}"
 CC_VERSION="${FABRIC_CC_VERSION:-0.0.1}"
 CC_SEQUENCE="${FABRIC_CC_SEQUENCE:-1}"
 CC_LANG="${FABRIC_CC_LANG:-golang}"
 CC_SRC_PATH="${FABRIC_CC_SRC_PATH:-$ROOT_DIR/fabric/chaincode/$CC_NAME}"
+CC_SIGNATURE_POLICY="${FABRIC_CC_SIGNATURE_POLICY:-}"
 
-ORDERER_ENDPOINT="${FABRIC_ORDERER_ENDPOINT:-localhost:7050}"
+ORDERER_ENDPOINT="${FABRIC_ORDERER_ENDPOINT:-localhost:$FABRIC_ORDERER_PORT}"
 ORDERER_HOST_OVERRIDE="${FABRIC_ORDERER_HOST_OVERRIDE:-orderer1.orderer.roadwatch.com}"
-ORDERER_CA="$PWD/organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem"
+ORDERER_CA="$NETWORK_DIR/organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem"
 
-NHAI_PEER_ADDR="${FABRIC_NHAI_PEER_ENDPOINT:-localhost:7051}"
-NHAI_PEER_TLS_CA="$PWD/organizations/peerOrganizations/nhai.roadwatch.com/peers/peer0.nhai.roadwatch.com/tls/ca.crt"
+NHAI_PEER_ADDR="${FABRIC_NHAI_PEER_ENDPOINT:-localhost:$FABRIC_NHAI_PEER_PORT}"
+NHAI_PEER_TLS_CA="$NETWORK_DIR/organizations/peerOrganizations/nhai.roadwatch.com/peers/peer0.nhai.roadwatch.com/tls/ca.crt"
 
-ROADWATCH_PEER_ADDR="${FABRIC_ROADWATCH_PEER_ENDPOINT:-localhost:9051}"
-ROADWATCH_PEER_TLS_CA="$PWD/organizations/peerOrganizations/roadwatch.roadwatch.com/peers/peer0.roadwatch.roadwatch.com/tls/ca.crt"
+ROADWATCH_PEER_ADDR="${FABRIC_ROADWATCH_PEER_ENDPOINT:-localhost:$FABRIC_ROADWATCH_PEER_PORT}"
+ROADWATCH_PEER_TLS_CA="$NETWORK_DIR/organizations/peerOrganizations/roadwatch.roadwatch.com/peers/peer0.roadwatch.roadwatch.com/tls/ca.crt"
 
 setPeerContext() {
   local ORG="$1"
@@ -42,14 +71,14 @@ setPeerContext() {
       export CORE_PEER_LOCALMSPID=NHAIMSP
       export CORE_PEER_ADDRESS="$NHAI_PEER_ADDR"
       export CORE_PEER_TLS_ROOTCERT_FILE="$NHAI_PEER_TLS_CA"
-      export CORE_PEER_MSPCONFIGPATH="$PWD/organizations/peerOrganizations/nhai.roadwatch.com/users/Admin@nhai.roadwatch.com/msp"
+      export CORE_PEER_MSPCONFIGPATH="$NETWORK_DIR/organizations/peerOrganizations/nhai.roadwatch.com/users/Admin@nhai.roadwatch.com/msp"
       ;;
     roadwatch)
       export CORE_PEER_TLS_ENABLED=true
       export CORE_PEER_LOCALMSPID=RoadWatchMSP
       export CORE_PEER_ADDRESS="$ROADWATCH_PEER_ADDR"
       export CORE_PEER_TLS_ROOTCERT_FILE="$ROADWATCH_PEER_TLS_CA"
-      export CORE_PEER_MSPCONFIGPATH="$PWD/organizations/peerOrganizations/roadwatch.roadwatch.com/users/Admin@roadwatch.roadwatch.com/msp"
+      export CORE_PEER_MSPCONFIGPATH="$NETWORK_DIR/organizations/peerOrganizations/roadwatch.roadwatch.com/users/Admin@roadwatch.roadwatch.com/msp"
       ;;
     *)
       echo "Unknown org for peer context: $ORG" >&2
@@ -79,6 +108,8 @@ requireFile "$ORDERER_CA"
 requireFile "$NHAI_PEER_TLS_CA"
 requireFile "$ROADWATCH_PEER_TLS_CA"
 
+ensureFabricChaincodeImages
+
 alreadyCommitted() {
   # Returns 0 if the given name/version/sequence is already committed on the channel.
   setPeerContext nhai
@@ -89,7 +120,7 @@ alreadyCommitted() {
   echo "$out" | grep -q "Version: ${CC_VERSION}, Sequence: ${CC_SEQUENCE}"
 }
 
-PKG_DIR="$PWD/chaincode-packages"
+PKG_DIR="$NETWORK_DIR/chaincode-packages"
 mkdir -p "$PKG_DIR"
 PKG_FILE="$PKG_DIR/${CC_NAME}_${CC_VERSION}.tar.gz"
 LABEL="${CC_NAME}_${CC_VERSION}"
@@ -139,6 +170,11 @@ approveForOrg() {
   echo "==> Approving for org: $ORG"
   setPeerContext "$ORG"
 
+  local APPROVE_POLICY_ARGS=()
+  if [ -n "$CC_SIGNATURE_POLICY" ]; then
+    APPROVE_POLICY_ARGS+=(--signature-policy "$CC_SIGNATURE_POLICY")
+  fi
+
   peer lifecycle chaincode approveformyorg \
     -o "$ORDERER_ENDPOINT" \
     --ordererTLSHostnameOverride "$ORDERER_HOST_OVERRIDE" \
@@ -147,6 +183,7 @@ approveForOrg() {
     --version "$CC_VERSION" \
     --package-id "$PACKAGE_ID" \
     --sequence "$CC_SEQUENCE" \
+    "${APPROVE_POLICY_ARGS[@]}" \
     --tls \
     --cafile "$ORDERER_CA"
 }
@@ -165,6 +202,12 @@ peer lifecycle chaincode checkcommitreadiness \
 
 echo "==> Committing definition"
 setPeerContext nhai
+
+COMMIT_POLICY_ARGS=()
+if [ -n "$CC_SIGNATURE_POLICY" ]; then
+  COMMIT_POLICY_ARGS+=(--signature-policy "$CC_SIGNATURE_POLICY")
+fi
+
 peer lifecycle chaincode commit \
   -o "$ORDERER_ENDPOINT" \
   --ordererTLSHostnameOverride "$ORDERER_HOST_OVERRIDE" \
@@ -172,6 +215,7 @@ peer lifecycle chaincode commit \
   --name "$CC_NAME" \
   --version "$CC_VERSION" \
   --sequence "$CC_SEQUENCE" \
+  "${COMMIT_POLICY_ARGS[@]}" \
   --tls \
   --cafile "$ORDERER_CA" \
   --peerAddresses "$NHAI_PEER_ADDR" \

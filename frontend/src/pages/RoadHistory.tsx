@@ -9,12 +9,13 @@ export default function RoadHistory() {
   ]
 
   return (
-    <Container>
+    <div className="page-radial-bg min-h-screen py-12 text-on-surface">
+      <Container>
       <div style={{ maxWidth: 900, margin: '20px auto' }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800 }}>Budget & Contractor History — {id}</h2>
+        <h2 style={{ fontSize: 28, fontWeight: 900, letterSpacing: '-0.03em' }}>Budget & Contractor History — {id}</h2>
         <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
           {budgets.map((b) => (
-            <Card key={b.year}>
+            <Card key={b.year} className="glass-panel rounded-2xl">
               <CardBody>
                 <div style={{ fontWeight: 700 }}>{b.year} — {b.amount}</div>
                 <div style={{ color: 'var(--color-text-secondary)' }}>Contractor: {b.contractor}</div>
@@ -23,6 +24,7 @@ export default function RoadHistory() {
           ))}
         </div>
       </div>
-    </Container>
+      </Container>
+    </div>
   )
 }

@@ -476,10 +476,14 @@ KARMA_DUPLICATE_PENALTY=-30
 KARMA_REJECTED_PENALTY=-75
 KARMA_DAILY_LIMIT=10
 
-# Database (Cassandra preferred)
-CASSANDRA_CONTACT_POINTS=cassandra:9042
-CASSANDRA_KEYSPACE=roadwatch
-CASSANDRA_LOCAL_DC=datacenter1
+# Database (PgBouncer-backed PostgreSQL preferred)
+# Point DATABASE_URL at the pooled endpoint used by runtime clients.
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:6432/roadwatch
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
+POSTGRES_DB=roadwatch
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
 ```
 
 ## Future Enhancements

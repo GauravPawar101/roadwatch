@@ -1,19 +1,19 @@
 import crypto from 'crypto';
-import { execute } from '../cassandra.js';
 import { type Role } from '../db.js';
+import { pool } from '../postgres.js';
 import { broadcastNotificationEvent } from '../realtime/sse.js';
 import type {
-    NotificationAudience,
-    NotificationChannel,
-    NotificationMessage,
-    NotificationPreferences,
-    NotificationType
+  NotificationAudience,
+  NotificationChannel,
+  NotificationMessage,
+  NotificationPreferences,
+  NotificationType
 } from './domain.js';
 import {
-    fcmTopicsForAudience,
-    isWithinQuietHours,
-    minutesUntilNextDigest,
-    minutesUntilQuietEnds
+  fcmTopicsForAudience,
+  isWithinQuietHours,
+  minutesUntilNextDigest,
+  minutesUntilQuietEnds
 } from './domain.js';
 
 type PrefRow = {
@@ -26,6 +26,39 @@ type PrefRow = {
   authority_batching: 'IMMEDIATE' | 'DAILY_DIGEST';
   digest_minutes: number;
 };
+
+async function getOrCreatePreferencesWithClient(client: { query: (text: string, params?: any[]) => Promise<any> }, userId: string): Promise<NotificationPreferences> {
+  const existing = await client.query(
+    `SELECT user_id, enabled_channels, dnd_enabled, dnd_start_minutes, dnd_end_minutes, time_zone, authority_batching, digest_minutes
+     FROM notification_preferences
+     WHERE user_id = $1
+     LIMIT 1`,
+    [userId]
+  );
+
+  const row = existing.rows[0] as PrefRow | undefined;
+  if (row) return mapPrefsRow(row);
+
+  await client.query(
+    `INSERT INTO notification_preferences (
+       user_id, enabled_channels, dnd_enabled, dnd_start_minutes, dnd_end_minutes,
+       time_zone, authority_batching, digest_minutes, created_at, updated_at
+     ) VALUES (
+       $1, $2, false, 0, 0, 'UTC', 'IMMEDIATE', 60, NOW(), NOW()
+     )`,
+    [userId, null]
+  );
+
+  const created = await client.query(
+    `SELECT user_id, enabled_channels, dnd_enabled, dnd_start_minutes, dnd_end_minutes, time_zone, authority_batching, digest_minutes
+     FROM notification_preferences
+     WHERE user_id = $1
+     LIMIT 1`,
+    [userId]
+  );
+
+  return mapPrefsRow(created.rows[0] as PrefRow);
+}
 
 export type InboxItem = {
   inboxId: string;
@@ -43,13 +76,33 @@ export type InboxItem = {
 };
 
 export async function getOrCreatePreferences(userId: string): Promise<NotificationPreferences> {
-  const existing = await execute('SELECT user_id, enabled_channels, dnd_enabled, dnd_start_minutes, dnd_end_minutes, time_zone, authority_batching, digest_minutes FROM notification_preferences WHERE user_id = ? LIMIT 1', [userId], { prepare: true });
+  const existing = await pool.query<PrefRow>(
+    `SELECT user_id, enabled_channels, dnd_enabled, dnd_start_minutes, dnd_end_minutes, time_zone, authority_batching, digest_minutes 
+     FROM notification_preferences 
+     WHERE user_id = $1 
+     LIMIT 1`,
+    [userId]
+  );
   const row = existing.rows[0];
   if (row) return mapPrefsRow(row);
 
-  await execute('INSERT INTO notification_preferences (user_id, enabled_channels, dnd_enabled, dnd_start_minutes, dnd_end_minutes, time_zone, authority_batching, digest_minutes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [userId, null, false, 0, 0, 'UTC', 'IMMEDIATE', 60, new Date(), new Date()], { prepare: true });
+  await pool.query(
+    `INSERT INTO notification_preferences (
+       user_id, enabled_channels, dnd_enabled, dnd_start_minutes, dnd_end_minutes, 
+       time_zone, authority_batching, digest_minutes, created_at, updated_at
+     ) VALUES (
+       $1, $2, false, 0, 0, 'UTC', 'IMMEDIATE', 60, NOW(), NOW()
+     )`,
+    [userId, null]
+  );
 
-  const created = await execute('SELECT user_id, enabled_channels, dnd_enabled, dnd_start_minutes, dnd_end_minutes, time_zone, authority_batching, digest_minutes FROM notification_preferences WHERE user_id = ? LIMIT 1', [userId], { prepare: true });
+  const created = await pool.query<PrefRow>(
+    `SELECT user_id, enabled_channels, dnd_enabled, dnd_start_minutes, dnd_end_minutes, time_zone, authority_batching, digest_minutes 
+     FROM notification_preferences 
+     WHERE user_id = $1 
+     LIMIT 1`,
+    [userId]
+  );
   return mapPrefsRow(created.rows[0]!);
 }
 
@@ -65,37 +118,79 @@ export async function updatePreferences(userId: string, patch: Partial<Notificat
     digestMinutes: patch.digestMinutes ?? current.digestMinutes
   };
 
-  await execute('UPDATE notification_preferences SET enabled_channels = ?, dnd_enabled = ?, dnd_start_minutes = ?, dnd_end_minutes = ?, time_zone = ?, authority_batching = ?, digest_minutes = ?, updated_at = ? WHERE user_id = ?', [next.enabledChannels, next.doNotDisturb.enabled, next.doNotDisturb.startMinutes, next.doNotDisturb.endMinutes, next.doNotDisturb.timeZone, next.authorityBatching, next.digestMinutes, new Date(), userId], { prepare: true });
+  await pool.query(
+    `UPDATE notification_preferences 
+     SET enabled_channels = $1, 
+         dnd_enabled = $2, 
+         dnd_start_minutes = $3, 
+         dnd_end_minutes = $4, 
+         time_zone = $5, 
+         authority_batching = $6, 
+         digest_minutes = $7, 
+         updated_at = NOW() 
+     WHERE user_id = $8`,
+    [
+      next.enabledChannels,
+      next.doNotDisturb.enabled,
+      next.doNotDisturb.startMinutes,
+      next.doNotDisturb.endMinutes,
+      next.doNotDisturb.timeZone,
+      next.authorityBatching,
+      next.digestMinutes,
+      userId
+    ]
+  );
 
   return next;
 }
 
 export async function listInbox(userId: string, limit: number): Promise<InboxItem[]> {
-  const inboxRows = await execute('SELECT id, notification_id, read_at, created_at FROM notification_inbox WHERE user_id = ? LIMIT ?', [userId, limit], { prepare: true });
+  const inboxRows = await pool.query(
+    `SELECT id, notification_id, read_at, created_at 
+     FROM notification_inbox 
+     WHERE user_id = $1 
+     LIMIT $2`,
+    [userId, limit]
+  );
+  
   const out: InboxItem[] = [];
   for (const row of inboxRows.rows) {
-    const n = await execute('SELECT id, type, title, body, data, district, zone, road_id, critical, created_at FROM notifications WHERE id = ? LIMIT 1', [row.notification_id], { prepare: true });
-    const nr = n.rows[0];
-    out.push({
-      inboxId: row.id,
-      id: nr.id,
-      notifType: nr.type,
-      title: nr.title,
-      body: nr.body,
-      data: nr.data ?? {},
-      district: nr.district ?? null,
-      zone: nr.zone ?? null,
-      roadId: nr.road_id ?? null,
-      critical: Boolean(nr.critical),
-      createdAt: new Date(nr.created_at).toISOString(),
-      readAt: row.read_at ? new Date(row.read_at).toISOString() : null
-    });
+    const notification = await pool.query(
+      `SELECT id, type, title, body, data, district, zone, road_id, critical, created_at 
+       FROM notifications 
+       WHERE id = $1 
+       LIMIT 1`,
+      [row.notification_id]
+    );
+    const nr = notification.rows[0];
+    
+    if (nr) {
+      out.push({
+        inboxId: row.id,
+        id: nr.id,
+        notifType: nr.type,
+        title: nr.title,
+        body: nr.body,
+        data: nr.data ?? {},
+        district: nr.district ?? null,
+        zone: nr.zone ?? null,
+        roadId: nr.road_id ?? null,
+        critical: Boolean(nr.critical),
+        createdAt: new Date(nr.created_at).toISOString(),
+        readAt: row.read_at ? new Date(row.read_at).toISOString() : null
+      });
+    }
   }
   return out;
 }
 
 export async function markInboxRead(userId: string, inboxId: string): Promise<void> {
-  await execute('UPDATE notification_inbox SET read_at = ? WHERE user_id = ? AND id = ?', [new Date(), userId, inboxId], { prepare: true });
+  await pool.query(
+    `UPDATE notification_inbox 
+     SET read_at = NOW() 
+     WHERE user_id = $1 AND id = $2`,
+    [userId, inboxId]
+  );
 }
 
 export function topicsForUser(params: { userId: string; districts: string[]; zones: string[] }): {
@@ -121,27 +216,49 @@ export async function createAndFanoutNotification(params: {
   message: NotificationMessage;
 }): Promise<{ notificationId: string; userIds: string[] }> {
   const m = params.message;
-
   const notificationId = crypto.randomUUID();
-  await execute('INSERT INTO notifications (id, type, title, body, data, district, zone, road_id, critical, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [notificationId, m.type, m.title, m.body, JSON.stringify(m.data ?? {}), m.audience.kind === 'jurisdiction' ? m.audience.district : null, m.audience.kind === 'jurisdiction' ? m.audience.zone ?? null : null, m.audience.kind === 'road' ? m.audience.roadId : null, Boolean(m.critical), new Date()], { prepare: true });
-
   const userIds = await resolveAudienceUsers(m.audience);
-  for (const uid of userIds) {
-    // In-app history entry
-    const inboxId = crypto.randomUUID();
-    await execute('INSERT INTO notification_inbox (id, user_id, notification_id, created_at) VALUES (?, ?, ?, ?)', [inboxId, uid, notificationId, new Date()], { prepare: true });
 
-    // Ensure prefs exists
-    const prefs = await getOrCreatePreferences(uid);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO notifications (id, type, title, body, data, district, zone, road_id, critical, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+      [
+        notificationId,
+        m.type,
+        m.title,
+        m.body,
+        JSON.stringify(m.data ?? {}),
+        m.audience.kind === 'jurisdiction' ? m.audience.district : null,
+        m.audience.kind === 'jurisdiction' ? m.audience.zone ?? null : null,
+        m.audience.kind === 'road' ? m.audience.roadId : null,
+        Boolean(m.critical)
+      ]
+    );
 
-    // Always create delivery rows for out-of-band channels; actual send happens in dispatcher.
-    for (const ch of prefs.enabledChannels) {
-      if (ch === 'IN_APP') continue;
-      const scheduledFor = computeSchedule({ now: new Date(), channel: ch, critical: Boolean(m.critical), prefs, role: null });
-      await execute('INSERT INTO notification_deliveries (id, user_id, notification_id, channel, scheduled_for, batch_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [crypto.randomUUID(), uid, notificationId, ch, scheduledFor, batchKey({ prefs, channel: ch, audience: m.audience }), new Date()], { prepare: true });
-    }
+    for (const uid of userIds) {
+      const inboxId = crypto.randomUUID();
+      await client.query(
+        `INSERT INTO notification_inbox (id, user_id, notification_id, created_at) 
+         VALUES ($1, $2, $3, NOW())`,
+        [inboxId, uid, notificationId]
+      );
 
-    if (inboxId) {
+      const prefs = await getOrCreatePreferencesWithClient(client, uid);
+
+      for (const ch of prefs.enabledChannels) {
+        if (ch === 'IN_APP') continue;
+        const scheduledFor = computeSchedule({ now: new Date(), channel: ch, critical: Boolean(m.critical), prefs, role: null });
+        
+        await client.query(
+          `INSERT INTO notification_deliveries (id, user_id, notification_id, channel, scheduled_for, batch_key, created_at) 
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+          [crypto.randomUUID(), uid, notificationId, ch, scheduledFor, batchKey({ prefs, channel: ch, audience: m.audience })]
+        );
+      }
+
       broadcastNotificationEvent({
         userId: uid,
         district: m.audience.kind === 'jurisdiction' ? m.audience.district : null,
@@ -164,6 +281,12 @@ export async function createAndFanoutNotification(params: {
         }
       });
     }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
 
   return { notificationId, userIds };
@@ -176,9 +299,14 @@ async function resolveAudienceUsers(audience: NotificationAudience): Promise<str
     const district = audience.district;
     const zone = audience.zone ?? 'ALL';
 
-    // Select candidate users and filter in application code
-    const candidates = await execute('SELECT id, role, districts, zones FROM users WHERE role IN ? ALLOW FILTERING', [['CE', 'EE']], { prepare: true });
-    return (candidates.rows || []).filter((u: any) => {
+    const candidates = await pool.query(
+      `SELECT id, role, districts, zones 
+       FROM users 
+       WHERE role = ANY($1)`,
+      [['CE', 'EE']]
+    );
+    
+    return candidates.rows.filter((u: any) => {
       const ds: string[] = u.districts || [];
       const zs: string[] = u.zones || [];
       const okDistrict = ds.includes('ALL') || ds.includes(district);
@@ -187,7 +315,6 @@ async function resolveAudienceUsers(audience: NotificationAudience): Promise<str
     }).map((x: any) => x.id);
   }
 
-  // Road audience: no global mapping without an explicit road->jurisdiction mapping; keep empty for now.
   return [];
 }
 

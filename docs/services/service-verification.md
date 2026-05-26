@@ -24,7 +24,7 @@
   - ✅ SLA breach detection (*/30 * * * * *)
   - ✅ Audit log cleanup (0 2 * * *)
   - ✅ Report generation (0 1 * * *)
-- **Database Integration:** Cassandra client/keyspace with health checks
+- **Database Integration:** Postgres pool with health checks
 - **Resource Limits:** 0.5 CPU, 256MB RAM
 
 #### 2. Webhook Handler Service
@@ -62,19 +62,19 @@
 #### Updated docker-compose.yml
 - ✅ **Scheduler Service Added**
   - Always runs
-  - Depends on: cassandra (healthy)
+  - Depends on: postgres (healthy)
   - Health check: Process alive
   - Env vars: Cron schedules pre-configured
   
 - ✅ **Webhook Handler Service Added**
   - Always runs
-  - Depends on: cassandra (healthy), kafka (healthy)
+  - Depends on: postgres (healthy), kafka (healthy)
   - Health check: Process alive
   - Env vars: Kafka broker, consumer group
 
 - ✅ **Fabric Anchor Consumer Service Added**
   - Always runs
-  - Depends on: cassandra (healthy), kafka (healthy)
+  - Depends on: postgres (healthy), kafka (healthy)
   - Health check: Process alive
   - Env vars: Fabric network, Kafka broker config
 
@@ -261,10 +261,10 @@ Services require these tables/views to function:
 ## ✅ Environment Variable Checklist
 
 -### Required for All Services
-- ✅ `CASSANDRA_CONTACT_POINTS` — Cassandra contact points (comma-separated)
-- ✅ `CASSANDRA_KEYSPACE` — Cassandra keyspace name
-- ✅ `CASSANDRA_LOCAL_DC` — Cassandra local datacenter
-- (Legacy) `DATABASE_URL` — Postgres connection string (optional)
+- ✅ `DATABASE_URL` — PostgreSQL connection string for the pooled endpoint
+- ✅ `POSTGRES_HOST` — PostgreSQL host
+- ✅ `POSTGRES_PORT` — PostgreSQL port
+- ✅ `POSTGRES_DB` — PostgreSQL database name
 - ✅ `NODE_ENV` — development/production
 - ✅ `JWT_SECRET` — Authentication key
 
@@ -325,10 +325,11 @@ All ports verified as non-conflicting:
 ```
 roadwatch docker network (bridge)
 ├─ postgres:5432 (internal port)
-│  ├─ scheduler (direct connection)
-│  ├─ webhook-handler (direct connection)
-│  ├─ fabric-anchor-consumer (direct connection)
-│  └─ gateway-api (direct connection)
+│  ├─ PgBouncer / pool-backed clients
+│  ├─ scheduler
+│  ├─ webhook-handler
+│  ├─ fabric-anchor-consumer
+│  └─ gateway-api (PgBouncer-backed pool)
 ├─ zookeeper:2181
 │  └─ kafka (depends on)
 ├─ kafka:29092 (internal broadcast)

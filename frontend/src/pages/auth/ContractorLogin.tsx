@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, CardBody, FormGroup, Input } from '../../components/UIComponents';
 import { useAuth, type AuthUser } from '../../contexts/AuthContext';
 
 export default function ContractorLogin() {
@@ -105,113 +104,87 @@ export default function ContractorLogin() {
   };
 
   return (
-    <div className="bg-background text-on-background min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
-      <div className="absolute inset-0 z-0 opacity-10 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-5%] w-[40%] h-[40%] rounded-full bg-primary-container blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] right-[-5%] w-[40%] h-[40%] rounded-full bg-secondary-container blur-[120px]"></div>
-      </div>
+    <div className="min-h-screen bg-background text-on-background relative overflow-hidden">
+      <main className="relative z-10 flex min-h-screen flex-col items-center px-4 pt-8 pb-24 sm:pt-10 sm:pb-20">
+        <div className="flex flex-col items-center text-center">
+          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-on-surface-variant">
+            <span className="h-1.5 w-1.5 rounded-full bg-on-surface-variant" aria-hidden="true" />
+            <span>CivicGuard</span>
+          </div>
+          <p className="mt-3 max-w-[26rem] text-[11px] leading-4 text-on-surface-variant sm:text-[12px] sm:leading-5">
+            Contractor access for verified field teams and project partners.
+          </p>
+        </div>
 
-      <div className="w-full max-w-[460px] z-10">
-        <Card className="glass-card bg-[#122131]/40 border-white/10 backdrop-blur-xl rounded-2xl shadow-2xl">
-          <CardBody className="p-8">
-            <div className="text-center mb-8">
-              <h1 className="text-3xl font-black tracking-wider bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent mb-4">
-                RoadWatch
-              </h1>
-              
-              {/* Premium Segmented Role Tabs Selector */}
-              <div className="flex p-1 bg-slate-950/60 rounded-xl border border-white/10 w-full max-w-[320px] mx-auto mb-6 select-none">
-                <button
-                  type="button"
-                  onClick={() => navigate('/auth/citizen/login')}
-                  className="flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all text-slate-400 hover:text-white hover:bg-white/5"
-                >
-                  Citizen
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/auth/contractor/login')}
-                  className="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all bg-[#06B6D4] text-[#051424] shadow"
-                >
-                  Contractor
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/auth/authority/login')}
-                  className="flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all text-slate-400 hover:text-white hover:bg-white/5"
-                >
-                  Authority
-                </button>
-              </div>
-
-              <div className="text-sm font-bold text-slate-300">Contractor Login Portal</div>
-              <div className="text-[11px] text-slate-400 mt-1.5 max-w-[280px] mx-auto leading-relaxed">
-                Enter your contractor identification. Predefined dummy credentials are automatically active.
-              </div>
+        <div className="flex flex-1 items-center justify-center py-10 sm:py-12">
+          <div className="w-full max-w-[372px] rounded-[14px] border border-outline-variant bg-surface-container-lowest px-5 py-5 shadow-[0_1px_0_rgba(0,0,0,0.02)] sm:px-6 sm:py-6">
+            <div className="mb-5 flex items-center justify-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-on-surface-variant">
+              <button type="button" onClick={() => navigate('/auth/citizen/login')} className="rounded-md px-2 py-1 transition-colors hover:text-primary">Citizen</button>
+              <button type="button" onClick={() => navigate('/auth/contractor/login')} className="rounded-md bg-primary px-2 py-1 text-on-primary">Contractor</button>
+              <button type="button" onClick={() => navigate('/auth/authority/login')} className="rounded-md px-2 py-1 transition-colors hover:text-primary">Authority</button>
             </div>
 
-            {error && (
-              <Alert variant="error" className="mb-4 text-xs">
-                {error}
-              </Alert>
-            )}
+            {error && <div className="mb-4 rounded-[10px] border border-error/20 bg-error-container px-3 py-3 text-[13px] text-on-error-container">{error}</div>}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              <FormGroup label="Email or Username" className="text-xs text-slate-300">
-                <Input
-                  type="text"
-                  value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="contractor (or contractor@roadwatch.org)"
-                  disabled={loading}
-                  className="w-full bg-slate-950/80 border-white/10 text-white rounded-xl placeholder-slate-500 py-2.5 px-3.5 focus:border-[#06B6D4]/50"
-                />
-              </FormGroup>
+              <div className="space-y-3">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-medium tracking-[0.08em] text-on-surface-variant" htmlFor="identifier">Email or Username</label>
+                  <input
+                    id="identifier"
+                    type="text"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    placeholder="contractor or contractor@roadwatch.org"
+                    disabled={loading}
+                    className="h-10 w-full rounded-[10px] border border-outline-variant bg-white px-3 text-[13px] text-on-surface outline-none transition-colors placeholder:text-on-surface-variant/55 focus:border-primary focus:ring-1 focus:ring-primary"
+                  />
+                </div>
 
-              <FormGroup label="Password" className="text-xs text-slate-300">
-                <Input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="contractor123"
-                  disabled={loading}
-                  className="w-full bg-slate-950/80 border-white/10 text-white rounded-xl placeholder-slate-500 py-2.5 px-3.5 focus:border-[#06B6D4]/50"
-                />
-              </FormGroup>
-
-              <div className="pt-2">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  full
-                  loading={loading}
-                  className="w-full bg-gradient-to-r from-[#002045] to-[#1960a3] hover:opacity-95 text-white font-bold py-2.5 rounded-xl shadow-lg"
-                >
-                  {loading ? 'Logging in...' : 'Sign In'}
-                </Button>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-medium tracking-[0.08em] text-on-surface-variant" htmlFor="password">Password</label>
+                  <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="contractor123"
+                    disabled={loading}
+                    className="h-10 w-full rounded-[10px] border border-outline-variant bg-white px-3 text-[13px] text-on-surface outline-none transition-colors placeholder:text-on-surface-variant/55 focus:border-primary focus:ring-1 focus:ring-primary"
+                  />
+                </div>
               </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex h-11 w-full items-center justify-center rounded-[10px] bg-primary text-[13px] font-semibold text-on-primary transition-opacity hover:opacity-95 disabled:opacity-60"
+              >
+                {loading ? 'Logging in...' : 'Sign In'}
+              </button>
             </form>
 
-            {/* Quick credentials hint */}
-            <div className="mt-6 bg-slate-950/40 border border-white/5 p-3 rounded-xl text-center space-y-1">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Demo / Testing Credentials</div>
-              <div className="text-xs text-[#06B6D4] font-semibold">
-                User: <span className="text-white font-mono">contractor</span> &bull; Pass: <span className="text-white font-mono">contractor123</span>
-              </div>
-            </div>
-
-            <div className="mt-6 text-center text-xs text-slate-500">
+            <div className="mt-5 border-t border-outline-variant/70 pt-4 text-center text-[12px] leading-5 text-on-surface-variant">
               Contractor accounts are created by the super administrator.
             </div>
 
-            <div className="mt-4 text-center text-xs">
-              <Link to="/" className="text-[#06B6D4] hover:text-cyan-300 transition font-medium no-underline hover:underline">
-                Back to dashboard
-              </Link>
+            <div className="mt-3 text-center text-[12px]">
+              <Link to="/" className="text-secondary transition-colors hover:text-primary hover:underline">Back to dashboard</Link>
             </div>
-          </CardBody>
-        </Card>
-      </div>
+          </div>
+        </div>
+
+        <footer className="absolute bottom-0 left-0 right-0 border-t border-outline-variant/60 bg-background/90 px-4 py-3 backdrop-blur-sm sm:px-6">
+          <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-2 text-[11px] text-on-surface-variant sm:flex-row sm:items-center sm:justify-between">
+            <p>© 2024 CivicGuard Institutional Portal. All rights reserved.</p>
+            <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 sm:justify-end">
+              <a className="transition-colors hover:text-primary" href="#">Help Center</a>
+              <a className="transition-colors hover:text-primary" href="#">Privacy Policy</a>
+              <a className="transition-colors hover:text-primary" href="#">Legal Disclosure</a>
+            </nav>
+          </div>
+        </footer>
+      </main>
     </div>
   );
 }

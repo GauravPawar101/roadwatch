@@ -24,14 +24,14 @@ export async function requestOtp(phone: string, purpose: OtpPurpose): Promise<{ 
 
   const redis = getRedisClient();
 
-  // Rate limiting: otp_rate:{phone_hash} TTL 900s
+  // Rate limiting: otp_rate:{phone_hash} TTL 900s (15 minutes)
   const rateKey = `otp_rate:${phoneHash}`;
   const rateCount = await redis.incr(rateKey);
   if (rateCount === 1) {
     await redis.expire(rateKey, 900);
   }
   if (rateCount > 3) {
-    return { ok: false, error: 'Rate limit exceeded' };
+    return { ok: false, error: 'Rate limit exceeded. Please try again in 15 minutes.' };
   }
 
   const code = generateOtpCode();
@@ -47,15 +47,33 @@ export async function requestOtp(phone: string, purpose: OtpPurpose): Promise<{ 
     phone: masked,
     code_hash: codeHash,
     attempts: 0,
-    created_at: Date.now()
+    created_at: Date.now(),
+    expires_at: Date.now() + (ttlSeconds * 1000)
   };
 
-  // Use setEx to ensure compatibility with redis client typings
+  // Store OTP in Redis with TTL
   await (redis as any).set(String(key), String(JSON.stringify(payload)));
   await redis.expire(key, ttlSeconds);
 
-  // TODO: SMS integration. For now, log.
-  console.log(`[OTP] phone=${masked} code=${code} key=${key} expires_in=${ttlSeconds}s`);
+  // Send OTP via SMS
+  try {
+    const { sendViaChannel } = await import('../notifications/providers.js');
+    await sendViaChannel({
+      channel: 'SMS',
+      phone: normalized,
+      title: 'RoadWatch OTP',
+      body: `Your verification code is: ${code}. Valid for ${Math.floor(ttlSeconds / 60)} minutes.`,
+      data: { purpose, otp_code: code },
+      userId: phoneHash, // Use phone hash as temporary user ID
+      district: null,
+      zone: null,
+      roadId: null
+    });
+    console.log(`[OTP] SMS sent to ${masked}, expires in ${ttlSeconds}s`);
+  } catch (smsError) {
+    console.error(`[OTP] SMS failed for ${masked}:`, smsError);
+    // Continue execution - OTP is still valid even if SMS fails
+  }
   // In development, return the dev code in the response only for known test numbers.
   if (getEnv().NODE_ENV !== 'production') {
     try {
@@ -113,4 +131,33 @@ export async function verifyOtp(params: { phone: string; code: string; purpose: 
   await (redis as any).set(String(key), String(JSON.stringify(row)));
   await redis.expire(key, ttl);
   return false;
+}
+
+export async function getOtpStatus(phone: string, purpose: OtpPurpose): Promise<{ exists: boolean; attemptsLeft: number; ttlSeconds: number } | null> {
+  const normalized = normalizePhone(phone);
+  const phoneHash = hashPhone(normalized);
+
+  const redis = getRedisClient();
+  const key = `otp:${phoneHash}`;
+  const raw = await redis.get(key);
+  if (!raw) return null;
+
+  let row: any;
+  try {
+    row = JSON.parse(String(raw));
+  } catch {
+    return null;
+  }
+
+  if (row.purpose !== purpose) return null;
+
+  const ttl = await redis.ttl(key);
+  const attempts = row.attempts || 0;
+  const attemptsLeft = Math.max(0, 3 - attempts);
+
+  return {
+    exists: true,
+    attemptsLeft,
+    ttlSeconds: ttl > 0 ? ttl : 0
+  };
 }

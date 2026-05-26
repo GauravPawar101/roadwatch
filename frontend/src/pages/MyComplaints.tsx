@@ -129,7 +129,7 @@ export default function MyComplaints() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30] font-sans pb-20">
+    <div className="page-radial-bg min-h-screen text-on-surface font-sans pb-20">
       {/* Toast Notification */}
       <AnimatePresence>
         {showToast && (
@@ -137,7 +137,7 @@ export default function MyComplaints() {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="fixed top-24 right-6 z-50 bg-[#1960a3] text-white px-5 py-3 rounded-xl font-bold shadow-xl flex items-center gap-2"
+            className="fixed top-24 right-6 z-50 bg-secondary text-white px-5 py-3 rounded-xl font-bold shadow-xl flex items-center gap-2"
           >
             <span className="material-symbols-outlined text-[20px] animate-pulse">done_all</span>
             <span>{toastMessage}</span>
@@ -145,7 +145,7 @@ export default function MyComplaints() {
         )}
       </AnimatePresence>
 
-      <main className="max-w-[1280px] mx-auto w-full px-4 md:px-16 py-12">
+      <main className="container-max w-full px-4 md:px-16 py-12">
         {/* Header Section */}
         <div className="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div>
@@ -155,28 +155,28 @@ export default function MyComplaints() {
             </p>
           </div>
           <div className="flex gap-4">
-            <div className="bg-white border border-[#d3e4fe] shadow-sm px-6 py-3 rounded-xl flex items-center gap-3">
-              <span className="text-[24px] font-semibold text-[#1960a3]">
+            <div className="bg-surface-container-lowest border border-outline-variant shadow-sm px-6 py-3 rounded-[10px] flex items-center gap-3">
+              <span className="text-[24px] font-semibold text-secondary">
                 {String(activeCount).padStart(2, '0')}
               </span>
-              <span className="text-[14px] font-bold text-[#74777f] uppercase tracking-wider">Active</span>
+              <span className="text-[14px] font-bold text-on-surface-variant uppercase tracking-wider">Active</span>
             </div>
-            <div className="bg-white border border-[#d3e4fe] shadow-sm px-6 py-3 rounded-xl flex items-center gap-3">
-              <span className="text-[24px] font-semibold text-[#005231]">
+            <div className="bg-surface-container-lowest border border-outline-variant shadow-sm px-6 py-3 rounded-[10px] flex items-center gap-3">
+              <span className="text-[24px] font-semibold text-[color:var(--on-tertiary-container)]">
                 {String(resolvedCount).padStart(2, '0')}
               </span>
-              <span className="text-[14px] font-bold text-[#74777f] uppercase tracking-wider">Resolved</span>
+              <span className="text-[14px] font-bold text-on-surface-variant uppercase tracking-wider">Resolved</span>
             </div>
           </div>
         </div>
 
         {/* FilterBar Component */}
-        <section className="bg-[#eff4ff] border border-[#d3e4fe] rounded-xl p-6 mb-8 shadow-sm">
+        <section className="glass-panel rounded-xl p-6 mb-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="space-y-2">
-              <label className="text-[14px] font-semibold text-[#0b1c30]">Search Query</label>
+              <label className="text-[14px] font-semibold text-on-surface">Search Query</label>
               <div className="relative">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#74777f] text-[18px]">search</span>
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">search</span>
                 <input
                   type="text"
                   value={searchQuery}
@@ -184,18 +184,18 @@ export default function MyComplaints() {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleApplyFilters()
                   }}
-                  className="w-full bg-white border border-[#c4c6cf] rounded-lg pr-4 py-2.5 text-[16px] focus:ring-2 focus:ring-[#1960a3]/20 focus:border-[#1960a3] outline-none transition-all stitch-pl-10"
+                  className="w-full bg-white border border-outline-variant rounded-[10px] pr-4 py-2.5 text-[16px] focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all stitch-pl-10"
                   placeholder="Road name, ID..."
                 />
               </div>
             </div>
             
             <div className="space-y-2">
-              <label className="text-[14px] font-semibold text-[#0b1c30]">Status</label>
+              <label className="text-[14px] font-semibold text-on-surface">Status</label>
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full bg-white border border-[#c4c6cf] rounded-lg px-4 py-2.5 text-[16px] focus:ring-2 focus:ring-[#1960a3]/20 focus:border-[#1960a3] outline-none cursor-pointer appearance-none"
+                className="w-full bg-white border border-outline-variant rounded-[10px] px-4 py-2.5 text-[16px] focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none cursor-pointer appearance-none"
               >
                 <option value="All Statuses">All Statuses</option>
                 <option value="Pending">Pending</option>
@@ -205,11 +205,11 @@ export default function MyComplaints() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-[14px] font-semibold text-[#0b1c30]">Category</label>
+              <label className="text-[14px] font-semibold text-on-surface">Category</label>
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="w-full bg-white border border-[#c4c6cf] rounded-lg px-4 py-2.5 text-[16px] focus:ring-2 focus:ring-[#1960a3]/20 focus:border-[#1960a3] outline-none cursor-pointer appearance-none"
+                className="w-full bg-white border border-outline-variant rounded-[10px] px-4 py-2.5 text-[16px] focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none cursor-pointer appearance-none"
               >
                 <option value="All Infrastructure">All Infrastructure</option>
                 <option value="Potholes & Roads">Potholes & Roads</option>
@@ -222,7 +222,7 @@ export default function MyComplaints() {
             <div className="flex items-end">
               <button
                 onClick={handleApplyFilters}
-                className="w-full bg-white hover:bg-[#dce9ff] transition-colors py-2.5 rounded-lg text-[14px] font-bold text-[#002045] border border-[#c4c6cf] shadow-sm flex items-center justify-center gap-2"
+                className="w-full bg-white hover:bg-surface-container-low transition-colors py-2.5 rounded-[10px] text-[14px] font-bold text-primary border border-outline-variant shadow-sm flex items-center justify-center gap-2"
               >
                 <span className="material-symbols-outlined text-[18px]">filter_alt</span>
                 Apply Advanced Filters
@@ -234,20 +234,20 @@ export default function MyComplaints() {
         {/* Complaints Listing */}
         {loading ? (
           <div className="flex justify-center items-center py-24">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1960a3]" />
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-secondary" />
           </div>
         ) : filteredItems.length === 0 ? (
-          <div className="bg-white border border-dashed border-[#c4c6cf] rounded-xl p-16 text-center flex flex-col items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-[#eff4ff] flex items-center justify-center text-[#74777f]">
+          <div className="bg-surface-container-lowest border border-dashed border-outline-variant rounded-xl p-16 text-center flex flex-col items-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-surface-container-low flex items-center justify-center text-on-surface-variant">
               <span className="material-symbols-outlined text-[32px]">folder_open</span>
             </div>
-            <h3 className="text-[18px] font-bold text-[#002045]">No complaints matched your search</h3>
-            <p className="text-[#74777f] text-[14px] max-w-sm leading-relaxed">
+            <h3 className="text-[18px] font-bold text-primary">No complaints matched your search</h3>
+            <p className="text-on-surface-variant text-[14px] max-w-sm leading-relaxed">
               Try adjusting your query or filters. Help keep your community safe by reporting new road hazards.
             </p>
             <button
               onClick={() => navigate('/road/r1/report')}
-              className="mt-2 bg-[#002045] text-white px-6 py-2.5 rounded-lg font-bold text-[14px] hover:bg-[#1960a3] transition-all shadow-sm"
+              className="mt-2 bg-secondary text-white px-6 py-2.5 rounded-[10px] font-bold text-[14px] hover:bg-primary transition-all shadow-sm"
             >
               Report New Issue
             </button>
@@ -284,12 +284,12 @@ export default function MyComplaints() {
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: idx * 0.05 }}
-                  className="bg-white border border-[#d3e4fe] shadow-sm rounded-xl overflow-hidden group hover:border-[#1960a3]/50 transition-all cursor-pointer"
+                  className="bg-surface-container-lowest border border-outline-variant shadow-sm rounded-xl overflow-hidden group hover:border-secondary/50 transition-all cursor-pointer"
                   onClick={() => navigate(`/complaints/${c.id}`)}
                 >
                   <div className="flex flex-col md:flex-row">
                     {/* Left Thumbnail Image */}
-                    <div className="w-full md:w-64 h-48 md:h-auto overflow-hidden bg-[#e5eeff] relative shrink-0">
+                    <div className="w-full md:w-64 h-48 md:h-auto overflow-hidden bg-surface-container-low relative shrink-0">
                       <img
                         alt={c.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
@@ -302,19 +302,19 @@ export default function MyComplaints() {
                       <div>
                         <div className="flex justify-between items-start mb-2">
                           {isCritical ? (
-                            <span className="text-[10px] bg-[#ba1a1a]/10 text-[#ba1a1a] px-2 py-1 rounded font-bold uppercase tracking-widest border border-[#ba1a1a]/20">
+                            <span className="text-[10px] bg-error-container/10 text-error px-2 py-1 rounded-[8px] font-bold uppercase tracking-widest border border-error/20">
                               Critical Severity
                             </span>
                           ) : isMedium ? (
-                            <span className="text-[10px] bg-[#1960a3]/10 text-[#1960a3] px-2 py-1 rounded font-bold uppercase tracking-widest border border-[#1960a3]/20">
+                            <span className="text-[10px] bg-secondary-container/20 text-secondary px-2 py-1 rounded-[8px] font-bold uppercase tracking-widest border border-secondary/20">
                               Medium Severity
                             </span>
                           ) : (
-                            <span className="text-[10px] bg-[#eff4ff] text-[#43474e] px-2 py-1 rounded font-bold uppercase tracking-widest border border-[#c4c6cf]">
+                            <span className="text-[10px] bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-[8px] font-bold uppercase tracking-widest border border-outline-variant">
                               Low Severity
                             </span>
                           )}
-                          <span className="text-[14px] text-[#74777f]">
+                          <span className="text-[14px] text-on-surface-variant">
                             Ref: #{c.id}
                           </span>
                         </div>
@@ -381,7 +381,7 @@ export default function MyComplaints() {
             <button className="w-10 h-10 flex items-center justify-center rounded-lg border border-[#c4c6cf] text-[#74777f] hover:text-[#002045] hover:border-[#002045] transition-all disabled:opacity-30" disabled>
               <span className="material-symbols-outlined">chevron_left</span>
             </button>
-            <button className="w-10 h-10 flex items-center justify-center rounded-lg bg-[#002045] text-white font-bold shadow-sm">1</button>
+            <button className="w-10 h-10 flex items-center justify-center rounded-lg bg-secondary text-white font-bold shadow-sm">1</button>
             <button className="w-10 h-10 flex items-center justify-center rounded-lg border border-[#c4c6cf] text-[#43474e] hover:bg-[#eff4ff] transition-all" disabled>2</button>
             <button className="w-10 h-10 flex items-center justify-center rounded-lg border border-[#c4c6cf] text-[#43474e] hover:bg-[#eff4ff] transition-all" disabled>3</button>
             <span className="text-[#74777f] px-2">...</span>

@@ -1,14 +1,14 @@
 import { useParams } from 'react-router-dom'
 import {
-    Alert,
-    Badge,
-    Card,
-    CardBody,
-    Container,
-    Hero,
-    Section,
-    StatCard,
-    StatsGrid
+  Alert,
+  Badge,
+  Card,
+  CardBody,
+  Container,
+  Hero,
+  Section,
+  StatCard,
+  StatsGrid
 } from '../components/UIComponents'
 
 export default function BudgetHistory() {
@@ -46,9 +46,10 @@ export default function BudgetHistory() {
   }
 
   return (
-    <Container>
+    <div className="page-radial-bg min-h-screen py-12 text-on-surface">
+      <Container>
       <Hero
-        title={`💰 Budget History — Road ${id}`}
+        title={`Budget History — Road ${id}`}
         subtitle="Track budget allocation, release, and spending timeline"
       />
 
@@ -157,6 +158,7 @@ export default function BudgetHistory() {
           </CardBody>
         </Card>
       </Section>
-    </Container>
+      </Container>
+    </div>
   )
 }

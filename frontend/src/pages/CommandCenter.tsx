@@ -35,13 +35,14 @@ import {
     XAxis,
     YAxis
 } from 'recharts'
-import { Badge, Button, Card, CardBody, Container, Hero, Input, Select } from '../components/UIComponents'
+import { Badge, Button, Card, CardBody, Container, Hero, Input, Select, type BadgeVariant } from '../components/UIComponents'
 import {
     authorityProfiles,
     citizenProfile,
-    complaints,
     complaintTrends,
     contractorProfiles,
+    getAuthorityProfileForLevel,
+    getRoleComplaintRows,
     insights,
     jurisdictionMap,
     roleActionLabels,
@@ -68,7 +69,16 @@ function resolveRole(input: string | undefined, fallback: DashboardRole): Dashbo
 }
 
 function getPayload(role: DashboardRole, authorityLevel: AuthorityLevel): DashboardPayload {
-  const authorityProfile = authorityProfiles.find((item) => item.level === authorityLevel) ?? authorityProfiles[1]
+  const authorityProfile = getAuthorityProfileForLevel(authorityLevel)
+  const contractorIdentity = localStorage.getItem('roadwatch_contractor_id') || contractorProfiles[0]?.name
+  const contractorProfile = contractorProfiles.find((item) => item.handle === contractorIdentity || item.name === contractorIdentity) ?? contractorProfiles[0]
+  const roleRows = getRoleComplaintRows(role, authorityLevel, contractorProfile?.name)
+  const openRows = roleRows.filter((item) => item.status !== 'Resolved')
+  const severeRows = roleRows.filter((item) => item.severity >= 8)
+  const breachRows = roleRows.filter((item) => item.slaHoursLeft <= 12)
+  const avgRisk = roleRows.length
+    ? Math.round(roleRows.reduce((sum, item) => sum + item.fraudRisk, 0) / roleRows.length)
+    : 0
 
   if (role === 'contractor') {
     return {
@@ -76,10 +86,10 @@ function getPayload(role: DashboardRole, authorityLevel: AuthorityLevel): Dashbo
       subtitle: 'Operational view for proof upload, dispatch queues, and region-specific delivery.',
       heroNote: 'Prioritize pending approvals and proof submission before the SLA window closes.',
       summary: [
-        { label: 'Assigned works', value: '24', delta: '+4 this week', icon: <Wrench className="stitch-icon-16" /> },
-        { label: 'SLA compliance', value: '89%', delta: '+6 pts', icon: <TimerReset className="stitch-icon-16" /> },
-        { label: 'Validation score', value: '87%', delta: '+2 pts', icon: <CheckCircle2 className="stitch-icon-16" /> },
-        { label: 'Trust score', value: '91', delta: 'Stable', icon: <ShieldCheck className="stitch-icon-16" /> },
+        { label: 'Assigned works', value: String(roleRows.length), delta: 'Region-linked cases', icon: <Wrench className="stitch-icon-16" /> },
+        { label: 'SLA compliance', value: `${Math.max(0, 100 - breachRows.length * 12)}%`, delta: `${breachRows.length} urgent`, icon: <TimerReset className="stitch-icon-16" /> },
+        { label: 'Validation score', value: `${Math.max(72, 100 - avgRisk)}%`, delta: 'Complaint risk weighted', icon: <CheckCircle2 className="stitch-icon-16" /> },
+        { label: 'Trust score', value: `${contractorProfile?.trustScore ?? 0}`, delta: 'Region-linked profile', icon: <ShieldCheck className="stitch-icon-16" /> },
       ],
     }
   }
@@ -90,9 +100,9 @@ function getPayload(role: DashboardRole, authorityLevel: AuthorityLevel): Dashbo
       subtitle: `${authorityProfile.scope}. Jurisdiction can switch between ward, district, and state views without leaving the page.`,
       heroNote: 'Use the approval center to assign, escalate, override SLA, and trace every decision in the audit log.',
       summary: [
-        { label: 'Open queue', value: '42', delta: '14 high severity', icon: <LayoutDashboard className="stitch-icon-16" /> },
-        { label: 'SLA breaches', value: '9', delta: '+2 critical', icon: <TimerReset className="stitch-icon-16" /> },
-        { label: 'Fraud risk', value: '21%', delta: '3 clusters', icon: <ShieldCheck className="stitch-icon-16" /> },
+        { label: 'Open queue', value: String(openRows.length), delta: `${severeRows.length} high severity`, icon: <LayoutDashboard className="stitch-icon-16" /> },
+        { label: 'SLA breaches', value: String(breachRows.length), delta: 'Jurisdiction filtered', icon: <TimerReset className="stitch-icon-16" /> },
+        { label: 'Fraud risk', value: `${avgRisk}%`, delta: 'Average queue risk', icon: <ShieldCheck className="stitch-icon-16" /> },
         { label: 'Efficiency', value: `${authorityProfile.efficiencyScore}%`, delta: 'Above target', icon: <Brain className="stitch-icon-16" /> },
       ],
     }
@@ -233,7 +243,7 @@ function JurisdictionHeatmap() {
           <CardBody>
             <div className="stitch-display-flex stitch-justify-between stitch-items-center">
               <div className="stitch-font-700">{node.name}</div>
-              <Badge variant={node.risk >= 75 ? 'error' : node.risk >= 60 ? 'warning' : 'success'}>Risk {node.risk}</Badge>
+              <Badge variant={(node.risk >= 75 ? 'error' : node.risk >= 60 ? 'warning' : 'success') as BadgeVariant}>Risk {node.risk}</Badge>
             </div>
             <div className="stitch-grid stitch-gap-6 stitch-text-secondary" style={{ gridTemplateColumns: '1fr 1fr' }}>
               <div>Open cases: {node.openCases}</div>
@@ -248,12 +258,7 @@ function JurisdictionHeatmap() {
   )
 }
 
-function buildComplaintRows(role: DashboardRole): ComplaintRecord[] {
-  const limit = role === 'citizen' ? 5 : role === 'contractor' ? 6 : 7
-  return complaints.slice(0, limit)
-}
-
-function computeSeverityDisplay(rec: ComplaintRecord) {
+function computeSeverityDisplay(rec: ComplaintRecord): { label: string; variant: BadgeVariant; reasons: string[] } {
   const affected = rec.severity ?? 0
   const baseIndex = affected <= 2 ? 0 : affected <= 10 ? 1 : affected <= 50 ? 2 : affected <= 200 ? 3 : 4
 
@@ -272,7 +277,7 @@ function computeSeverityDisplay(rec: ComplaintRecord) {
   const idx = Math.min(4, baseIndex + bump)
   const labels = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL', 'EMERGENCY']
   const label = labels[idx]
-  const variant = idx === 0 ? 'success' : idx === 1 ? 'info' : idx === 2 ? 'warning' : 'error'
+  const variant: BadgeVariant = idx === 0 ? 'success' : idx === 1 ? 'info' : idx === 2 ? 'warning' : 'error'
 
   const reasons: string[] = []
   if (vulnerable) reasons.push('Vulnerable area')
@@ -283,8 +288,8 @@ function computeSeverityDisplay(rec: ComplaintRecord) {
   return { label, variant, reasons }
 }
 
-function ComplaintTable({ role }: { role: DashboardRole }) {
-  const rows = buildComplaintRows(role)
+function ComplaintTable({ role, authorityLevel }: { role: DashboardRole; authorityLevel: AuthorityLevel }) {
+  const rows = buildComplaintRows(role, authorityLevel)
   const navigate = useNavigate()
   const columns = useMemo<ColumnDef<ComplaintRecord>[]>(
     () => [
@@ -296,7 +301,7 @@ function ComplaintTable({ role }: { role: DashboardRole }) {
           const sev = computeSeverityDisplay(rec)
           return (
             <div>
-              <Badge variant={sev.variant}>{sev.label}</Badge>
+              <Badge variant={sev.variant as BadgeVariant}>{sev.label}</Badge>
               {sev.reasons.length ? <div className="stitch-mt-6 stitch-text-11 stitch-text-secondary">{sev.reasons.join(' · ')}</div> : null}
             </div>
           )
@@ -318,7 +323,7 @@ function ComplaintTable({ role }: { role: DashboardRole }) {
         cell: (info) => {
           const val = info.getValue<string>()
           const tone = val === 'Resolved' ? 'success' : val === 'Escalated' ? 'error' : val === 'Pending Approval' ? 'warning' : 'info'
-          return <Badge variant={tone}>{val}</Badge>
+          return <Badge variant={tone as BadgeVariant}>{val}</Badge>
         },
       },
       {
@@ -392,6 +397,12 @@ function ComplaintTable({ role }: { role: DashboardRole }) {
   )
 }
 
+function buildComplaintRows(role: DashboardRole, authorityLevel: AuthorityLevel): ComplaintRecord[] {
+  const limit = role === 'citizen' ? 5 : role === 'contractor' ? 6 : role === 'authority' ? 7 : 8
+  const contractorName = localStorage.getItem('roadwatch_contractor_id') || contractorProfiles[0]?.name
+  return getRoleComplaintRows(role, authorityLevel, contractorName ?? undefined).slice(0, limit)
+}
+
 function RoleHighlights({ role }: { role: DashboardRole }) {
   const actionLabels = roleActionLabels[role]
 
@@ -406,7 +417,7 @@ function RoleHighlights({ role }: { role: DashboardRole }) {
                 <CardBody>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ fontWeight: 700 }}>{insight.title}</div>
-                    <Badge variant={insight.tone === 'good' ? 'success' : insight.tone === 'warning' ? 'warning' : insight.tone === 'danger' ? 'error' : 'info'}>{insight.tone}</Badge>
+                    <Badge variant={(insight.tone === 'good' ? 'success' : insight.tone === 'warning' ? 'warning' : insight.tone === 'danger' ? 'error' : 'info') as BadgeVariant}>{insight.tone}</Badge>
                   </div>
                   <div style={{ marginTop: 8, color: 'var(--color-text-secondary)' }}>{insight.detail}</div>
                 </CardBody>
@@ -637,7 +648,7 @@ export default function CommandCenterPage({ defaultRole = 'citizen' }: { default
                   </Button>
                 </div>
                 <div style={{ marginTop: 16 }}>
-                  <ComplaintTable role={currentRole} />
+                  <ComplaintTable role={currentRole} authorityLevel={authorityLevel} />
                 </div>
               </CardBody>
             </Card>

@@ -28,7 +28,39 @@ export class GetSLABreaches {
 export class AssignInspector {
   constructor(private localStore: ILocalStore) {}
   async execute(complaintId: string, inspectorId: string): Promise<void> {
-     // Generates local assignment patch
+    // Generate local assignment patch
+    try {
+      console.log(`[AssignInspector] Assigning inspector ${inspectorId} to complaint ${complaintId}`);
+      
+      // Create assignment record
+      const assignment = {
+        complaintId,
+        inspectorId,
+        assignedAt: new Date().toISOString(),
+        status: 'assigned'
+      };
+      
+      // Save to local store. Different local store implementations expose
+      // either `patchComplaint(id, patch)` or `saveComplaint(complaint)`.
+      const patch = { assignedTo: inspectorId, assignedAt: assignment.assignedAt, status: 'assigned' };
+      if (typeof (this.localStore as any).patchComplaint === 'function') {
+        await (this.localStore as any).patchComplaint(complaintId, patch);
+      } else {
+        const existing = await this.localStore.getComplaint(complaintId);
+        if (existing) {
+          const updated = { ...(existing as any), ...patch };
+          await (this.localStore as any).saveComplaint(updated);
+        } else {
+          // As a last resort, persist a minimal record so UI reflects the assignment.
+          await (this.localStore as any).saveComplaint({ id: complaintId, ...patch });
+        }
+      }
+      
+      console.log(`[AssignInspector] Successfully assigned inspector to complaint ${complaintId}`);
+    } catch (error) {
+      console.error(`[AssignInspector] Failed to assign inspector:`, error);
+      throw new Error(`Failed to assign inspector: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 }
 

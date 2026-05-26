@@ -102,140 +102,108 @@ export default function CitizenSignup() {
   };
 
   return (
-    <div className="bg-background text-on-background min-h-screen flex flex-col items-center justify-center relative overflow-hidden p-4">
-      <div className="absolute inset-0 z-0 opacity-10 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-5%] w-[40%] h-[40%] rounded-full bg-primary-container blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] right-[-5%] w-[40%] h-[40%] rounded-full bg-secondary-container blur-[120px]"></div>
-      </div>
-
-      <main className="relative z-10 w-full max-w-[540px]">
-        <div className="flex flex-col items-center mb-8 text-center">
-          <div className="w-16 h-16 bg-primary text-on-primary rounded-xl flex items-center justify-center mb-6 shadow-sm">
-            <span className="material-symbols-outlined text-[32px]">person_add</span>
+    <div className="min-h-screen bg-background text-on-background relative overflow-hidden">
+      <main className="relative z-10 flex min-h-screen flex-col items-center px-4 pt-8 pb-24 sm:pt-10 sm:pb-20">
+        <div className="flex flex-col items-center text-center">
+          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-on-surface-variant">
+            <span className="h-1.5 w-1.5 rounded-full bg-on-surface-variant" aria-hidden="true" />
+            <span>CivicGuard</span>
           </div>
-          <h1 className="font-headline-lg text-headline-lg text-on-surface mb-2">Create Account</h1>
-          <p className="font-body-md text-body-md text-on-surface-variant max-w-[320px]">
+          <p className="mt-3 max-w-[26rem] text-[11px] leading-4 text-on-surface-variant sm:text-[12px] sm:leading-5">
             Join the infrastructure transparency movement as a Citizen.
           </p>
         </div>
 
-        <div className="bg-surface-container-lowest border border-outline-variant p-8 md:p-10 rounded-xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)]">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-4">
-              <div className="flex flex-col gap-2">
-                <label className="font-label-md text-label-md text-on-surface">Email (optional)</label>
-                <input 
-                  className="w-full bg-surface-container-lowest border border-outline rounded-xl py-3 pl-4 pr-4 text-body-md font-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" 
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  placeholder="you@gmail.com"
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <label className="font-label-md text-label-md text-on-surface">Phone (optional)</label>
-                <input 
-                  className="w-full bg-surface-container-lowest border border-outline rounded-xl py-3 pl-4 pr-4 text-body-md font-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" 
-                  type="tel"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleChange}
-                  placeholder="9876543210"
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <label className="font-label-md text-label-md text-on-surface">Username (optional)</label>
-                <input 
-                  className="w-full bg-surface-container-lowest border border-outline rounded-xl py-3 pl-4 pr-4 text-body-md font-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" 
-                  type="text"
-                  name="username"
-                  value={formData.username}
-                  onChange={handleChange}
-                  placeholder="username"
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <label className="font-label-md text-label-md text-on-surface">Name (optional)</label>
-                <input 
-                  className="w-full bg-surface-container-lowest border border-outline rounded-xl py-3 pl-4 pr-4 text-body-md font-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" 
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  placeholder="Your name"
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <label className="font-label-md text-label-md text-on-surface">Password <span className="text-error">*</span></label>
-                <input 
-                  className="w-full bg-surface-container-lowest border border-outline rounded-xl py-3 pl-4 pr-4 text-body-md font-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" 
-                  type="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  placeholder="••••••••"
-                  disabled={loading}
-                />
-                {passwordErrors.length > 0 && (
-                  <div className="mt-2 p-3 bg-error-container rounded-lg">
-                    <div className="font-label-md text-on-error-container font-bold mb-2">Password must have:</div>
-                    <ul className="text-body-sm text-on-error-container space-y-1">
-                      {passwordErrors.map((err, i) => (
-                        <li key={i}>• {err}</li>
-                      ))}
-                    </ul>
+        <div className="flex flex-1 items-center justify-center py-10 sm:py-12">
+          <div className="w-full max-w-[372px] rounded-[14px] border border-outline-variant bg-surface-container-lowest px-5 py-5 shadow-[0_1px_0_rgba(0,0,0,0.02)] sm:px-6 sm:py-6">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-3">
+                {[
+                  { label: 'Email (optional)', name: 'email', type: 'email', placeholder: 'you@gmail.com' },
+                  { label: 'Phone (optional)', name: 'phone', type: 'tel', placeholder: '9876543210' },
+                  { label: 'Username (optional)', name: 'username', type: 'text', placeholder: 'username' },
+                  { label: 'Name (optional)', name: 'name', type: 'text', placeholder: 'Your name' },
+                ].map((field) => (
+                  <div key={field.name} className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-medium tracking-[0.08em] text-on-surface-variant" htmlFor={field.name}>{field.label}</label>
+                    <input
+                      id={field.name}
+                        className="h-10 w-full rounded-[10px] border border-outline-variant bg-surface-container-lowest px-3 text-[13px] text-on-surface outline-none transition-colors placeholder:text-on-surface-variant/55 focus:border-primary focus:ring-1 focus:ring-primary"
+                      type={field.type}
+                      name={field.name}
+                      value={formData[field.name as keyof typeof formData]}
+                      onChange={handleChange}
+                      placeholder={field.placeholder}
+                      disabled={loading}
+                    />
                   </div>
-                )}
+                ))}
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-medium tracking-[0.08em] text-on-surface-variant" htmlFor="password">Password</label>
+                  <input
+                    id="password"
+                      className="h-10 w-full rounded-[10px] border border-outline-variant bg-surface-container-lowest px-3 text-[13px] text-on-surface outline-none transition-colors placeholder:text-on-surface-variant/55 focus:border-primary focus:ring-1 focus:ring-primary"
+                    type="password"
+                    name="password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    placeholder="••••••••"
+                    disabled={loading}
+                  />
+                  {passwordErrors.length > 0 && (
+                    <div className="rounded-[10px] border border-error/20 bg-error-container px-3 py-3 text-[12px] text-on-error-container">
+                      <div className="font-semibold">Password must have:</div>
+                      <ul className="mt-1 space-y-1">
+                        {passwordErrors.map((err, i) => <li key={i}>• {err}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-medium tracking-[0.08em] text-on-surface-variant" htmlFor="confirmPassword">Confirm Password</label>
+                  <input
+                    id="confirmPassword"
+                      className="h-10 w-full rounded-[10px] border border-outline-variant bg-surface-container-lowest px-3 text-[13px] text-on-surface outline-none transition-colors placeholder:text-on-surface-variant/55 focus:border-primary focus:ring-1 focus:ring-primary"
+                    type="password"
+                    name="confirmPassword"
+                    value={formData.confirmPassword}
+                    onChange={handleChange}
+                    placeholder="••••••••"
+                    disabled={loading}
+                  />
+                </div>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <label className="font-label-md text-label-md text-on-surface">Confirm Password <span className="text-error">*</span></label>
-                <input 
-                  className="w-full bg-surface-container-lowest border border-outline rounded-xl py-3 pl-4 pr-4 text-body-md font-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" 
-                  type="password"
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  placeholder="••••••••"
-                  disabled={loading}
-                />
-              </div>
-            </div>
+              {error && <div className="rounded-[10px] border border-error/20 bg-error-container px-3 py-3 text-[13px] text-on-error-container">{error}</div>}
 
-            {error && (
-              <div className="bg-error-container border border-error/20 p-4 rounded-xl flex items-start gap-3">
-                <span className="material-symbols-outlined text-error text-[20px]">error_outline</span>
-                <p className="font-body-sm text-body-sm text-on-error-container">
-                  {error}
-                </p>
-              </div>
-            )}
+              <button
+                className="flex h-11 w-full items-center justify-center rounded-[10px] bg-primary text-[13px] font-semibold text-on-primary transition-opacity hover:opacity-95 disabled:opacity-60"
+                type="submit"
+                disabled={loading}
+              >
+                {loading ? 'Creating Account...' : 'Create Citizen Account'}
+              </button>
+            </form>
 
-            <button 
-              className="w-full bg-primary text-on-primary font-headline-sm text-headline-sm py-4 rounded-xl shadow-sm hover:opacity-90 active:scale-95 transition-all disabled:opacity-60"
-              type="submit"
-              disabled={loading}
-            >
-              {loading ? 'Creating Account...' : 'Create Citizen Account'}
-            </button>
-          </form>
-
-          <div className="mt-8 pt-8 border-t border-outline-variant text-center">
-            <p className="font-body-sm text-body-sm text-on-surface-variant">
+            <div className="mt-5 border-t border-outline-variant/70 pt-4 text-center text-[12px] leading-5 text-on-surface-variant">
               Already have an account?
-              <Link to="/auth/citizen/login" className="text-secondary font-semibold hover:underline ml-1">Sign In</Link>
-            </p>
+              <Link to="/auth/citizen/login" className="ml-1 font-medium text-secondary transition-colors hover:text-primary hover:underline">Sign In</Link>
+            </div>
           </div>
         </div>
+
+        <footer className="absolute bottom-0 left-0 right-0 border-t border-outline-variant/60 bg-background/90 px-4 py-3 backdrop-blur-sm sm:px-6">
+          <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-2 text-[11px] text-on-surface-variant sm:flex-row sm:items-center sm:justify-between">
+            <p>© 2024 CivicGuard Institutional Portal. All rights reserved.</p>
+            <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 sm:justify-end">
+              <a className="transition-colors hover:text-primary" href="#">Help Center</a>
+              <a className="transition-colors hover:text-primary" href="#">Privacy Policy</a>
+              <a className="transition-colors hover:text-primary" href="#">Legal Disclosure</a>
+            </nav>
+          </div>
+        </footer>
       </main>
     </div>
   );

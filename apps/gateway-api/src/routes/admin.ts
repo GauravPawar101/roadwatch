@@ -1,19 +1,30 @@
 import express from 'express';
 import { z } from 'zod';
+import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult, type IdempotencyClaim } from '../idempotency.js';
 import {
-    bulkUpsertRoads,
-    createContractor,
-    createRoadAssignment,
-    listUsers,
-    upsertAuthorityDirectory,
-    upsertCountry,
-    upsertDistrict,
-    upsertState,
-    upsertUser
+  bulkUpsertRoads,
+  createContractor,
+  createRoadAssignment,
+  listUsers,
+  upsertAuthorityDirectory,
+  upsertCountry,
+  upsertDistrict,
+  upsertState,
+  upsertUser
 } from '../db.js';
 import { requireAuth, requireRole } from '../rbac.js';
 
 const router = express.Router();
+
+async function claimAdminIdempotency(
+  req: express.Request,
+  scope: string,
+  payload: unknown
+): Promise<IdempotencyClaim | { replay: true; statusCode: number; body: unknown }> {
+  const key = deriveIdempotencyKey(req, scope);
+  const requestHash = buildRequestHash(payload);
+  return claimIdempotency(scope, key, requestHash);
+}
 
 // Role assignment
 router.post('/users', requireAuth, requireRole(['CE']), async (req, res) => {
@@ -28,6 +39,11 @@ router.post('/users', requireAuth, requireRole(['CE']), async (req, res) => {
     })
     .parse(req.body);
 
+  const claimed = await claimAdminIdempotency(req, 'admin:users:create', body);
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
+  }
+
   const user = await upsertUser({
     phone: body.phone,
     username: body.username ?? null,
@@ -37,7 +53,7 @@ router.post('/users', requireAuth, requireRole(['CE']), async (req, res) => {
     zones: body.zones
   });
 
-  res.json({
+  const responseBody = {
     user: {
       id: user.id,
       username: user.username,
@@ -47,7 +63,10 @@ router.post('/users', requireAuth, requireRole(['CE']), async (req, res) => {
       districts: user.districts,
       zones: user.zones
     }
-  });
+  };
+
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  res.json(responseBody);
 });
 
 router.get('/users', requireAuth, requireRole(['CE']), async (req, res) => {
@@ -84,6 +103,11 @@ router.post('/contractors', requireAuth, requireRole(['CE']), async (req, res) =
     })
     .parse(req.body);
 
+  const claimed = await claimAdminIdempotency(req, 'admin:contractors:create', body);
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
+  }
+
   const contractor = await createContractor({
     companyName: body.companyName,
     registrationNumber: body.registrationNumber,
@@ -92,7 +116,9 @@ router.post('/contractors', requireAuth, requireRole(['CE']), async (req, res) =
     zones: body.zones
   });
 
-  res.json({ contractor });
+  const responseBody = { contractor };
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  res.json(responseBody);
 });
 
 // New country onboarding (region registry)
@@ -105,8 +131,15 @@ router.post('/regions/countries', requireAuth, requireRole(['CE']), async (req, 
     })
     .parse(req.body);
 
+  const claimed = await claimAdminIdempotency(req, 'admin:regions:countries:upsert', body);
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
+  }
+
   const country = await upsertCountry(body);
-  res.json({ country });
+  const responseBody = { country };
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  res.json(responseBody);
 });
 
 router.post('/regions/states', requireAuth, requireRole(['CE']), async (req, res) => {
@@ -118,8 +151,15 @@ router.post('/regions/states', requireAuth, requireRole(['CE']), async (req, res
     })
     .parse(req.body);
 
+  const claimed = await claimAdminIdempotency(req, 'admin:regions:states:upsert', body);
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
+  }
+
   const state = await upsertState(body);
-  res.json({ state });
+  const responseBody = { state };
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  res.json(responseBody);
 });
 
 router.post('/regions/districts', requireAuth, requireRole(['CE']), async (req, res) => {
@@ -138,8 +178,15 @@ router.post('/regions/districts', requireAuth, requireRole(['CE']), async (req, 
     })
     .parse(req.body);
 
+  const claimed = await claimAdminIdempotency(req, 'admin:regions:districts:upsert', body);
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
+  }
+
   const district = await upsertDistrict(body);
-  res.json({ district });
+  const responseBody = { district };
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  res.json(responseBody);
 });
 
 router.post('/regions/districts/:districtId/roads', requireAuth, requireRole(['CE']), async (req, res) => {
@@ -172,8 +219,18 @@ router.post('/regions/districts/:districtId/roads', requireAuth, requireRole(['C
     })
     .parse(req.body);
 
+  const claimed = await claimAdminIdempotency(req, 'admin:regions:districts:roads:bulk-upsert', {
+    districtId,
+    roads: body.roads
+  });
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
+  }
+
   const result = await bulkUpsertRoads({ districtId, roads: body.roads });
-  res.json({ result });
+  const responseBody = { result };
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  res.json(responseBody);
 });
 
 router.post('/roads/:roadId/assignments', requireAuth, requireRole(['CE']), async (req, res) => {
@@ -187,6 +244,14 @@ router.post('/roads/:roadId/assignments', requireAuth, requireRole(['CE']), asyn
     })
     .parse(req.body);
 
+  const claimed = await claimAdminIdempotency(req, 'admin:roads:assignments:create', {
+    roadId: params.roadId,
+    body
+  });
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
+  }
+
   const assignment = await createRoadAssignment({
     roadId: params.roadId,
     contractorId: body.contractorId ?? null,
@@ -194,7 +259,9 @@ router.post('/roads/:roadId/assignments', requireAuth, requireRole(['CE']), asyn
     startsOn: body.startsOn ?? null,
     endsOn: body.endsOn ?? null
   });
-  res.json({ assignment });
+  const responseBody = { assignment };
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  res.json(responseBody);
 });
 
 router.put('/authorities/:authorityId', requireAuth, requireRole(['CE']), async (req, res) => {
@@ -210,6 +277,14 @@ router.put('/authorities/:authorityId', requireAuth, requireRole(['CE']), async 
     })
     .parse(req.body);
 
+  const claimed = await claimAdminIdempotency(req, 'admin:authorities:upsert', {
+    authorityId: params.authorityId,
+    body
+  });
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
+  }
+
   const authority = await upsertAuthorityDirectory({
     authorityId: params.authorityId,
     name: body.name,
@@ -220,7 +295,9 @@ router.put('/authorities/:authorityId', requireAuth, requireRole(['CE']), async 
     address: body.address ?? null
   });
 
-  res.json({ authority });
+  const responseBody = { authority };
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  res.json(responseBody);
 });
 
 export default router;

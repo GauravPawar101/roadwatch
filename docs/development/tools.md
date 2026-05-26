@@ -83,11 +83,8 @@ npm run schema:generate-docs
 export default {
   sources: {
     openapi: './api-spec.yaml',
-    // For schema generation prefer connecting to Cassandra or provide a DB connection string
-    database: process.env.CASSANDRA_CONTACT_POINTS ? {
-      contactPoints: process.env.CASSANDRA_CONTACT_POINTS.split(','),
-      keyspace: process.env.CASSANDRA_KEYSPACE || 'roadwatch'
-    } : process.env.DATABASE_URL,
+    // For schema generation prefer connecting to PgBouncer-backed Postgres or provide a DB connection string
+    database: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:6432/roadwatch',
     graphql: './schema.graphql'
   },
   outputs: {
@@ -196,12 +193,9 @@ export const getToolConfig = (): ToolConfig => ({
   services: {
     gatewayApi: process.env.GATEWAY_API_URL || 'http://localhost:3100',
     fabricNetwork: process.env.FABRIC_NETWORK_URL || 'localhost:7051',
-    // Prefer Cassandra; fallback (legacy) to Postgres connection string
+    // Prefer the pooled Postgres endpoint; fall back to an explicit connection string
     database: {
-      contactPoints: (process.env.CASSANDRA_CONTACT_POINTS || '127.0.0.1:9042').split(','),
-      keyspace: process.env.CASSANDRA_KEYSPACE || 'roadwatch',
-      localDc: process.env.CASSANDRA_LOCAL_DC || 'datacenter1',
-      legacyUrl: process.env.DATABASE_URL || null
+      connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:6432/roadwatch'
     }
   },
   timeouts: {

@@ -22,6 +22,7 @@ This documentation provides comprehensive information about all services in the 
 - **[Design Choices](./architecture/design-choices.md)** - Technical decisions and rationale
 - **[Adapter Pattern](./architecture/adapter-pattern.md)** - Flexible, pluggable implementations
 - **[Event System](./architecture/event-system.md)** - Event-driven architecture patterns
+- **[Shared Dependency Strategy](./architecture/shared-dependency-strategy.md)** - How to reduce coupling from shared utilities
 - **[Service Integration](./architecture/service-integration.md)** - How services communicate and integrate
 - **[Service Inventory](./services/service-inventory.md)** - Complete service architecture and dependencies
 - **[Service Verification](./services/service-verification.md)** - Service configuration and health checks
@@ -88,7 +89,7 @@ This documentation provides comprehensive information about all services in the 
           ┌───────────────────────┼───────────────────────┐
           │                       │                       │
     ┌─────▼─────┐        ┌────────▼────────┐    ┌────────▼────────┐
-      │Cassandra  │        │     Kafka       │    │ Hyperledger     │
+      │Postgres   │        │     Kafka       │    │ Hyperledger     │
       │ Database  │        │ Event Stream    │    │    Fabric       │
     └───────────┘        └─────────────────┘    └─────────────────┘
                                   │                       ▲
@@ -104,7 +105,7 @@ This documentation provides comprehensive information about all services in the 
 ### Complaint Lifecycle
 1. **Submission**: Citizen submits complaint via mobile app
 2. **Validation**: Gateway API validates location and data
-3. **Storage**: Complaint stored in Cassandra (denormalized tables)
+3. **Storage**: Complaint stored in Postgres (normalized tables)
 4. **Event Publishing**: `complaint.submitted` event sent to Kafka
 5. **Blockchain Anchoring**: Fabric consumer batches and anchors to blockchain
 6. **Authority Assignment**: Complaint routed to appropriate authority
@@ -123,7 +124,7 @@ This documentation provides comprehensive information about all services in the 
 ### Backend
 - **Node.js/TypeScript** - Runtime and language
 - **Express.js** - Web framework
-- **Cassandra** - Primary database (denormalized, wide-row modeling)
+- **Postgres** - Primary application database
 - **Kafka** - Event streaming
 - **Hyperledger Fabric** - Blockchain platform
 

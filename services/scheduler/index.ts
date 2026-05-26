@@ -1,7 +1,8 @@
 import 'dotenv/config';
 
-import { Client, types } from 'cassandra-driver';
 import cron from 'node-cron';
+import { Pool } from 'pg';
+import { registerServiceWithGateway } from '../../apps/gateway-api/src/services/discovery.js';
 
 interface SchedulerConfig {
   serviceName: string;
@@ -17,8 +18,6 @@ function getConfig(): SchedulerConfig {
     serviceName:          process.env.SERVICE_NAME          || 'scheduler',
     cronSyncQueue:        process.env.CRON_SYNC_QUEUE        || '*/5 * * * *',
     cronKarmaRecalc:      process.env.CRON_KARMA_RECALC      || '0 * * * *',
-    // Original had a 6-field typo ('*/30 * * * * *' = every 30s).
-    // docker-compose uses '*/30 * * * *' (every 30 min) — that is the intended value.
     cronSlaCheck:         process.env.CRON_SLA_CHECK         || '*/30 * * * *',
     cronAuditCleanup:     process.env.CRON_AUDIT_CLEANUP     || '0 2 * * *',
     cronReportGeneration: process.env.CRON_REPORT_GENERATION || '0 1 * * *'
@@ -27,57 +26,34 @@ function getConfig(): SchedulerConfig {
 
 const config = getConfig();
 
-const client = new Client({
-  contactPoints: (process.env.CASSANDRA_CONTACT_POINTS || '127.0.0.1:9042')
-    .split(',')
-    .map(s => s.split(':')[0]),
-  localDataCenter: process.env.CASSANDRA_LOCAL_DC    || 'datacenter1',
-  keyspace:        process.env.CASSANDRA_KEYSPACE    || 'roadwatch'
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgres://localhost:6432/roadwatch',
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000
 });
-
-// ---------------------------------------------------------------------------
-// Timestamp helpers (replace Postgres INTERVAL arithmetic)
-// ---------------------------------------------------------------------------
-const HOUR_MS  = 60 * 60 * 1_000;
-const DAY_MS   = 24 * HOUR_MS;
-const WEEK_MS  =  7 * DAY_MS;
-const DAY90_MS = 90 * DAY_MS;
-
-function msAgo(ms: number): Date {
-  return new Date(Date.now() - ms);
-}
 
 // ---------------------------------------------------------------------------
 // Sync pending offline queue items
 // Called every 5 minutes.
 //
-// Postgres: UPDATE … WHERE synced = false … RETURNING id
-// Cassandra: SELECT keys first, then fan-out UPDATEs; count in JS.
-// ALLOW FILTERING is acceptable here — offline_queue is a small PoC table.
+// PostgreSQL: single UPDATE WHERE synced = false
 // ---------------------------------------------------------------------------
 async function syncOfflineQueue(): Promise<void> {
   try {
     const now = new Date();
 
-    const result = await client.execute(
-      'SELECT id FROM offline_queue WHERE synced = false AND retry_count < 3 ALLOW FILTERING',
-      [],
-      { prepare: true }
+    const result = await pool.query(
+      `UPDATE offline_queue 
+       SET synced = true, synced_at = $1 
+       WHERE synced = false AND retry_count < 3
+       RETURNING id`,
+      [now]
     );
 
-    if (result.rowLength === 0) return;
+    if (result.rowCount === 0) return;
 
-    await Promise.all(
-      result.rows.map(row =>
-        client.execute(
-          'UPDATE offline_queue SET synced = true, synced_at = ? WHERE id = ?',
-          [now, row.id],
-          { prepare: true }
-        )
-      )
-    );
-
-    console.log(`[scheduler] Synced ${result.rowLength} offline queue items`);
+    console.log(`[scheduler] Synced ${result.rowCount} offline queue items`);
   } catch (error) {
     console.error('[scheduler] Error syncing offline queue:', error);
   }
@@ -87,12 +63,7 @@ async function syncOfflineQueue(): Promise<void> {
 // Recalculate karma scores for all users
 // Called hourly.
 //
-// Postgres: single CTE + UPDATE across joined tables.
-// Cassandra: no joins — for each user fetch complaint counts from
-//   complaints_by_user (denormalized partition) and ledger deltas from
-//   karma_ledger_by_user, compute in JS, write back to users + ledger.
-//
-// Karma formula (mirrors original):
+// Karma formula:
 //   resolved_count * 10
 //   + avg_verification_score (0–100, default 50)
 //   - recent_complaints_7d * 5
@@ -100,80 +71,47 @@ async function syncOfflineQueue(): Promise<void> {
 // ---------------------------------------------------------------------------
 async function recalculateKarmaScores(): Promise<void> {
   try {
-    const sevenDaysAgo = msAgo(WEEK_MS);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const now = new Date();
 
-    const usersResult = await client.execute(
-      'SELECT id FROM users',
-      [],
-      { prepare: true }
+    // Calculate karma in a single query with aggregation
+    const result = await pool.query(
+      `WITH user_stats AS (
+         SELECT
+           u.id,
+           COALESCE(SUM(CASE WHEN c.status = 'resolved' THEN 1 ELSE 0 END), 0) as resolved_count,
+           COALESCE(SUM(CASE WHEN c.created_at > $1 THEN 1 ELSE 0 END), 0) as recent_count,
+           COALESCE(AVG(kl.delta), 50) as avg_verification
+         FROM users u
+         LEFT JOIN complaints c ON u.id = c.user_id
+         LEFT JOIN karma_ledger kl ON u.id = kl.user_id
+         GROUP BY u.id
+       )
+       UPDATE users
+       SET karma_score = LEAST(1000, GREATEST(0, 
+         CAST(us.resolved_count * 10 + us.avg_verification - us.recent_count * 5 AS INT)
+       )),
+           updated_at = $2
+       FROM user_stats us
+       WHERE users.id = us.id
+       RETURNING users.id`,
+      [sevenDaysAgo, now]
     );
 
-    let updated = 0;
+    const updatedCount = result.rowCount || 0;
 
-    for (const userRow of usersResult.rows) {
-      const userId: string = userRow.id;
-
-      // Complaint stats from denormalized partition
-      const complaintsResult = await client.execute(
-        'SELECT status, created_at FROM complaints_by_user WHERE user_id = ?',
-        [userId],
-        { prepare: true }
+    // Append immutable ledger entries for audit trail
+    if (updatedCount > 0) {
+      await pool.query(
+        `INSERT INTO karma_ledger (user_id, delta, reason, ref_id, created_at)
+         SELECT u.id, u.karma_score, 'hourly_recalc', 'scheduler', $1
+         FROM users u
+         WHERE u.updated_at = $1`,
+        [now]
       );
-
-      let resolvedCount = 0;
-      let recentCount   = 0;
-      for (const c of complaintsResult.rows) {
-        if (c.status === 'resolved') resolvedCount++;
-        if (c.created_at && new Date(c.created_at) > sevenDaysAgo) recentCount++;
-      }
-
-      // Verification score proxy: average delta from karma ledger
-      const ledgerResult = await client.execute(
-        'SELECT delta FROM karma_ledger_by_user WHERE user_id = ?',
-        [userId],
-        { prepare: true }
-      );
-      const deltas = ledgerResult.rows
-        .map(r => r.delta as number)
-        .filter(d => typeof d === 'number');
-      const avgVerification =
-        deltas.length > 0
-          ? deltas.reduce((a, b) => a + b, 0) / deltas.length
-          : 50;
-
-      const karmaScore = Math.min(
-        1000,
-        Math.max(0, resolvedCount * 10 + avgVerification - recentCount * 5)
-      );
-      const karmaInt = Math.round(karmaScore);
-
-      // Write cached score back to users table
-      await client.execute(
-        'UPDATE users SET karma_score = ? WHERE id = ?',
-        [karmaInt, userId],
-        { prepare: true }
-      );
-
-      // Append immutable ledger entry for audit trail
-      const ledgerId = types.TimeUuid.now();
-      await Promise.all([
-        client.execute(
-          'INSERT INTO karma_ledger (id, user_id, delta, reason, ref_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [ledgerId, userId, karmaInt, 'hourly_recalc', 'scheduler', now],
-          { prepare: true }
-        ),
-        client.execute(
-          'INSERT INTO karma_ledger_by_user (user_id, id, delta, reason, ref_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [userId, ledgerId, karmaInt, 'hourly_recalc', 'scheduler', now],
-          { prepare: true }
-        )
-      ]);
-
-      updated++;
     }
 
-    console.log(`[scheduler] Recalculated karma scores for ${updated} users`);
+    console.log(`[scheduler] Recalculated karma scores for ${updatedCount} users`);
   } catch (error) {
     console.error('[scheduler] Error recalculating karma scores:', error);
   }
@@ -182,60 +120,42 @@ async function recalculateKarmaScores(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Check for SLA breaches and escalate
 // Called every 30 minutes.
-//
-// Postgres: single UPDATE … WHERE created_at < NOW() - INTERVAL '24 hours'
-// Cassandra: read sla_tracking rows where breached = false, filter deadline
-//   in JS (timestamps are plain values — no DB-side INTERVAL needed), then
-//   fan-out UPDATE + event log INSERT.
 // ---------------------------------------------------------------------------
 async function checkSlaBreaches(): Promise<void> {
   try {
     const now = new Date();
 
-    const result = await client.execute(
-      'SELECT complaint_id, contractor_id, sla_deadline FROM sla_tracking WHERE breached = false ALLOW FILTERING',
-      [],
-      { prepare: true }
+    const result = await pool.query(
+      `UPDATE sla_tracking
+       SET breached = true, breach_notified = false, updated_at = $1
+       WHERE breached = false AND sla_deadline < $1
+       RETURNING complaint_id, contractor_id`,
+      [now]
     );
 
-    const breached = result.rows.filter(row => {
-      const deadline: Date | null = row.sla_deadline ? new Date(row.sla_deadline) : null;
-      return deadline !== null && deadline < now;
-    });
+    if (result.rowCount === 0) return;
 
-    if (breached.length === 0) return;
+    const breachedComplaints = result.rows.map((r: any) => r.complaint_id);
 
-    await Promise.all(
-      breached.flatMap(row => [
-        // Mark breach in sla_tracking
-        client.execute(
-          'UPDATE sla_tracking SET breached = true, breach_notified = false, updated_at = ? WHERE complaint_id = ?',
-          [now, row.complaint_id],
-          { prepare: true }
-        ),
-        // Reflect on the complaint row
-        client.execute(
-          'UPDATE complaints SET status = ?, updated_at = ? WHERE id = ?',
-          ['sla_breached', now, row.complaint_id],
-          { prepare: true }
-        ),
-        // Immutable event log entry
-        client.execute(
-          'INSERT INTO event_logs (id, event_type, entity_id, entity_type, event_data, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [
-            types.TimeUuid.now(),
-            'sla.breached',
-            row.complaint_id,
-            'complaint',
-            JSON.stringify({ contractorId: row.contractor_id }),
-            now
-          ],
-          { prepare: true }
-        )
-      ])
+    // Update complaint status for all breached items
+    await pool.query(
+      `UPDATE complaints
+       SET status = 'sla_breached', updated_at = $1
+       WHERE id = ANY($2)`,
+      [now, breachedComplaints]
     );
 
-    console.log(`[scheduler] Found ${breached.length} SLA breaches, escalating...`);
+    // Log events for all breaches
+    await pool.query(
+      `INSERT INTO event_logs (event_type, entity_id, entity_type, event_data, created_at)
+       SELECT 'sla.breached', complaint_id, 'complaint', 
+              jsonb_build_object('contractorId', contractor_id), $1
+       FROM sla_tracking
+       WHERE breached = true AND updated_at = $1`,
+      [now]
+    );
+
+    console.log(`[scheduler] Found ${result.rowCount} SLA breaches, escalating...`);
   } catch (error) {
     console.error('[scheduler] Error checking SLA breaches:', error);
   }
@@ -244,36 +164,24 @@ async function checkSlaBreaches(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Cleanup old event/audit logs (older than 90 days)
 // Called daily at 2 AM.
-//
-// Postgres: DELETE … WHERE created_at < NOW() - INTERVAL '90 days' RETURNING id
-// Cassandra: event_logs PK is timeuuid — use minTimeuuid(cutoff) to find old
-//   rows, then DELETE by PK. For high-volume production use TTL at write time
-//   instead; this loop is fine at PoC scale.
 // ---------------------------------------------------------------------------
 async function cleanupAuditLogs(): Promise<void> {
   try {
-    const cutoff = msAgo(DAY90_MS);
+    const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
-    // minTimeuuid(t) returns the smallest timeuuid for timestamp t,
-    // so id < minTimeuuid(cutoff) means the row is older than cutoff.
-    const result = await client.execute(
-      'SELECT id FROM event_logs WHERE id < minTimeuuid(?) ALLOW FILTERING',
-      [cutoff],
-      { prepare: true }
+    const result = await pool.query(
+      `DELETE FROM event_logs
+       WHERE created_at < $1
+       RETURNING id`,
+      [cutoff]
     );
 
-    if (result.rowLength === 0) {
+    if (result.rowCount === 0) {
       console.log('[scheduler] Audit log cleanup: nothing to delete');
       return;
     }
 
-    await Promise.all(
-      result.rows.map(row =>
-        client.execute('DELETE FROM event_logs WHERE id = ?', [row.id], { prepare: true })
-      )
-    );
-
-    console.log(`[scheduler] Deleted ${result.rowLength} old audit/event log entries`);
+    console.log(`[scheduler] Deleted ${result.rowCount} old audit/event log entries`);
   } catch (error) {
     console.error('[scheduler] Error cleaning up audit logs:', error);
   }
@@ -282,13 +190,6 @@ async function cleanupAuditLogs(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Generate daily reports
 // Called daily at 1 AM.
-//
-// Postgres: INSERT … SELECT … ON CONFLICT DO UPDATE (upsert via sub-select
-//   with json_build_object aggregation).
-// Cassandra: no aggregation across partitions — iterate known statuses,
-//   count rows per complaints_by_status partition between dayStart/dayEnd,
-//   compute totals in JS, then INSERT into daily_reports (last-write-wins
-//   = natural upsert, same semantics as ON CONFLICT DO UPDATE).
 // ---------------------------------------------------------------------------
 async function generateReports(): Promise<void> {
   try {
@@ -296,54 +197,58 @@ async function generateReports(): Promise<void> {
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(0, 0, 0, 0);
     const dayStart = yesterday;
-    const dayEnd   = new Date(yesterday.getTime() + DAY_MS);
+    const dayEnd   = new Date(yesterday.getTime() + 24 * 60 * 60 * 1000);
     const dateStr  = yesterday.toISOString().split('T')[0]; // YYYY-MM-DD
 
-    const statuses = [
-      'submitted', 'assigned', 'in_progress',
-      'resolved',  'closed',   'rejected',
-      'sla_breached', 'anchored'
-    ];
-
-    const counts: Record<string, number> = {};
-    let total = 0;
-
-    for (const status of statuses) {
-      const r = await client.execute(
-        'SELECT id FROM complaints_by_status WHERE status = ? AND created_at >= ? AND created_at < ?',
-        [status, dayStart, dayEnd],
-        { prepare: true }
-      );
-      counts[status] = r.rowLength;
-      total += r.rowLength;
-    }
-
-    const resolved   = counts['resolved'] ?? 0;
-    const pending    = total - resolved;
-    const reportData = JSON.stringify({ total, resolved, pending, by_status: counts });
-    const now        = new Date();
-
-    // Cassandra INSERT overwrites same PK — equivalent to ON CONFLICT DO UPDATE
-    await client.execute(
-      `INSERT INTO daily_reports
-         (report_date, total_complaints, resolved_count, pending_count, report_data, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [dateStr, total, resolved, pending, reportData, now],
-      { prepare: true }
+    // Single query to compute all statistics
+    const result = await pool.query(
+      `WITH daily_stats AS (
+         SELECT
+           status,
+           COUNT(*) as count
+         FROM complaints
+         WHERE created_at >= $1 AND created_at < $2
+         GROUP BY status
+       )
+       INSERT INTO daily_reports (report_date, total_complaints, resolved_count, pending_count, report_data, created_at)
+       SELECT
+         $3,
+         SUM(count),
+         COALESCE((SELECT count FROM daily_stats WHERE status = 'resolved'), 0),
+         SUM(CASE WHEN status != 'resolved' THEN count ELSE 0 END),
+         jsonb_build_object(
+           'total', SUM(count),
+           'resolved', COALESCE((SELECT count FROM daily_stats WHERE status = 'resolved'), 0),
+           'pending', SUM(CASE WHEN status != 'resolved' THEN count ELSE 0 END),
+           'by_status', jsonb_object_agg(status, count)
+         ),
+         NOW()
+       FROM daily_stats
+       ON CONFLICT (report_date) DO UPDATE SET
+         total_complaints = EXCLUDED.total_complaints,
+         resolved_count = EXCLUDED.resolved_count,
+         pending_count = EXCLUDED.pending_count,
+         report_data = EXCLUDED.report_data,
+         created_at = EXCLUDED.created_at
+       RETURNING report_date, total_complaints, resolved_count`,
+      [dayStart, dayEnd, dateStr]
     );
 
-    console.log(`[scheduler] Generated daily report for ${dateStr} — total: ${total}, resolved: ${resolved}`);
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      console.log(`[scheduler] Generated daily report for ${row.report_date} — total: ${row.total_complaints}, resolved: ${row.resolved_count}`);
+    }
   } catch (error) {
     console.error('[scheduler] Error generating reports:', error);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Health check — replaced pool.query('SELECT 1') with system.local read
+// Health check
 // ---------------------------------------------------------------------------
 async function healthCheck(): Promise<void> {
   try {
-    await client.execute('SELECT release_version FROM system.local');
+    await pool.query('SELECT NOW()');
     console.log('[scheduler] Health check: OK');
   } catch (error) {
     console.error('[scheduler] Health check failed:', error);
@@ -357,11 +262,10 @@ async function initializeScheduler(): Promise<void> {
   console.log(`[${config.serviceName}] Starting scheduler service...`);
 
   try {
-    await client.connect();
-    const ver = await client.execute('SELECT release_version FROM system.local');
-    console.log(`[${config.serviceName}] Cassandra connected. Version:`, ver.rows[0]?.release_version);
+    const result = await pool.query('SELECT version()');
+    console.log(`[${config.serviceName}] PostgreSQL connected. Version:`, result.rows[0]?.version);
   } catch (error) {
-    console.error(`[${config.serviceName}] Failed to connect to Cassandra:`, error);
+    console.error(`[${config.serviceName}] Failed to connect to PostgreSQL:`, error);
     process.exit(1);
   }
 
@@ -387,9 +291,21 @@ async function initializeScheduler(): Promise<void> {
 
   console.log(`\n[${config.serviceName}] All cron jobs initialized. Running...`);
 
+  void registerServiceWithGateway({
+    gatewayUrl: process.env.GATEWAY_URL ?? 'http://127.0.0.1:3100',
+    service: {
+      name: config.serviceName,
+      address: process.env.SERVICE_URL ?? `service://${config.serviceName}`,
+      description: 'RoadWatch scheduler worker'
+    },
+    registrySecret: process.env.SERVICE_REGISTRY_SECRET
+  }).catch(error => {
+    console.warn(`[${config.serviceName}] service registration failed:`, error instanceof Error ? error.message : String(error));
+  });
+
   const shutdown = async (signal: string) => {
     console.log(`[${config.serviceName}] Received ${signal}, shutting down gracefully...`);
-    await client.shutdown();
+    await pool.end();
     process.exit(0);
   };
 

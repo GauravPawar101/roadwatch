@@ -1,6 +1,6 @@
 import express from 'express';
 import { z } from 'zod';
-import { execute } from '../../../apps/gateway-api/src/cassandra.js';
+import { pool } from '../../../apps/gateway-api/src/postgres.js';
 
 const router = express.Router();
 
@@ -29,11 +29,19 @@ router.post('/fabric-state-change', async (req, res) => {
 
     const eventType = body.eventType ?? body.type ?? 'complaint.anchored';
     const fabricTxId = body.fabricTxId ?? body.txHash ?? null;
+    const complaintMetadata = body.metadata && typeof body.metadata === 'object' ? body.metadata : null;
+    const roadId = typeof complaintMetadata?.roadId === 'string'
+      ? complaintMetadata.roadId
+      : typeof complaintMetadata?.road_id === 'string'
+        ? complaintMetadata.road_id
+        : null;
 
-    // Cassandra: perform idempotent upserts without SQL transactions
-    const existing = await execute('SELECT id, status FROM complaints WHERE id = ? LIMIT 1', [body.complaintId], { prepare: true });
+    const existing = await pool.query(
+      'SELECT id, status FROM complaints WHERE id = $1 LIMIT 1',
+      [body.complaintId]
+    );
 
-    if (!existing || (existing.rows || []).length === 0) {
+    if (existing.rows.length === 0) {
       if (eventType !== 'complaint.submitted') {
         return res.status(404).json({ error: 'Complaint not found' });
       }
@@ -42,9 +50,10 @@ router.post('/fabric-state-change', async (req, res) => {
         return res.status(400).json({ error: 'Missing complaint fields for submission event' });
       }
 
-      await execute(
-        `INSERT INTO complaints (id, district, zone, status, description, lat, lng, report_count, fabric_txid, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      await pool.query(
+        `INSERT INTO complaints (id, district, zone, status, description, lat, lng, road_id, report_count, metadata, fabric_txid, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+         ON CONFLICT (id) DO NOTHING`,
         [
           body.complaintId,
           body.district,
@@ -53,29 +62,49 @@ router.post('/fabric-state-change', async (req, res) => {
           body.description,
           body.lat ?? null,
           body.lng ?? null,
+          roadId,
           body.reportCount ?? 1,
-          fabricTxId,
-          new Date()
-        ],
-        { prepare: true }
+          JSON.stringify({
+            ...(complaintMetadata ?? {}),
+            roadId,
+            damageType: complaintMetadata?.damageType ?? null,
+            severity: complaintMetadata?.severity ?? null
+          }),
+          fabricTxId
+        ]
       );
     } else {
-      if (eventType === 'complaint.anchored' && fabricTxId) {
-        await execute('UPDATE complaints SET fabric_txid = ?, updated_at = ? WHERE id = ?', [fabricTxId, new Date(), body.complaintId], { prepare: true });
-      }
+        if (eventType === 'complaint.anchored' && fabricTxId) {
+          await pool.query(
+            `UPDATE complaints
+            SET fabric_txid      = $1,
+                anchored_tx_hash = $1,
+                anchored_at      = NOW(),
+                updated_at       = NOW()
+            WHERE id = $2`,
+            [fabricTxId, body.complaintId]
+          );
+        }
 
       if (eventType === 'complaint.status.changed' && body.newStatus) {
-        await execute('UPDATE complaints SET status = ?, updated_at = ? WHERE id = ?', [body.newStatus, new Date(), body.complaintId], { prepare: true });
+        await pool.query(
+          'UPDATE complaints SET status = $1, updated_at = NOW() WHERE id = $2',
+          [body.newStatus, body.complaintId]
+        );
       }
 
       if (eventType === 'complaint.submitted' && fabricTxId) {
-        await execute('UPDATE complaints SET fabric_txid = ?, updated_at = ? WHERE id = ?', [fabricTxId, new Date(), body.complaintId], { prepare: true });
+        await pool.query(
+          'UPDATE complaints SET fabric_txid = $1, updated_at = NOW() WHERE id = $2',
+          [fabricTxId, body.complaintId]
+        );
       }
     }
 
-    await execute(
-      `INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    await pool.query(
+      `INSERT INTO audit_log
+         (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
       [
         null,
         null,
@@ -90,10 +119,8 @@ router.post('/fabric-state-change', async (req, res) => {
           previousStatus: body.previousStatus ?? null,
           metadata: body.metadata ?? null,
           occurredAt: body.occurredAt ?? null
-        }),
-        new Date()
-      ],
-      { prepare: true }
+        })
+      ]
     );
 
     return res.json({ ok: true, complaintId: body.complaintId, eventType, fabricTxId });

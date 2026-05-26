@@ -32,7 +32,8 @@ export default function RoadProfile() {
   ]
 
   return (
-    <div className="stitch-grid stitch-gap-24">
+    <div className="page-radial-bg min-h-screen text-on-surface py-12">
+      <div className="container-max stitch-grid stitch-gap-24">
       <Hero
         title={road.name}
         subtitle={`${road.km} · Status: ${road.status}`}
@@ -126,6 +127,7 @@ export default function RoadProfile() {
           <div style={{ color: 'var(--color-text-secondary)' }}>{roleCopy[role]}</div>
         </CardBody>
       </Card>
+      </div>
     </div>
   )
 }

@@ -271,21 +271,21 @@ export default function AuthHub({ presetRole = 'citizen' }: { presetRole?: Role 
   }
 
   return (
-    <div className="stitch-minh-100vh p-lg">
+    <div className="page-radial-bg stitch-minh-100vh p-lg text-on-surface">
       <div className="stitch-maxw-1100 grid-two-col">
-        <section className="relative overflow-hidden rounded-xl p-md stitch-text-white shadow-lg" style={{ background: 'linear-gradient(180deg, rgba(2,6,23,0.9), rgba(3,7,35,0.95))' }}>
-          <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at top right, rgba(0,179,255,0.18), transparent 25%), radial-gradient(circle at bottom left, rgba(0,112,243,0.14), transparent 28%)' }} />
+        <section className="relative overflow-hidden rounded-xl p-md shadow-lg glass-panel" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.98), rgba(244,243,247,0.98))' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at top right, rgba(0,32,69,0.08), transparent 25%), radial-gradient(circle at bottom left, rgba(81,95,116,0.05), transparent 28%)' }} />
           <div className="relative" style={{ zIndex: 1 }}>
             <div className="chip">
               {isCitizen ? 'Citizen Clerk access' : 'Assigned staff access'}
             </div>
             <div className="stitch-mt-12">
-              <h1 className="headline-md" style={{ fontWeight: 900, lineHeight: 1.05 }}>
+              <h1 className="headline-md" style={{ fontWeight: 900, lineHeight: 1.05, color: '#1a1b1e' }}>
                 {isCitizen
                   ? 'Sign in or create a citizen account with Clerk.'
                   : 'Sign in with your assigned username, Gmail, or phone number.'}
               </h1>
-              <p className="body-lg stitch-mt-12" style={{ color: 'rgba(255,255,255,0.8)' }}>
+              <p className="body-lg stitch-mt-12" style={{ color: '#44474e' }}>
                 {isCitizen
                   ? 'Citizens can use Clerk sign-in or sign-up. Staff roles do not get a sign-up path and must use the access code assigned by the super user.'
                   : 'Authority and contractor accounts are sign-in only. Your identifier is assigned by the super user and verified by the gateway API.'}
@@ -300,15 +300,15 @@ export default function AuthHub({ presetRole = 'citizen' }: { presetRole?: Role 
               ].map(([title, body]) => (
                 <div key={title} className="glass-card p-sm rounded-12">
                   <div className="stitch-font-700">{title}</div>
-                  <div className="stitch-mt-6 stitch-sm-white">{body}</div>
+                  <div className="stitch-mt-6 text-on-surface-variant">{body}</div>
                 </div>
               ))}
             </div>
 
             <div className="glass-card p-md stitch-mt-16">
               <div className="muted-upper">Role selection happens here</div>
-              <div className="stitch-mt-8 title-lg stitch-font-800">{selectedRoleCard.title}</div>
-              <p className="stitch-mt-8 stitch-text-white-80">{selectedRoleCard.description}</p>
+              <div className="stitch-mt-8 title-lg stitch-font-800 text-on-surface">{selectedRoleCard.title}</div>
+              <p className="stitch-mt-8 text-on-surface-variant">{selectedRoleCard.description}</p>
             </div>
           </div>
         </section>
@@ -317,7 +317,7 @@ export default function AuthHub({ presetRole = 'citizen' }: { presetRole?: Role 
             <div className="stitch-display-flex stitch-justify-between stitch-items-center">
             <div>
               <div className="muted-upper">Account access</div>
-              <h2 className="title-lg stitch-mt-2">Choose your role here, then sign in</h2>
+              <h2 className="title-lg stitch-mt-2 text-on-surface">Choose your role here, then sign in</h2>
             </div>
             <div className="rounded-full stitch-p-8 stitch-font-700" style={{ background: 'var(--surface-container)', color: 'var(--primary)', fontSize: 12 }}>{isCitizen ? 'Clerk-enabled' : 'No sign-up'}</div>
           </div>
@@ -329,15 +329,17 @@ export default function AuthHub({ presetRole = 'citizen' }: { presetRole?: Role 
           </div>
 
           <div className="glass-card p-sm stitch-mt-16">
+            <div className="text-on-surface-variant">
             {isCitizen
               ? 'Role switching is only available on this login screen. Clerk handles citizen sign-in and sign-up. Enable the social and email providers in your Clerk dashboard.'
               : 'Role switching is only available on this login screen. Authority and contractor access comes from the gateway API. No sign-up screen is shown for these roles.'}
+            </div>
           </div>
 
           <div className="glass-card" style={{ marginTop: 16, overflow: 'hidden' }}>
             {isCitizen ? (
               <div className="p-sm">
-                <div className="stitch-display-flex stitch-gap-8" style={{ borderRadius: 9999, border: '1px solid var(--color-border)', background: 'var(--color-surface-muted)', padding: 6, marginBottom: 12 }}>
+                <div className="stitch-display-flex stitch-gap-8" style={{ borderRadius: 9999, border: '1px solid var(--color-border)', background: 'var(--surface-container-low)', padding: 6, marginBottom: 12 }}>
                   <Button type="button" variant={citizenMode === 'signin' ? 'primary' : 'ghost'} onClick={() => setCitizenMode('signin')}>Sign in</Button>
                   <Button type="button" variant={citizenMode === 'signup' ? 'primary' : 'ghost'} onClick={() => setCitizenMode('signup')}>Sign up</Button>
                 </div>
@@ -365,24 +367,24 @@ export default function AuthHub({ presetRole = 'citizen' }: { presetRole?: Role 
                   <Button type="button" onClick={verifyStaffOtp} disabled={staffLoading || !sessionId} variant="ghost">{staffLoading ? 'Verifying...' : 'Verify and sign in'}</Button>
                 </div>
 
-                <div className="glass-card p-sm stitch-mt-12">
+                <div className="glass-card p-sm stitch-mt-12 text-on-surface-variant">
                   Staff sign-up is disabled. Use the identifier assigned by the super user. If you were given an email, username, or phone number, enter it exactly as assigned.
                 </div>
 
                 {staffStatus ? <Alert variant="success">{staffStatus}</Alert> : null}
                 {staffError ? <Alert variant="error">{staffError}</Alert> : null}
-                {sessionId ? <div className="caption stitch-mt-8 stitch-text-muted">Session: {sessionId}</div> : null}
+                {sessionId ? <div className="caption stitch-mt-8 text-on-surface-variant">Session: {sessionId}</div> : null}
               </div>
             )}
           </div>
 
           {isCitizen ? (
             user && user.role === 'CITIZEN' ? (
-              <div style={{ marginTop: 16, borderRadius: 16, border: '1px solid var(--color-border)', background: 'var(--color-surface-muted)', padding: 12 }}>
+              <div style={{ marginTop: 16, borderRadius: 16, border: '1px solid var(--color-border)', background: 'var(--surface-container-low)', padding: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                   <div>
-                    <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--color-text-secondary)', fontWeight: 700 }}>Signed in</div>
-                    <p style={{ marginTop: 8, color: 'var(--color-text-secondary)' }}>Continue into the citizen dashboard.</p>
+                    <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 700 }}>Signed in</div>
+                    <p style={{ marginTop: 8, color: '#44474e' }}>Continue into the citizen dashboard.</p>
                   </div>
                   <div style={{ fontSize: 14 }}>{user?.username || user?.email || user?.phone}</div>
                 </div>
@@ -392,19 +394,19 @@ export default function AuthHub({ presetRole = 'citizen' }: { presetRole?: Role 
                 </div>
               </div>
             ) : (
-              <div style={{ marginTop: 16, borderRadius: 16, border: '1px solid var(--color-border)', background: 'var(--color-surface-muted)', padding: 12 }}>
-                <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--color-text-secondary)', fontWeight: 700 }}>Not signed in</div>
-                <p style={{ marginTop: 8, color: 'var(--color-text-secondary)' }}>Sign in or create an account to continue as a citizen.</p>
+              <div style={{ marginTop: 16, borderRadius: 16, border: '1px solid var(--color-border)', background: 'var(--surface-container-low)', padding: 12 }}>
+                <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 700 }}>Not signed in</div>
+                <p style={{ marginTop: 8, color: '#44474e' }}>Sign in or create an account to continue as a citizen.</p>
               </div>
             )
           ) : (
-            <div style={{ marginTop: 16, borderRadius: 16, border: '1px solid var(--color-border)', background: 'var(--color-surface-muted)', padding: 12 }}>
-              <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--color-text-secondary)', fontWeight: 700 }}>Assigned access</div>
-              <p style={{ marginTop: 8, color: 'var(--color-text-secondary)' }}>The account must already exist. There is no sign-up path for staff roles.</p>
+            <div style={{ marginTop: 16, borderRadius: 16, border: '1px solid var(--color-border)', background: 'var(--surface-container-low)', padding: 12 }}>
+              <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 700 }}>Assigned access</div>
+              <p style={{ marginTop: 8, color: '#44474e' }}>The account must already exist. There is no sign-up path for staff roles.</p>
             </div>
           )}
 
-          <div style={{ marginTop: 16, borderRadius: 12, border: '1px solid var(--color-border)', background: 'var(--color-surface-muted)', padding: 12, color: 'var(--color-text-secondary)' }}>
+          <div style={{ marginTop: 16, borderRadius: 12, border: '1px solid var(--color-border)', background: 'var(--surface-container-low)', padding: 12, color: '#44474e' }}>
             {isCitizen ? (
               <span>Once you sign in, you can continue as {selectedRoleCard.title.toLowerCase()} without needing a mobile-only OTP flow.</span>
             ) : (

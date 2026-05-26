@@ -1,22 +1,48 @@
 # Development environment - all services run locally
 services:
-  # Cassandra - Local Development (replacement for Postgres)
-  cassandra:
-    image: cassandra:4.1
-    container_name: roadwatch_cassandra
+  # Postgres - Local Development
+  postgres:
+    image: postgres:15-alpine
+    container_name: roadwatch_postgres
     restart: unless-stopped
     environment:
-      CASSANDRA_START_RPC: 'true'
+      POSTGRES_DB: roadwatch
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
-      - "9042:9042"
+      - "5433:5432"
     volumes:
-      - cassandra_data:/var/lib/cassandra
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e \"describe cluster\" || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d roadwatch"]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 20s
+      retries: 5
+    networks:
+      - roadwatch
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.24.1-p1
+    container_name: roadwatch_pgbouncer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: roadwatch
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 400
+      DEFAULT_POOL_SIZE: 50
+      RESERVE_POOL_SIZE: 10
+      LISTEN_PORT: 6432
+      AUTH_TYPE: trust
+    ports:
+      - "6432:6432"
     networks:
       - roadwatch
 
@@ -89,8 +115,8 @@ services:
     container_name: roadwatch_scheduler
     restart: unless-stopped
     depends_on:
-      cassandra:
-        condition: service_healthy
+      pgbouncer:
+        condition: service_started
       kafka:
         condition: service_started
       redis:
@@ -98,9 +124,8 @@ services:
     environment:
       NODE_ENV: development
       DEBUG: 'roadwatch:*'
-      CASSANDRA_CONTACT_POINTS: cassandra:9042
-      CASSANDRA_KEYSPACE: roadwatch
-      CASSANDRA_LOCAL_DC: datacenter1
+      # Use pooled DB endpoint (PgBouncer in non-local environments).
+      DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
       SERVICE_NAME: scheduler
       REDIS_URL: redis://redis:6379/0
       KAFKA_BROKERS: kafka:29092
@@ -127,8 +152,8 @@ services:
     container_name: roadwatch_webhook_handler
     restart: unless-stopped
     depends_on:
-      cassandra:
-        condition: service_healthy
+      pgbouncer:
+        condition: service_started
       kafka:
         condition: service_started
       redis:
@@ -136,9 +161,8 @@ services:
     environment:
       NODE_ENV: development
       DEBUG: 'roadwatch:*'
-      CASSANDRA_CONTACT_POINTS: cassandra:9042
-      CASSANDRA_KEYSPACE: roadwatch
-      CASSANDRA_LOCAL_DC: datacenter1
+      # Use pooled DB endpoint (PgBouncer in non-local environments).
+      DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
       KAFKA_BROKERS: kafka:29092
       KAFKA_GROUP_ID: webhook-handler-dev
       KAFKA_CONSUMER_TIMEOUT: "3000"
@@ -162,8 +186,8 @@ services:
     container_name: roadwatch_fabric_anchor_consumer
     restart: unless-stopped
     depends_on:
-      cassandra:
-        condition: service_healthy
+      pgbouncer:
+        condition: service_started
       kafka:
         condition: service_started
       redis:
@@ -171,9 +195,8 @@ services:
     environment:
       NODE_ENV: development
       DEBUG: 'roadwatch:*'
-      CASSANDRA_CONTACT_POINTS: cassandra:9042
-      CASSANDRA_KEYSPACE: roadwatch
-      CASSANDRA_LOCAL_DC: datacenter1
+      # Use pooled DB endpoint (PgBouncer in non-local environments).
+      DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
       KAFKA_BROKERS: kafka:29092
       KAFKA_GROUP_ID: fabric-anchor-consumer-dev
       REDIS_URL: redis://redis:6379/2
@@ -191,23 +214,9 @@ services:
       retries: 3
       start_period: 20s
 
-  # One-time Cassandra initialization (runs cql script)
-  cassandra-init:
-    image: cassandra:4.1
-    container_name: roadwatch_cassandra_init
-    depends_on:
-      cassandra:
-        condition: service_healthy
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["until cqlsh cassandra -e 'describe cluster' 2>/dev/null; do sleep 2; done; cqlsh cassandra -f /scripts/init.cql || true; sleep 1"]
-    volumes:
-      - ./docker/cassandra:/scripts:ro
-    networks:
-      - roadwatch
-
 networks:
   roadwatch:
     driver: bridge
 
 volumes:
-  cassandra_data:
+  postgres_data:

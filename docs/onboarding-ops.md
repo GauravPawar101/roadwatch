@@ -7,7 +7,7 @@ This repo supports a **DB-backed region registry** to power:
 
 ## Prereqs
 
-- A Cassandra cluster reachable via `CASSANDRA_CONTACT_POINTS` (preferred) and `CASSANDRA_KEYSPACE`. Legacy `DATABASE_URL` for Postgres is supported only for legacy seed scripts.
+- A PostgreSQL database reachable via `DATABASE_URL` (preferred). Legacy migration helpers may still exist, but they are not part of the primary onboarding flow.
 - Run the gateway once (or run the seed script which creates the minimal schema for region tables).
 
 ## Public endpoints used by mobile
@@ -41,7 +41,7 @@ From repo root:
 
 Notes:
 - The extra `--` is required so pnpm passes args through.
-- This is safe to re-run for Postgres seeds; for Cassandra deployments prefer the repository's migration tooling (`scripts/migrate`) to populate keyspaces and migrate data from Postgres.
+- This is safe to re-run for Postgres seeds; keep any legacy migration tooling separate from the main onboarding flow.
 
 ## Offline tiles
 

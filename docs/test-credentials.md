@@ -13,10 +13,11 @@ This repo uses **local env files** (not committed) for running services and test
 
 **Start from:** `apps/gateway-api/.env.example` → copy to `.env`
 
-Required for most dev flows (Cassandra preferred):
-- `CASSANDRA_CONTACT_POINTS`
-- `CASSANDRA_KEYSPACE`
-- `CASSANDRA_LOCAL_DC`
+Required for most dev flows (Postgres preferred):
+- `DATABASE_URL`
+- `POSTGRES_HOST`
+- `POSTGRES_PORT`
+- `POSTGRES_DB`
 - `JWT_SECRET`
 - `ALLOW_DEV_OTP_ECHO=true` (dev-only OTP flow)
 

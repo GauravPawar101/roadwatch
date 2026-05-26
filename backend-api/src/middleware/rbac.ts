@@ -91,16 +91,19 @@ export function checkJurisdictionAccess(req: AuthenticatedRequest, res: Response
  * Middleware: Audit all access
  */
 export function auditAccess(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  const user = req.user;
+  // Accept either normalized `req.user` or sidecar-provided `req.userContext`
+  const reqAny = req as any;
+  const user = req.user ?? (reqAny.userContext ? {
+    id: reqAny.userContext.id,
+    roles: [reqAny.userContext.role],
+    authority_jurisdiction: reqAny.userContext.districts
+  } : undefined);
 
-  if (!user) {
-    return next();
-  }
+  if (!user) return next();
 
   // Log access in background (don't block request)
   setImmediate(() => {
-    const reqAny = req as any;
-    // In production, log to database
+    // In production, persist to a database or structured logger
     console.log({
       timestamp: new Date().toISOString(),
       user_id: user.id,
@@ -108,7 +111,7 @@ export function auditAccess(req: AuthenticatedRequest, res: Response, next: Next
       method: reqAny.method,
       path: reqAny.path,
       ip_address: reqAny.ip,
-      user_agent: reqAny.get?.('user-agent'),
+      user_agent: reqAny.get?.('user-agent')
     });
   });
 

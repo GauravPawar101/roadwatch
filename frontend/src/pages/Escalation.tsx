@@ -14,8 +14,10 @@ export default function Escalation(){
   }
 
   return (
-    <div className="stitch-maxw-900">
-      <Card>
+    <div className="page-radial-bg min-h-screen py-12 text-on-surface">
+      <div className="container-max">
+      <div className="stitch-maxw-900">
+      <Card className="glass-panel rounded-2xl">
         <CardBody>
           <h2 className="stitch-font-20 stitch-font-800">Escalate Complaint {id}</h2>
           <div className="stitch-mt-8">
@@ -29,6 +31,8 @@ export default function Escalation(){
           </div>
         </CardBody>
       </Card>
+      </div>
+      </div>
     </div>
   )
 }

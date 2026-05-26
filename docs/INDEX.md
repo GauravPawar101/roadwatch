@@ -6,6 +6,7 @@ Complete index of all documentation in the RoadWatch system.
 
 | Document | Description | Location |
 |----------|-------------|----------|
+| **Current State** | Snapshot of the repo as it exists now | [current-state.md](./current-state.md) |
 | **Setup Checklist** | Complete step-by-step setup guide | [infrastructure/setup-checklist.md](./infrastructure/setup-checklist.md) |
 | **Docker Setup** | Comprehensive Docker infrastructure guide | [infrastructure/docker-setup.md](./infrastructure/docker-setup.md) |
 | **Docker Quick Reference** | Quick commands and troubleshooting | [infrastructure/docker-quick-ref.md](./infrastructure/docker-quick-ref.md) |
@@ -26,6 +27,7 @@ Complete index of all documentation in the RoadWatch system.
 | **Design Choices** | Technical decisions and rationale | [architecture/design-choices.md](./architecture/design-choices.md) |
 | **Adapter Pattern** | Flexible, pluggable implementations | [architecture/adapter-pattern.md](./architecture/adapter-pattern.md) |
 | **Event System** | Event-driven architecture patterns | [architecture/event-system.md](./architecture/event-system.md) |
+| **Shared Dependency Strategy** | How to handle shared utilities across services | [architecture/shared-dependency-strategy.md](./architecture/shared-dependency-strategy.md) |
 | **Service Integration** | How services communicate and integrate | [architecture/service-integration.md](./architecture/service-integration.md) |
 | **Service Inventory** | Complete service architecture and dependencies | [services/service-inventory.md](./services/service-inventory.md) |
 | **Service Verification** | Service configuration and health checks | [services/service-verification.md](./services/service-verification.md) |
@@ -35,10 +37,14 @@ Complete index of all documentation in the RoadWatch system.
 | Document | Description | Location |
 |----------|-------------|----------|
 | **Gateway API** | Central REST API backend documentation | [services/gateway-api/README.md](./services/gateway-api/README.md) |
+| **Backend API** | Auxiliary complaint and media backend documentation | [services/backend-api/README.md](./services/backend-api/README.md) |
 | **Authority Portal** | React web dashboard for authorities | [services/authority-portal/README.md](./services/authority-portal/README.md) |
 | **Mobile Host** | React Native citizen mobile app | [services/mobile-host/README.md](./services/mobile-host/README.md) |
 | **Chaincode** | Hyperledger Fabric smart contract | [services/chaincode/README.md](./services/chaincode/README.md) |
 | **Fabric Anchor Consumer** | Kafka consumer for blockchain anchoring | [services/fabric-anchor-consumer/README.md](./services/fabric-anchor-consumer/README.md) |
+| **Scheduler** | Cron-based maintenance service | [services/scheduler/README.md](./services/scheduler/README.md) |
+| **Webhook Handler** | Kafka event side-effect processor | [services/webhook-handler/README.md](./services/webhook-handler/README.md) |
+| **Media Ingest Prototype** | Legacy standalone media ingestion backend | [services/media-ingest/README.md](./services/media-ingest/README.md) |
 | **Fabric Chaincodes** | Go-based registry and routing chaincodes | [services/fabric-chaincodes/README.md](./services/fabric-chaincodes/README.md) |
 
 ## 📦 Shared Packages

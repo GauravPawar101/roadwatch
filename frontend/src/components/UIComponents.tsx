@@ -7,21 +7,21 @@ import React from 'react'
 */
 
 const palette = {
-  surface: 'var(--color-surface, #fff)',
-  border: 'var(--color-border, #e6e9ee)',
-  primary: 'var(--color-primary, #0ea5e9)',
-  primaryLight: 'var(--color-primary-light, rgba(14,165,233,0.08))',
-  accent: 'var(--color-accent, #06b6d4)',
-  text: 'var(--color-text, #0f172a)',
-  textSecondary: 'var(--color-text-secondary, #64748b)',
-  success: 'var(--color-success, #05a869)',
-  error: 'var(--color-error, #e44d3a)'
+  surface: 'var(--color-surface, #ffffff)',
+  border: 'var(--color-border, #c4c6cf)',
+  primary: 'var(--color-primary, #002045)',
+  primaryLight: 'var(--color-primary-light, rgba(0,32,69,0.08))',
+  accent: 'var(--color-accent, #515f74)',
+  text: 'var(--color-text, #1a1b1e)',
+  textSecondary: 'var(--color-text-secondary, #44474e)',
+  success: 'var(--color-success, #005321)',
+  error: 'var(--color-error, #ba1a1a)'
 }
 
 const radius = {
-  sm: 6,
-  md: 12,
-  lg: 18,
+  sm: 4,
+  md: 8,
+  lg: 12,
   full: 9999
 }
 
@@ -33,15 +33,15 @@ export const Card: React.FC<{
   style?: React.CSSProperties
 }> = ({ className = '', children, interactive = false, style = {} }) => {
   const base: React.CSSProperties = {
-    background: palette.surface,
+    background: 'rgba(255,255,255,0.96)',
     border: `1px solid ${palette.border}`,
-    borderRadius: radius.md,
-    boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(15,23,42,0.04))',
+    borderRadius: radius.lg,
+    boxShadow: 'var(--shadow-sm, 0 4px 18px rgba(0,9,27,0.04))',
     padding: 0,
     overflow: 'hidden'
   }
   const interactiveStyle: React.CSSProperties = interactive
-    ? { cursor: 'pointer', transition: 'transform 150ms ease' }
+    ? { cursor: 'pointer', transition: 'transform 150ms ease, box-shadow 150ms ease' }
     : {}
   return (
     <div className={className} style={{ ...base, ...interactiveStyle, ...style }}>{children}</div>
@@ -49,22 +49,22 @@ export const Card: React.FC<{
 }
 
 export const CardHeader: React.FC<{ children: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({ children, className = '', style = {} }) => (
-  <div className={className} style={{ padding: 16, borderBottom: `1px solid ${palette.border}`, ...style }}>{children}</div>
+  <div className={className} style={{ padding: 18, borderBottom: `1px solid ${palette.border}`, background: 'rgba(250,249,252,0.8)', ...style }}>{children}</div>
 )
 
 export const CardTitle: React.FC<{ children: React.ReactNode; subtitle?: string; style?: React.CSSProperties }> = ({ children, subtitle, style = {} }) => (
   <div style={style}>
-    <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: palette.text }}>{children}</h2>
+    <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: palette.text, letterSpacing: '-0.02em' }}>{children}</h2>
     {subtitle && <p style={{ margin: '6px 0 0', color: palette.textSecondary }}>{subtitle}</p>}
   </div>
 )
 
 export const CardBody: React.FC<{ children: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({ children, className = '', style = {} }) => (
-  <div className={className} style={{ padding: 16, ...style }}>{children}</div>
+  <div className={className} style={{ padding: 18, ...style }}>{children}</div>
 )
 
 export const CardFooter: React.FC<{ children: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({ children, className = '', style = {} }) => (
-  <div className={className} style={{ padding: 12, borderTop: `1px solid ${palette.border}`, ...style }}>{children}</div>
+  <div className={className} style={{ padding: 14, borderTop: `1px solid ${palette.border}`, ...style }}>{children}</div>
 )
 
 /* ---- Button ---- */
@@ -72,7 +72,7 @@ export type ButtonVariant = 'primary' | 'secondary' | 'accent' | 'ghost' | 'ghos
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
 const buttonVariantStyles: Record<ButtonVariant, React.CSSProperties> = {
-  primary: { background: palette.primary, color: '#fff', border: `1px solid ${palette.primary}` },
+  primary: { background: 'linear-gradient(135deg, var(--color-primary-container, #002045) 0%, var(--color-secondary, #1960a3) 100%)', color: '#fff', border: `1px solid ${palette.primary}` },
   secondary: { background: 'transparent', color: palette.text, border: `1px solid ${palette.border}` },
   accent: { background: palette.accent, color: '#fff', border: `1px solid ${palette.accent}` },
   ghost: { background: 'transparent', color: palette.text, border: 'none' },
@@ -82,9 +82,9 @@ const buttonVariantStyles: Record<ButtonVariant, React.CSSProperties> = {
 }
 
 const buttonSizeStyles: Record<ButtonSize, React.CSSProperties> = {
-  sm: { padding: '6px 10px', fontSize: 13, borderRadius: 8 },
-  md: { padding: '8px 14px', fontSize: 14, borderRadius: 10 },
-  lg: { padding: '12px 18px', fontSize: 15, borderRadius: 12 }
+  sm: { padding: '6px 10px', fontSize: 13, borderRadius: 6 },
+  md: { padding: '8px 14px', fontSize: 14, borderRadius: 8 },
+  lg: { padding: '12px 18px', fontSize: 15, borderRadius: 10 }
 }
 
 export const Button: React.FC<{
@@ -108,7 +108,9 @@ export const Button: React.FC<{
     opacity: disabled ? 0.6 : 1,
     fontWeight: 700,
     border: 'none',
-    whiteSpace: 'nowrap'
+    whiteSpace: 'nowrap',
+    letterSpacing: '0.01em',
+    transition: 'transform 150ms ease, opacity 150ms ease, box-shadow 150ms ease'
   }
   const variantStyle = buttonVariantStyles[variant]
   const sizeStyle = buttonSizeStyles[size]
@@ -125,11 +127,11 @@ export const Button: React.FC<{
 export type BadgeVariant = 'primary' | 'success' | 'error' | 'warning' | 'info'
 
 const badgeStyles: Record<BadgeVariant, React.CSSProperties> = {
-  primary: { background: 'rgba(14,165,233,0.08)', color: palette.primary, padding: '4px 8px', borderRadius: radius.full, fontWeight: 700, fontSize: 12 },
-  success: { background: 'rgba(5,168,105,0.08)', color: palette.success, padding: '4px 8px', borderRadius: radius.full, fontWeight: 700, fontSize: 12 },
-  error: { background: 'rgba(228,77,58,0.08)', color: palette.error, padding: '4px 8px', borderRadius: radius.full, fontWeight: 700, fontSize: 12 },
-  warning: { background: 'rgba(245,158,11,0.08)', color: '#b45309', padding: '4px 8px', borderRadius: radius.full, fontWeight: 700, fontSize: 12 },
-  info: { background: 'rgba(99,102,241,0.08)', color: '#6366f1', padding: '4px 8px', borderRadius: radius.full, fontWeight: 700, fontSize: 12 }
+  primary: { background: 'rgba(0,32,69,0.08)', color: palette.primary, padding: '4px 8px', borderRadius: 6, fontWeight: 700, fontSize: 12 },
+  success: { background: 'rgba(0,157,70,0.08)', color: palette.success, padding: '4px 8px', borderRadius: 6, fontWeight: 700, fontSize: 12 },
+  error: { background: 'rgba(186,26,26,0.08)', color: palette.error, padding: '4px 8px', borderRadius: 6, fontWeight: 700, fontSize: 12 },
+  warning: { background: 'rgba(245,158,11,0.08)', color: '#b45309', padding: '4px 8px', borderRadius: 6, fontWeight: 700, fontSize: 12 },
+  info: { background: 'rgba(81,95,116,0.08)', color: palette.accent, padding: '4px 8px', borderRadius: 6, fontWeight: 700, fontSize: 12 }
 }
 
 export const Badge: React.FC<{ children: React.ReactNode; variant?: BadgeVariant; className?: string; style?: React.CSSProperties }> = ({ children, variant = 'primary', className = '', style = {} }) => (
@@ -141,7 +143,7 @@ export type AlertVariant = 'success' | 'error' | 'warning' | 'info'
 export const Alert: React.FC<{ children: React.ReactNode; variant?: AlertVariant; title?: string; onClose?: () => void; className?: string; style?: React.CSSProperties }> = ({ children, variant = 'info', title, onClose, className = '', style = {} }) => {
   const tone = variant === 'success' ? { borderLeft: `4px solid ${palette.success}` } : variant === 'error' ? { borderLeft: `4px solid ${palette.error}` } : {}
   return (
-    <div className={className} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: 12, border: `1px solid ${palette.border}`, borderRadius: 8, background: palette.surface, ...tone, ...style }}>
+    <div className={className} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: 12, border: `1px solid ${palette.border}`, borderRadius: radius.md, background: palette.surface, ...tone, ...style }}>
       <div style={{ flex: 1 }}>
         {title && <strong style={{ display: 'block', marginBottom: 6 }}>{title}</strong>}
         {children}
@@ -167,10 +169,10 @@ export const FormGroup: React.FC<{ label: string; required?: boolean; error?: st
 const baseInputStyle: React.CSSProperties = {
   border: `1px solid ${palette.border}`,
   padding: '8px 10px',
-  borderRadius: 8,
+  borderRadius: radius.md,
   fontSize: 14,
   outline: 'none',
-  background: 'transparent',
+  background: palette.surface,
   color: palette.text,
   width: '100%',
   boxSizing: 'border-box'
@@ -251,7 +253,7 @@ export const StatsGrid: React.FC<{ children: React.ReactNode; className?: string
 )
 
 export const StatCard: React.FC<{ value: string | number; label: string; change?: { value: number; type: 'positive' | 'negative' }; icon?: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({ value, label, change, icon, className = '', style = {} }) => (
-  <div className={className} style={{ padding: 12, borderRadius: 12, background: palette.surface, border: `1px solid ${palette.border}`, ...style }}>
+  <div className={className} style={{ padding: 12, borderRadius: radius.md, background: palette.surface, border: `1px solid ${palette.border}`, ...style }}>
     {icon && <div style={{ marginBottom: 8 }}>{icon}</div>}
     <div style={{ fontSize: 18, fontWeight: 800 }}>{value}</div>
     <div style={{ color: palette.textSecondary, marginTop: 6 }}>{label}</div>
@@ -261,15 +263,15 @@ export const StatCard: React.FC<{ value: string | number; label: string; change?
 
 /* ---- Hero / Container / Grid ---- */
 export const Hero: React.FC<{ title: string; subtitle?: string; actions?: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({ title, subtitle, actions, className = '', style = {} }) => (
-  <div className={className} style={{ padding: '28px 16px', ...style }}>
-    <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>{title}</h1>
-    {subtitle && <p style={{ marginTop: 8, color: palette.textSecondary }}>{subtitle}</p>}
+  <div className={className} style={{ padding: '24px 20px', ...style }}>
+    <h1 style={{ margin: 0, fontSize: 30, fontWeight: 900, letterSpacing: '-0.03em' }}>{title}</h1>
+    {subtitle && <p style={{ marginTop: 8, color: palette.textSecondary, maxWidth: 760, lineHeight: 1.6 }}>{subtitle}</p>}
     {actions && <div style={{ marginTop: 12 }}>{actions}</div>}
   </div>
 )
 
 export const Container: React.FC<{ children: React.ReactNode; maxWidth?: string; className?: string; style?: React.CSSProperties }> = ({ children, maxWidth = '1200px', className = '', style = {} }) => (
-  <div className={className} style={{ maxWidth, margin: '0 auto', padding: '0 12px', ...style }}>{children}</div>
+  <div className={className} style={{ maxWidth, margin: '0 auto', padding: '0 16px', ...style }}>{children}</div>
 )
 
 export const Grid: React.FC<{ cols?: number; gap?: string; children: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({ cols = 3, gap = '12px', children, className = '', style = {} }) => (
@@ -306,7 +308,7 @@ export const Divider: React.FC<{ className?: string; style?: React.CSSProperties
 )
 
 export const Section: React.FC<{ title: string; subtitle?: string; children: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({ title, subtitle, children, className = '', style = {} }) => (
-  <section className={className} style={{ marginBottom: 28, ...style }}>
+  <section className={className} style={{ marginBottom: 32, ...style }}>
     <div style={{ marginBottom: 12 }}>
       <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{title}</h2>
       {subtitle && <p style={{ color: palette.textSecondary, fontSize: 13, marginTop: 6 }}>{subtitle}</p>}

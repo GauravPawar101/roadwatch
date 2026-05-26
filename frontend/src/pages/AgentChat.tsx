@@ -30,7 +30,7 @@ export default function AgentChat() {
 
       <Card>
         <CardBody>
-          <div className="" style={{ background: 'var(--surface)', minHeight: 200 }}>
+          <div className="bg-surface-container-low min-h-[200px]">
             <div className="stitch-p-12 stitch-rounded-8">
               {messages.map((m, i) => (
                 <div key={i} className="stitch-mb-8"><strong>{m.from}:</strong> <span className="stitch-text-muted">{m.text}</span></div>

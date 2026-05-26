@@ -14,8 +14,8 @@ import {
     storeRefreshToken,
     verifyAndConsumeRefreshToken
 } from '../auth/refresh.js';
-import { execute } from '../cassandra.js';
 import { getUserByIdentifier, getUserByPhone, upsertUser } from '../db.js';
+import { pool } from '../postgres.js';
 import { requireAuth } from '../rbac.js';
 import { decryptPhone, hashPhone } from '../security/phone.js';
 
@@ -49,6 +49,19 @@ router.post('/authority/otp/request', async (req, res) => {
 
   const result = await requestOtp(resolved.phone, 'AUTHORITY');
   res.json(result);
+});
+
+router.get('/authority/otp/status', async (req, res) => {
+  const query = z.object({ identifier: z.string().min(1).optional(), phone: z.string().min(6).optional() }).parse(req.query);
+  const identifier = query.identifier ?? query.phone;
+  if (!identifier) return res.status(400).json({ error: 'Missing phone or identifier' });
+
+  const resolved = await resolveUserForLogin(identifier, ['CE', 'EE']);
+  if (!resolved) return res.status(403).json({ error: 'Authority account not registered' });
+
+  const { getOtpStatus } = await import('../auth/otp.js');
+  const status = await getOtpStatus(resolved.phone, 'AUTHORITY');
+  res.json(status);
 });
 
 router.post('/authority/otp/verify', async (req, res) => {
@@ -109,6 +122,19 @@ router.post('/contractor/otp/request', async (req, res) => {
   res.json(result);
 });
 
+router.get('/contractor/otp/status', async (req, res) => {
+  const query = z.object({ identifier: z.string().min(1).optional(), phone: z.string().min(6).optional() }).parse(req.query);
+  const identifier = query.identifier ?? query.phone;
+  if (!identifier) return res.status(400).json({ error: 'Missing phone or identifier' });
+
+  const resolved = await resolveUserForLogin(identifier, ['CONTRACTOR']);
+  if (!resolved) return res.status(403).json({ error: 'Contractor account not registered' });
+
+  const { getOtpStatus } = await import('../auth/otp.js');
+  const status = await getOtpStatus(resolved.phone, 'CONTRACTOR');
+  res.json(status);
+});
+
 router.post('/contractor/otp/verify', async (req, res) => {
   const body = z
     .object({
@@ -159,6 +185,13 @@ router.post('/citizen/otp/request', async (req, res) => {
   const body = z.object({ phone: z.string().min(6) }).parse(req.body);
   const result = await requestOtp(body.phone, 'CITIZEN');
   res.json(result);
+});
+
+router.get('/citizen/otp/status', async (req, res) => {
+  const query = z.object({ phone: z.string().min(6) }).parse(req.query);
+  const { getOtpStatus } = await import('../auth/otp.js');
+  const status = await getOtpStatus(query.phone, 'CITIZEN');
+  res.json(status);
 });
 
 router.post('/citizen/otp/verify', async (req, res) => {
@@ -223,27 +256,31 @@ router.post('/refresh', async (req, res) => {
     const data = await verifyAndConsumeRefreshToken(req);
     if (!data) return res.status(401).json({ error: 'Invalid refresh token' });
 
-    // Revoke old token
     await revokeRefreshTokenByHash(data.token);
 
-    // Issue new refresh token and store it
     const newRefresh = signRefreshToken({ sub: data.payload.sub });
     await storeRefreshToken(newRefresh, data.payload.sub);
     setRefreshCookie(res, newRefresh);
 
-    // Issue new access token
-    // Load user to include districts/zones
-    const userRes = await execute('SELECT id, role, districts, zones, phone, phone_hash FROM users WHERE id = ? LIMIT 1', [data.payload.sub], { prepare: true });
+    const userRes = await pool.query<{
+      id: string; role: string; districts: string[]; zones: string[]; phone: string | null; phone_hash: string | null;
+    }>(
+      `SELECT id, role, districts, zones, phone, phone_hash
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [data.payload.sub]
+    );
     const user = userRes.rows[0];
     if (!user) return res.status(401).json({ error: 'User not found' });
 
     const accessToken = signAccessToken({
       sub: user.id,
-      phone: user.phone || null,
-      phoneHash: user.phone_hash || null,
+      phone: user.phone ?? null,
+      phoneHash: user.phone_hash ?? null,
       role: user.role,
-      districts: user.districts || [],
-      zones: user.zones || []
+      districts: user.districts ?? [],
+      zones: user.zones ?? []
     });
 
     res.json({ token: accessToken });
@@ -260,9 +297,7 @@ router.post('/refresh', async (req, res) => {
 router.post('/logout', async (req, res) => {
   try {
     const token = getRefreshTokenFromReq(req);
-    if (token) {
-      await revokeRefreshTokenByHash(token);
-    }
+    if (token) await revokeRefreshTokenByHash(token);
     clearRefreshCookie(res);
     res.json({ ok: true });
   } catch (error) {
@@ -290,66 +325,50 @@ router.post('/citizen/signup', async (req, res) => {
     })
     .parse(req.body);
 
-  // At least one identifier required
   const identifier = body.email || body.phone || body.username;
-  if (!identifier) {
-    return res.status(400).json({ error: 'Email, phone, or username required' });
-  }
+  if (!identifier) return res.status(400).json({ error: 'Email, phone, or username required' });
 
-  // Validate password strength
   const passwordValidation = validatePasswordStrength(body.password);
   if (!passwordValidation.valid) {
     return res.status(400).json({ error: 'Password too weak', errors: passwordValidation.errors });
   }
 
   try {
-    // Check if user already exists
     if (body.email) {
-      const existing = await execute('SELECT id FROM users WHERE email = ? LIMIT 1', [body.email.toLowerCase()], { prepare: true });
-      if (existing.rows.length > 0) {
-        return res.status(409).json({ error: 'Email already registered' });
-      }
+      const existing = await pool.query('SELECT id FROM users WHERE email = $1 LIMIT 1', [body.email.toLowerCase()]);
+      if (existing.rows.length > 0) return res.status(409).json({ error: 'Email already registered' });
     }
     if (body.phone) {
-      const existing = await execute('SELECT id FROM users WHERE phone_hash = ? LIMIT 1', [hashPhone(body.phone)], { prepare: true });
-      if (existing.rows.length > 0) {
-        return res.status(409).json({ error: 'Phone already registered' });
-      }
+      const existing = await pool.query('SELECT id FROM users WHERE phone_hash = $1 LIMIT 1', [hashPhone(body.phone)]);
+      if (existing.rows.length > 0) return res.status(409).json({ error: 'Phone already registered' });
     }
     if (body.username) {
-      const existing = await execute('SELECT id FROM users WHERE username = ? LIMIT 1', [body.username], { prepare: true });
-      if (existing.rows.length > 0) {
-        return res.status(409).json({ error: 'Username already taken' });
-      }
+      const existing = await pool.query('SELECT id FROM users WHERE username = $1 LIMIT 1', [body.username]);
+      if (existing.rows.length > 0) return res.status(409).json({ error: 'Username already taken' });
     }
 
-    // Hash password
     const passwordHash = await hashPassword(body.password);
-
-    // Determine signup method
     const signupMethod = body.email ? 'email' : body.phone ? 'phone' : 'username';
-
-    // Create user — generate id client-side for Cassandra and insert
     const userId = crypto.randomUUID();
-    await execute(
-      `INSERT INTO users (id, email, phone, phone_hash, username, password_hash, signup_method, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+
+    await pool.query(
+      `INSERT INTO users (id, email, phone, phone_hash, username, password_hash, signup_method, role)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         userId,
-        body.email?.toLowerCase() || null,
-        body.phone || null,
+        body.email?.toLowerCase() ?? null,
+        body.phone ?? null,
         body.phone ? hashPhone(body.phone) : null,
-        body.username || null,
+        body.username ?? null,
         passwordHash,
         signupMethod,
         'CITIZEN'
-      ],
-      { prepare: true }
+      ]
     );
 
-    // Create JWT token
     const token = signAccessToken({
       sub: userId,
-      phone: body.phone || null,
+      phone: body.phone ?? null,
       phoneHash: body.phone ? hashPhone(body.phone) : null,
       role: 'CITIZEN',
       districts: [],
@@ -358,14 +377,7 @@ router.post('/citizen/signup', async (req, res) => {
 
     res.status(201).json({
       token,
-      user: {
-        id: userId,
-        email: body.email || null,
-        phone: body.phone || null,
-        username: body.username || null,
-        role: 'CITIZEN',
-        fabricVerified: false
-      }
+      user: { id: userId, email: body.email ?? null, phone: body.phone ?? null, username: body.username ?? null, role: 'CITIZEN', fabricVerified: false }
     });
   } catch (error) {
     console.error('Signup error:', error);
@@ -379,43 +391,39 @@ router.post('/citizen/signup', async (req, res) => {
  */
 router.post('/citizen/login', async (req, res) => {
   const body = z
-    .object({
-      identifier: z.string().min(1), // email, phone, or username
-      password: z.string()
-    })
+    .object({ identifier: z.string().min(1), password: z.string() })
     .parse(req.body);
 
   try {
-    // Find user by email, phone, or username
     let result;
     if (body.identifier.includes('@')) {
-      // Email
-      result = await execute('SELECT id, email, phone, phone_hash, username, password_hash, role FROM users WHERE role = ? AND email = ? LIMIT 1 ALLOW FILTERING', ['CITIZEN', body.identifier.toLowerCase()], { prepare: true });
+      result = await pool.query(
+        `SELECT id, email, phone, phone_hash, username, password_hash, role
+         FROM users WHERE role = $1 AND email = $2 LIMIT 1`,
+        ['CITIZEN', body.identifier.toLowerCase()]
+      );
     } else if (/^\d{6,}$/.test(body.identifier)) {
-      // Phone
-      result = await execute('SELECT id, email, phone, phone_hash, username, password_hash, role FROM users WHERE role = ? AND phone_hash = ? LIMIT 1 ALLOW FILTERING', ['CITIZEN', hashPhone(body.identifier)], { prepare: true });
+      result = await pool.query(
+        `SELECT id, email, phone, phone_hash, username, password_hash, role
+         FROM users WHERE role = $1 AND phone_hash = $2 LIMIT 1`,
+        ['CITIZEN', hashPhone(body.identifier)]
+      );
     } else {
-      // Username
-      result = await execute('SELECT id, email, phone, phone_hash, username, password_hash, role FROM users WHERE role = ? AND username = ? LIMIT 1 ALLOW FILTERING', ['CITIZEN', body.identifier], { prepare: true });
+      result = await pool.query(
+        `SELECT id, email, phone, phone_hash, username, password_hash, role
+         FROM users WHERE role = $1 AND username = $2 LIMIT 1`,
+        ['CITIZEN', body.identifier]
+      );
     }
 
-    if (!result || (result.rows || []).length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
+    if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
 
     const user = result.rows[0];
-
-    // Verify password
-    if (!user.password_hash) {
-      return res.status(401).json({ error: 'This account was not created with a password' });
-    }
+    if (!user.password_hash) return res.status(401).json({ error: 'This account was not created with a password' });
 
     const passwordValid = await verifyPassword(body.password, user.password_hash);
-    if (!passwordValid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
+    if (!passwordValid) return res.status(401).json({ error: 'Invalid credentials' });
 
-    // Create JWT token
     const token = signAccessToken({
       sub: user.id,
       phone: user.phone,
@@ -427,14 +435,7 @@ router.post('/citizen/login', async (req, res) => {
 
     res.json({
       token,
-      user: {
-        id: user.id,
-        email: user.email,
-        phone: user.phone,
-        username: user.username,
-        role: user.role,
-        fabricVerified: false
-      }
+      user: { id: user.id, email: user.email, phone: user.phone, username: user.username, role: user.role, fabricVerified: false }
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -461,73 +462,52 @@ router.post('/authority/signup', async (req, res) => {
     })
     .parse(req.body);
 
-  // Validate password
   const passwordValidation = validatePasswordStrength(body.password);
   if (!passwordValidation.valid) {
     return res.status(400).json({ error: 'Password too weak', errors: passwordValidation.errors });
   }
 
   try {
-    // Check existing user
-    const existing = await execute('SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1', [body.email.toLowerCase(), body.username], { prepare: true });
-    if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'Email or username already exists' });
-    }
+    const existing = await pool.query(
+      'SELECT id FROM users WHERE email = $1 OR username = $2 LIMIT 1',
+      [body.email.toLowerCase(), body.username]
+    );
+    if (existing.rows.length > 0) return res.status(409).json({ error: 'Email or username already exists' });
 
-    // Hash password
     const passwordHash = await hashPassword(body.password);
-
-    // Create user (generate id client-side for Cassandra)
     const userId = crypto.randomUUID();
-    await execute(`INSERT INTO users (id, email, username, password_hash, phone, signup_method, role, districts, zones) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-      userId,
-      body.email.toLowerCase(),
-      body.username,
-      passwordHash,
-      body.phone || null,
-      'email',
-      'CE',
-      body.districts || [],
-      body.zones || []
-    ], { prepare: true });
 
-    // Register Fabric identity
-    await registerFabricIdentity({
-      userId,
-      role: 'CE',
-      orgName: body.fabricOrgName,
-      certPem: body.fabricCertPem,
-      mspId: body.fabricMspId
-    });
+    await pool.query(
+      `INSERT INTO users (id, email, username, password_hash, phone, signup_method, role, districts, zones)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        userId,
+        body.email.toLowerCase(),
+        body.username,
+        passwordHash,
+        body.phone ?? null,
+        'email',
+        'CE',
+        body.districts ?? [],
+        body.zones ?? []
+      ]
+    );
 
-    // Verify Fabric identity
-    const fabricVerified = await verifyFabricIdentity({
-      userId,
-      role: 'CE',
-      certPem: body.fabricCertPem
-    });
+    await registerFabricIdentity({ userId, role: 'CE', orgName: body.fabricOrgName, certPem: body.fabricCertPem, mspId: body.fabricMspId });
+    const fabricVerified = await verifyFabricIdentity({ userId, role: 'CE', certPem: body.fabricCertPem });
 
-    // Create JWT token
     const token = signAccessToken({
       sub: userId,
-      phone: body.phone || null,
+      phone: body.phone ?? null,
       phoneHash: body.phone ? hashPhone(body.phone) : null,
       role: 'CE',
-      districts: body.districts || [],
-      zones: body.zones || []
+      districts: body.districts ?? [],
+      zones: body.zones ?? []
     });
 
     res.status(201).json({
       token,
-      user: {
-        id: userId,
-        email: body.email,
-        username: body.username,
-        role: 'CE',
-        fabricVerified,
-        districts: body.districts || [],
-        zones: body.zones || []
-      }
+      user: { id: userId, email: body.email, username: body.username, role: 'CE', fabricVerified, districts: body.districts ?? [], zones: body.zones ?? [] }
     });
   } catch (error) {
     console.error('Authority signup error:', error);
@@ -541,80 +521,41 @@ router.post('/authority/signup', async (req, res) => {
  */
 router.post('/authority/login', async (req, res) => {
   const body = z
-    .object({
-      identifier: z.string().min(1), // email or username
-      password: z.string()
-    })
+    .object({ identifier: z.string().min(1), password: z.string() })
     .parse(req.body);
 
   try {
-    // Find authority user
-    let query = `SELECT id, email, username, password_hash, role, phone, phone_hash, 
-                        districts, zones, fabric_verified
-                 FROM users
-                 WHERE role IN ('CE', 'EE') AND (`;
+    const result = await pool.query(
+      `SELECT id, email, username, password_hash, role, phone, phone_hash, districts, zones, fabric_verified
+       FROM users
+       WHERE role = ANY($1::text[])
+         AND (${body.identifier.includes('@') ? 'email = $2' : 'username = $2'})
+       LIMIT 1`,
+      [['CE', 'EE'], body.identifier.includes('@') ? body.identifier.toLowerCase() : body.identifier]
+    );
 
-    const params: any[] = [];
-
-    if (body.identifier.includes('@')) {
-      query += `email = $${params.length + 1}`;
-      params.push(body.identifier.toLowerCase());
-    } else {
-      query += `username = $${params.length + 1}`;
-      params.push(body.identifier);
-    }
-
-    query += `) LIMIT 1;`;
-
-    let result;
-    if (body.identifier.includes('@')) {
-      result = await execute('SELECT id, email, username, password_hash, role, phone, phone_hash, districts, zones, fabric_verified FROM users WHERE role IN (?, ?) AND email = ? LIMIT 1 ALLOW FILTERING', ['CE', 'EE', body.identifier.toLowerCase()], { prepare: true });
-    } else {
-      result = await execute('SELECT id, email, username, password_hash, role, phone, phone_hash, districts, zones, fabric_verified FROM users WHERE role IN (?, ?) AND username = ? LIMIT 1 ALLOW FILTERING', ['CE', 'EE', body.identifier], { prepare: true });
-    }
-
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
+    if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
 
     const user = result.rows[0];
-
-    // Verify password
-    if (!user.password_hash) {
-      return res.status(401).json({ error: 'This account was not created with a password' });
-    }
+    if (!user.password_hash) return res.status(401).json({ error: 'This account was not created with a password' });
 
     const passwordValid = await verifyPassword(body.password, user.password_hash);
-    if (!passwordValid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
+    if (!passwordValid) return res.status(401).json({ error: 'Invalid credentials' });
 
-    // Check Fabric verification
-    if (!user.fabric_verified) {
-      return res.status(403).json({ error: 'Fabric identity not verified. Contact administrator.' });
-    }
+    if (!user.fabric_verified) return res.status(403).json({ error: 'Fabric identity not verified. Contact administrator.' });
 
-    // Create JWT token
     const token = signAccessToken({
       sub: user.id,
       phone: user.phone,
       phoneHash: user.phone_hash,
       role: user.role,
-      districts: user.districts || [],
-      zones: user.zones || []
+      districts: user.districts ?? [],
+      zones: user.zones ?? []
     });
 
     res.json({
       token,
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-        fabricVerified: user.fabric_verified,
-        districts: user.districts || [],
-        zones: user.zones || []
-      }
+      user: { id: user.id, email: user.email, username: user.username, role: user.role, fabricVerified: user.fabric_verified, districts: user.districts ?? [], zones: user.zones ?? [] }
     });
   } catch (error) {
     console.error('Authority login error:', error);
@@ -642,75 +583,52 @@ router.post('/contractor/signup', async (req, res) => {
     })
     .parse(req.body);
 
-  // Validate password
   const passwordValidation = validatePasswordStrength(body.password);
   if (!passwordValidation.valid) {
     return res.status(400).json({ error: 'Password too weak', errors: passwordValidation.errors });
   }
 
   try {
-    // Check existing user
-    const existing = await execute('SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1', [body.email.toLowerCase(), body.username], { prepare: true });
+    const existing = await pool.query(
+      'SELECT id FROM users WHERE email = $1 OR username = $2 LIMIT 1',
+      [body.email.toLowerCase(), body.username]
+    );
+    if (existing.rows.length > 0) return res.status(409).json({ error: 'Email or username already exists' });
 
-    if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'Email or username already exists' });
-    }
-
-    // Hash password
     const passwordHash = await hashPassword(body.password);
-
-    // Create user (generate id client-side)
     const userId = crypto.randomUUID();
-    await execute(`INSERT INTO users (id, email, username, password_hash, phone, signup_method, role, districts, zones) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-      userId,
-      body.email.toLowerCase(),
-      body.username,
-      passwordHash,
-      body.phone || null,
-      'email',
-      'CONTRACTOR',
-      body.districts || [],
-      body.zones || []
-    ], { prepare: true });
 
-    // Register Fabric identity
-    await registerFabricIdentity({
-      userId,
-      role: 'CONTRACTOR',
-      orgName: body.fabricOrgName,
-      certPem: body.fabricCertPem,
-      mspId: body.fabricMspId
-    });
+    await pool.query(
+      `INSERT INTO users (id, email, username, password_hash, phone, signup_method, role, districts, zones)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        userId,
+        body.email.toLowerCase(),
+        body.username,
+        passwordHash,
+        body.phone ?? null,
+        'email',
+        'CONTRACTOR',
+        body.districts ?? [],
+        body.zones ?? []
+      ]
+    );
 
-    // Verify Fabric identity
-    const fabricVerified = await verifyFabricIdentity({
-      userId,
-      role: 'CONTRACTOR',
-      certPem: body.fabricCertPem
-    });
+    await registerFabricIdentity({ userId, role: 'CONTRACTOR', orgName: body.fabricOrgName, certPem: body.fabricCertPem, mspId: body.fabricMspId });
+    const fabricVerified = await verifyFabricIdentity({ userId, role: 'CONTRACTOR', certPem: body.fabricCertPem });
 
-    // Create JWT token
     const token = signAccessToken({
       sub: userId,
-      phone: body.phone || null,
+      phone: body.phone ?? null,
       phoneHash: body.phone ? hashPhone(body.phone) : null,
       role: 'CONTRACTOR',
-      districts: body.districts || [],
-      zones: body.zones || []
+      districts: body.districts ?? [],
+      zones: body.zones ?? []
     });
 
     res.status(201).json({
       token,
-      user: {
-        id: userId,
-        email: body.email,
-        username: body.username,
-        company: body.companyName,
-        role: 'CONTRACTOR',
-        fabricVerified,
-        districts: body.districts || [],
-        zones: body.zones || []
-      }
+      user: { id: userId, email: body.email, username: body.username, company: body.companyName, role: 'CONTRACTOR', fabricVerified, districts: body.districts ?? [], zones: body.zones ?? [] }
     });
   } catch (error) {
     console.error('Contractor signup error:', error);
@@ -724,80 +642,41 @@ router.post('/contractor/signup', async (req, res) => {
  */
 router.post('/contractor/login', async (req, res) => {
   const body = z
-    .object({
-      identifier: z.string().min(1), // email or username
-      password: z.string()
-    })
+    .object({ identifier: z.string().min(1), password: z.string() })
     .parse(req.body);
 
   try {
-    // Find contractor user
-    let query = `SELECT id, email, username, password_hash, role, phone, phone_hash, 
-                        districts, zones, fabric_verified
-                 FROM users
-                 WHERE role = 'CONTRACTOR' AND (`;
+    const result = await pool.query(
+      `SELECT id, email, username, password_hash, role, phone, phone_hash, districts, zones, fabric_verified
+       FROM users
+       WHERE role = $1
+         AND (${body.identifier.includes('@') ? 'email = $2' : 'username = $2'})
+       LIMIT 1`,
+      ['CONTRACTOR', body.identifier.includes('@') ? body.identifier.toLowerCase() : body.identifier]
+    );
 
-    const params: any[] = [];
-
-    if (body.identifier.includes('@')) {
-      query += `email = $${params.length + 1}`;
-      params.push(body.identifier.toLowerCase());
-    } else {
-      query += `username = $${params.length + 1}`;
-      params.push(body.identifier);
-    }
-
-    query += `) LIMIT 1;`;
-
-    let result;
-    if (body.identifier.includes('@')) {
-      result = await execute('SELECT id, email, username, password_hash, role, phone, phone_hash, districts, zones, fabric_verified FROM users WHERE role = ? AND email = ? LIMIT 1 ALLOW FILTERING', ['CONTRACTOR', body.identifier.toLowerCase()], { prepare: true });
-    } else {
-      result = await execute('SELECT id, email, username, password_hash, role, phone, phone_hash, districts, zones, fabric_verified FROM users WHERE role = ? AND username = ? LIMIT 1 ALLOW FILTERING', ['CONTRACTOR', body.identifier], { prepare: true });
-    }
-
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
+    if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
 
     const user = result.rows[0];
-
-    // Verify password
-    if (!user.password_hash) {
-      return res.status(401).json({ error: 'This account was not created with a password' });
-    }
+    if (!user.password_hash) return res.status(401).json({ error: 'This account was not created with a password' });
 
     const passwordValid = await verifyPassword(body.password, user.password_hash);
-    if (!passwordValid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
+    if (!passwordValid) return res.status(401).json({ error: 'Invalid credentials' });
 
-    // Check Fabric verification
-    if (!user.fabric_verified) {
-      return res.status(403).json({ error: 'Fabric identity not verified. Contact administrator.' });
-    }
+    if (!user.fabric_verified) return res.status(403).json({ error: 'Fabric identity not verified. Contact administrator.' });
 
-    // Create JWT token
     const token = signAccessToken({
       sub: user.id,
       phone: user.phone,
       phoneHash: user.phone_hash,
       role: user.role,
-      districts: user.districts || [],
-      zones: user.zones || []
+      districts: user.districts ?? [],
+      zones: user.zones ?? []
     });
 
     res.json({
       token,
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-        fabricVerified: user.fabric_verified,
-        districts: user.districts || [],
-        zones: user.zones || []
-      }
+      user: { id: user.id, email: user.email, username: user.username, role: user.role, fabricVerified: user.fabric_verified, districts: user.districts ?? [], zones: user.zones ?? [] }
     });
   } catch (error) {
     console.error('Contractor login error:', error);
@@ -811,7 +690,12 @@ router.delete('/me', requireAuth, async (req, res) => {
   const user = (req as any).user as { sub: string; phoneHash?: string };
 
   // Pseudonymize audit logs (retain actions but remove linkability to a person).
-  await execute(`UPDATE audit_log SET actor_user_id = NULL, actor_phone_hash = NULL, actor_phone_masked = NULL WHERE actor_user_id = ?`, [user.sub], { prepare: true });
+  await pool.query(
+    `UPDATE audit_log
+     SET actor_user_id = NULL, actor_phone_hash = NULL, actor_phone_masked = NULL
+     WHERE actor_user_id = $1`,
+    [user.sub]
+  );
 
   // Delete OTP sessions keyed by phone hash (best-effort).
   if (user.phoneHash) {
@@ -821,7 +705,7 @@ router.delete('/me', requireAuth, async (req, res) => {
   }
 
   // Delete user; notification tables cascade via FK.
-  await execute('DELETE FROM users WHERE id = ?', [user.sub], { prepare: true });
+  await pool.query('DELETE FROM users WHERE id = $1', [user.sub]);
 
   res.json({ ok: true });
 });

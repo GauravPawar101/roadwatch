@@ -35,7 +35,10 @@ export default function ProofVerification(){
 
   return (
     <Container>
-      <h2 style={{ fontSize: 20, fontWeight: 700 }}>Proof Verification — {complaint.id}</h2>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 28, fontWeight: 900, letterSpacing: '-0.03em', margin: 0 }}>Proof Verification</h2>
+        <p style={{ marginTop: 8, color: 'var(--color-text-secondary)' }}>Complaint {complaint.id}</p>
+      </div>
       <div className="stitch-grid stitch-gap-12 stitch-mt-12">
         {complaint.media.map((m:any)=> (
           <Card key={m.id}>

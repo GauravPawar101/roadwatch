@@ -1,31 +1,36 @@
-import { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  Wrench,
-  FolderOpen,
-  ShieldCheck,
-  Users,
   Activity,
-  CheckCircle2,
   AlertTriangle,
+  CheckCircle2,
   ChevronRight,
-  Phone,
-  FileText,
-  UserCheck,
+  Clock,
+  FolderOpen,
+  Globe2,
+  LayoutDashboard,
   Network,
-  Clock
+  Phone,
+  ShieldCheck,
+  UserCheck,
+  Users,
+  Wrench
 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis
 } from 'recharts'
+import MapEmbed from '../../components/MapEmbed'
 import { Badge, Button, Card, CardBody, Container } from '../../components/UIComponents'
+import { contractorProfiles, getContractorComplaintRows } from '../../data/roadwatchDashboard'
 
 // Mock activity log for completion rates
 const velocityData = [
@@ -42,28 +47,42 @@ const seedProjects = [
   { id: 'p3', roadName: 'MDR-11 Link Road', type: 'MDR', start: '2022-12-15', end: '2025-12-14', phase: 'DLP', complaints: 2, condition: 63, authority: 'Rural Works Office', completionPercent: 100 },
 ]
 
+const projectCoordinates: Record<string, { lat: number; lng: number }> = {
+  p1: { lat: 28.6139, lng: 77.209 },
+  p2: { lat: 19.076, lng: 72.8777 },
+  p3: { lat: 18.5204, lng: 73.8567 },
+}
+
 export default function ContractorDashboard() {
   const navigate = useNavigate()
-  const contractorName = localStorage.getItem('roadwatch_contractor_id') || 'Global Infra Corp'
+  const contractorHandle = localStorage.getItem('roadwatch_contractor_id') || contractorProfiles[0]?.handle || 'superbuild-infra'
+  const contractorProfile = contractorProfiles.find((profile) => profile.handle === contractorHandle || profile.name === contractorHandle) ?? contractorProfiles[0]
   const [projects] = useState(seedProjects)
+  const assignedComplaints = useMemo(() => getContractorComplaintRows(contractorProfile.name), [contractorProfile.name])
+  const projectChartData = useMemo(() => projects.map((project) => ({ name: project.type, completion: project.completionPercent, complaints: project.complaints })), [projects])
+  const mapMarkers = projects.map((project) => ({ ...projectCoordinates[project.id], label: `${project.roadName} · ${project.completionPercent}% complete` }))
+  const openCases = assignedComplaints.filter((item) => item.status !== 'Resolved')
+  const criticalCases = assignedComplaints.filter((item) => item.severity >= 8)
+  const breachCases = assignedComplaints.filter((item) => item.slaHoursLeft <= 12)
 
   return (
+    <div className="page-radial-bg min-h-screen text-on-surface py-12">
     <Container>
       <div className="space-y-6 pb-12">
         {/* Header Block */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-white/10 pb-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-outline-variant pb-6">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#06B6D4]">
+              <span className="h-2 w-2 rounded-full bg-secondary animate-pulse" />
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                 Northwest Sector • Active Hub
               </p>
             </div>
-            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-on-surface">
               Regional Maintenance Hub
             </h1>
-            <p className="text-slate-400 text-sm mt-1">
-              Welcome back, <span className="text-white font-semibold">{contractorName}</span>. Lead Contractor Space.
+            <p className="text-on-surface-variant text-sm mt-1">
+              Welcome back, <span className="text-on-surface font-semibold">{contractorProfile.name}</span>. Lead Contractor Space for {contractorProfile.regions.join(', ')}.
             </p>
           </div>
 
@@ -71,18 +90,26 @@ export default function ContractorDashboard() {
             <Button
               variant="secondary"
               onClick={() => navigate('/contractor/vault')}
-              className="glass-card flex items-center gap-2 border-white/10 text-white hover:bg-white/10"
+              className="glass-panel flex items-center gap-2 border-outline-variant text-on-surface hover:bg-surface-container-low"
             >
-              <FolderOpen className="h-4 w-4 text-[#06B6D4]" />
+              <FolderOpen className="h-4 w-4 text-secondary" />
               Document Vault
             </Button>
             <Button
               variant="secondary"
               onClick={() => navigate('/contractor/complaints')}
-              className="glass-card flex items-center gap-2 border-white/10 text-white hover:bg-white/10"
+              className="glass-panel flex items-center gap-2 border-outline-variant text-on-surface hover:bg-surface-container-low"
             >
-              <Wrench className="h-4 w-4 text-[#8B5CF6]" />
+              <Wrench className="h-4 w-4 text-secondary" />
               Work Queue
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => navigate('/map')}
+              className="glass-panel flex items-center gap-2 border-outline-variant text-on-surface hover:bg-surface-container-low"
+            >
+              <FolderOpen className="h-4 w-4 text-secondary" />
+              Regional Map
             </Button>
           </div>
         </div>
@@ -90,69 +117,69 @@ export default function ContractorDashboard() {
         {/* Quick Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <motion.div whileHover={{ y: -4 }} className="transition-all duration-300">
-            <Card className="glass-card border-red-500/30 bg-red-950/20">
+            <Card className="glass-panel border-error/20 bg-error-container/10">
               <CardBody className="p-5">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-red-400">SLA Breaches</p>
-                    <h3 className="text-3xl font-black text-white mt-1">12</h3>
+                    <p className="text-xs font-bold uppercase tracking-wider text-error">SLA Breaches</p>
+                    <h3 className="text-3xl font-black text-on-surface mt-1">{breachCases.length}</h3>
                   </div>
-                  <div className="p-2.5 bg-red-500/10 rounded-xl border border-red-500/20">
-                    <AlertTriangle className="h-5 w-5 text-red-400" />
+                  <div className="p-2.5 bg-error-container rounded-xl border border-error/20">
+                    <AlertTriangle className="h-5 w-5 text-error" />
                   </div>
                 </div>
-                <p className="text-xs text-red-300/80 mt-3 font-medium">⚠️ Action required on M4 Corridor</p>
+                <p className="text-xs text-on-surface-variant mt-3 font-medium">⚠️ {criticalCases.length} critical complaints need attention</p>
               </CardBody>
             </Card>
           </motion.div>
 
           <motion.div whileHover={{ y: -4 }} className="transition-all duration-300">
-            <Card className="glass-card border-[#8B5CF6]/30 bg-[#8B5CF6]/5">
+            <Card className="glass-panel border-secondary/20 bg-secondary-container/10">
               <CardBody className="p-5">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-purple-400">Open Cases</p>
-                    <h3 className="text-3xl font-black text-white mt-1">45</h3>
+                    <p className="text-xs font-bold uppercase tracking-wider text-secondary">Open Cases</p>
+                    <h3 className="text-3xl font-black text-on-surface mt-1">{openCases.length}</h3>
                   </div>
-                  <div className="p-2.5 bg-purple-500/10 rounded-xl border border-purple-500/20">
-                    <Wrench className="h-5 w-5 text-purple-400" />
+                  <div className="p-2.5 bg-secondary-container rounded-xl border border-secondary/20">
+                    <Wrench className="h-5 w-5 text-secondary" />
                   </div>
                 </div>
-                <p className="text-xs text-purple-300/80 mt-3 font-medium">⚡ 8 active dispatches in queue</p>
+                <p className="text-xs text-on-surface-variant mt-3 font-medium">⚡ Assigned complaints routed to this contractor</p>
               </CardBody>
             </Card>
           </motion.div>
 
           <motion.div whileHover={{ y: -4 }} className="transition-all duration-300">
-            <Card className="glass-card border-[#06B6D4]/30 bg-[#06B6D4]/5">
+            <Card className="glass-panel border-secondary/20 bg-secondary-container/10">
               <CardBody className="p-5">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-cyan-400">Regional Coverage</p>
-                    <h3 className="text-3xl font-black text-white mt-1">75%</h3>
+                    <p className="text-xs font-bold uppercase tracking-wider text-secondary">Regional Coverage</p>
+                    <h3 className="text-3xl font-black text-on-surface mt-1">{Math.round((contractorProfile.regions.length / Math.max(1, contractorProfiles.length)) * 100)}%</h3>
                   </div>
-                  <div className="p-2.5 bg-cyan-500/10 rounded-xl border border-cyan-500/20">
-                    <Activity className="h-5 w-5 text-cyan-400" />
+                  <div className="p-2.5 bg-secondary-container rounded-xl border border-secondary/20">
+                    <Activity className="h-5 w-5 text-secondary" />
                   </div>
                 </div>
-                <p className="text-xs text-cyan-300/80 mt-3 font-medium">✓ Targeted quota achieved</p>
+                <p className="text-xs text-on-surface-variant mt-3 font-medium">✓ Regions: {contractorProfile.regions.join(', ')}</p>
               </CardBody>
             </Card>
           </motion.div>
 
           <motion.div whileHover={{ y: -4 }} className="transition-all duration-300">
-            <Card className="glass-card border-emerald-500/30 bg-emerald-950/20">
+            <Card className="glass-panel border-tertiary/20 bg-tertiary-container/10">
               <CardBody className="p-5">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-emerald-400">Field Response</p>
-                    <h3 className="text-3xl font-black text-white mt-1">Active</h3>
+                    <p className="text-xs font-bold uppercase tracking-wider text-tertiary">Field Response</p>
+                    <h3 className="text-3xl font-black text-on-surface mt-1">{contractorProfile.certificationStatus}</h3>
                   </div>
-                  <div className="p-2.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
-                    <ShieldCheck className="h-5 w-5 text-emerald-400" />
+                  <div className="p-2.5 bg-tertiary-container rounded-xl border border-tertiary/20">
+                    <ShieldCheck className="h-5 w-5 text-tertiary" />
                   </div>
                 </div>
-                <p className="text-xs text-emerald-300/80 mt-3 font-medium">🔒 All field units active & safe</p>
+                <p className="text-xs text-on-surface-variant mt-3 font-medium">🔒 Trust score {contractorProfile.trustScore} · performance {contractorProfile.performanceScore}</p>
               </CardBody>
             </Card>
           </motion.div>
@@ -162,20 +189,71 @@ export default function ContractorDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left / Middle: Projects & Velocity Chart */}
           <div className="lg:col-span-2 space-y-6">
+            <Card className="glass-panel border-outline-variant bg-surface-container-lowest">
+              <CardBody className="p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
+                      <Wrench className="h-5 w-5 text-secondary" />
+                      Assigned Complaints
+                    </h3>
+                    <p className="text-on-surface-variant text-xs mt-1">
+                      Complaints routed to {contractorProfile.name} across {contractorProfile.regions.join(', ')}.
+                    </p>
+                  </div>
+                  <Badge variant="warning" className="px-3 py-1 font-semibold uppercase tracking-wider text-[10px]">
+                    {assignedComplaints.length} Routed
+                  </Badge>
+                </div>
+
+                <div className="space-y-3 max-h-[380px] overflow-auto pr-1">
+                  {assignedComplaints.slice(0, 6).map((complaint) => (
+                    <motion.div
+                      key={complaint.id}
+                      whileHover={{ scale: 1.01 }}
+                      className="rounded-xl border border-outline-variant bg-surface-container-low p-4 transition-all duration-300 hover:border-secondary/30 hover:bg-surface-container-lowest"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold uppercase tracking-wider text-secondary px-2 py-0.5 rounded bg-secondary-container border border-secondary/20">
+                              {complaint.category}
+                            </span>
+                            <h4 className="text-base font-bold text-on-surface">{complaint.title}</h4>
+                          </div>
+                          <p className="text-xs text-on-surface-variant mt-1">
+                            {complaint.complaintId} · {complaint.district} · SLA {complaint.slaHoursLeft}h left
+                          </p>
+                        </div>
+                        <Button
+                          variant="primary"
+                          onClick={() => navigate(`/contractor/complaint/${complaint.id}`)}
+                          className="text-xs font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-1 bg-secondary text-white hover:bg-primary"
+                        >
+                          Open Case
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
+
             {/* Assigned Projects Card */}
-            <Card className="glass-card border-white/10 bg-[#122131]/40 backdrop-blur">
+            <Card className="glass-panel border-outline-variant bg-surface-container-lowest">
               <CardBody className="p-6">
                 <div className="flex justify-between items-center mb-6">
                   <div>
-                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                      <Wrench className="h-5 w-5 text-[#06B6D4]" />
+                    <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
+                      <Wrench className="h-5 w-5 text-secondary" />
                       Assigned Infrastructure Projects
                     </h3>
-                    <p className="text-slate-400 text-xs mt-1">
+                    <p className="text-on-surface-variant text-xs mt-1">
                       Manage progress, upload cryptographically signed proofs, and monitor active complaints.
                     </p>
                   </div>
-                  <Badge tone="success" className="px-3 py-1 font-semibold uppercase tracking-wider text-[10px]">
+                  <Badge variant="success" className="px-3 py-1 font-semibold uppercase tracking-wider text-[10px]">
                     {projects.length} Assigned
                   </Badge>
                 </div>
@@ -185,39 +263,39 @@ export default function ContractorDashboard() {
                     <motion.div
                       key={p.id}
                       whileHover={{ scale: 1.01 }}
-                      className="group relative overflow-hidden rounded-xl border border-white/5 bg-slate-900/50 p-4 transition-all duration-300 hover:border-[#06B6D4]/30 hover:bg-slate-900/80"
+                      className="group relative overflow-hidden rounded-xl border border-outline-variant bg-surface-container-low p-4 transition-all duration-300 hover:border-secondary/30 hover:bg-surface-container-lowest"
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold uppercase tracking-wider text-cyan-400 px-2 py-0.5 rounded bg-cyan-950/40 border border-cyan-800/30">
+                            <span className="text-sm font-semibold uppercase tracking-wider text-secondary px-2 py-0.5 rounded bg-secondary-container border border-secondary/20">
                               {p.type}
                             </span>
-                            <h4 className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
+                            <h4 className="text-base font-bold text-on-surface group-hover:text-secondary transition-colors">
                               {p.roadName}
                             </h4>
                           </div>
-                          <p className="text-xs text-slate-400">
-                            Timeline: <span className="text-slate-300">{p.start}</span> to <span className="text-slate-300">{p.end}</span>
+                          <p className="text-xs text-on-surface-variant">
+                            Timeline: <span className="text-on-surface">{p.start}</span> to <span className="text-on-surface">{p.end}</span>
                           </p>
-                          <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-slate-400">
+                          <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-on-surface-variant">
                             <span className="flex items-center gap-1">
-                              <Activity className="h-3.5 w-3.5 text-yellow-500" />
-                              Phase: <strong className="text-slate-200">{p.phase}</strong>
+                              <Activity className="h-3.5 w-3.5 text-secondary" />
+                              Phase: <strong className="text-on-surface">{p.phase}</strong>
                             </span>
                             <span className="flex items-center gap-1">
-                              <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
-                              Active Complaints: <strong className="text-red-400">{p.complaints}</strong>
+                              <AlertTriangle className="h-3.5 w-3.5 text-error" />
+                              Active Complaints: <strong className="text-error">{p.complaints}</strong>
                             </span>
                             <span className="flex items-center gap-1">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                              Health: <strong className="text-emerald-400">{p.condition}/100</strong>
+                              <CheckCircle2 className="h-3.5 w-3.5 text-tertiary" />
+                              Health: <strong className="text-tertiary">{p.condition}/100</strong>
                             </span>
                           </div>
                           {/* Progress bar */}
-                          <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mt-3 max-w-md">
+                          <div className="w-full bg-surface-container-low h-1.5 rounded-full overflow-hidden mt-3 max-w-md">
                             <div
-                              className="bg-gradient-to-r from-[#06B6D4] to-[#8B5CF6] h-full"
+                              className="bg-gradient-to-r from-secondary to-tertiary h-full"
                               style={{ width: `${p.completionPercent}%` }}
                             />
                           </div>
@@ -227,7 +305,7 @@ export default function ContractorDashboard() {
                           <Button
                             variant="primary"
                             onClick={() => navigate(`/contractor/project/${p.id}`)}
-                            className="w-full text-xs font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-1 bg-gradient-to-r from-[#002045] to-[#1960a3] hover:opacity-90"
+                            className="w-full text-xs font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-1 bg-secondary text-white hover:bg-primary"
                           >
                             Open Details
                             <ChevronRight className="h-3.5 w-3.5" />
@@ -235,7 +313,7 @@ export default function ContractorDashboard() {
                           <Button
                             variant="ghost"
                             onClick={() => navigate(`/contractor/proof/${p.id}`)}
-                            className="w-full text-xs font-semibold py-2 px-3 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:bg-white/5"
+                            className="w-full text-xs font-semibold py-2 px-3 rounded-lg border border-outline-variant text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low"
                           >
                             Upload Proof
                           </Button>
@@ -247,20 +325,71 @@ export default function ContractorDashboard() {
               </CardBody>
             </Card>
 
+            <Card className="glass-panel border-outline-variant bg-surface-container-lowest">
+              <CardBody className="p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
+                      <Globe2 className="h-5 w-5 text-secondary" />
+                      Project region map
+                    </h3>
+                    <p className="text-on-surface-variant text-xs mt-1">
+                      Inspect which projects are active across the contractor's current delivery regions.
+                    </p>
+                  </div>
+                  <Button variant="secondary" onClick={() => navigate('/profile')} className="glass-panel flex items-center gap-2 border-outline-variant text-on-surface hover:bg-surface-container-low">
+                    <LayoutDashboard className="h-4 w-4 text-secondary" />
+                    Profile
+                  </Button>
+                </div>
+                <div className="rounded-xl overflow-hidden border border-outline-variant">
+                  <MapEmbed center={{ lat: 22.0, lng: 78.5 }} zoom={5} markers={mapMarkers} height="240px" />
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card className="glass-panel border-outline-variant bg-surface-container-lowest">
+              <CardBody className="p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
+                      <Activity className="h-5 w-5 text-secondary" />
+                      Delivery trend chart
+                    </h3>
+                    <p className="text-on-surface-variant text-xs mt-1">
+                      Project completion and complaint density by work package.
+                    </p>
+                  </div>
+                </div>
+                <div className="w-full overflow-hidden">
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={projectChartData}>
+                      <CartesianGrid strokeDasharray="4 4" strokeOpacity={0.12} />
+                      <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} />
+                      <YAxis tick={{ fill: '#64748b', fontSize: 11 }} />
+                      <Tooltip contentStyle={{ background: '#ffffff', borderColor: 'rgba(196,198,207,0.9)', borderRadius: '8px', color: '#1a1b1e' }} />
+                      <Bar dataKey="completion" fill="#0ea5e9" radius={[8, 8, 0, 0]} />
+                      <Bar dataKey="complaints" fill="#7c3aed" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardBody>
+            </Card>
+
             {/* Velocity Area Chart */}
-            <Card className="glass-card border-white/10 bg-[#122131]/40 backdrop-blur">
+            <Card className="glass-panel border-outline-variant bg-surface-container-lowest">
               <CardBody className="p-6">
                 <div className="flex justify-between items-start mb-6">
                   <div>
-                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                      <Clock className="h-5 w-5 text-[#8B5CF6]" />
+                    <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
+                      <Clock className="h-5 w-5 text-secondary" />
                       Regional Delivery Velocity
                     </h3>
-                    <p className="text-slate-400 text-xs mt-1">
+                    <p className="text-on-surface-variant text-xs mt-1">
                       Mon-Fri work order completion rates against target thresholds.
                     </p>
                   </div>
-                  <Badge tone="success" className="px-3 py-1 font-semibold text-[10px]">
+                  <Badge variant="success" className="px-3 py-1 font-semibold text-[10px]">
                     SLA TARGETS MET
                   </Badge>
                 </div>
@@ -278,19 +407,19 @@ export default function ContractorDashboard() {
                           <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="4 4" strokeOpacity={0.05} />
-                      <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                      <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                      <CartesianGrid strokeDasharray="4 4" strokeOpacity={0.12} />
+                      <XAxis dataKey="day" tick={{ fill: '#64748b', fontSize: 11 }} />
+                      <YAxis tick={{ fill: '#64748b', fontSize: 11 }} />
                       <Tooltip
                         contentStyle={{
-                          background: '#0d1c2d',
-                          borderColor: 'rgba(255,255,255,0.1)',
+                          background: '#ffffff',
+                          borderColor: 'rgba(196,198,207,0.9)',
                           borderRadius: '8px',
-                          color: '#fff'
+                          color: '#1a1b1e'
                         }}
                       />
-                      <Area type="monotone" dataKey="completed" stroke="#06B6D4" strokeWidth={2.5} fillOpacity={1} fill="url(#completedGrad)" name="Completion Rate (%)" />
-                      <Area type="monotone" dataKey="target" stroke="#8B5CF6" strokeWidth={1.5} strokeDasharray="4 4" fillOpacity={1} fill="url(#targetGrad)" name="Target SLA (%)" />
+                      <Area type="monotone" dataKey="completed" stroke="#0ea5e9" strokeWidth={2.5} fillOpacity={1} fill="url(#completedGrad)" name="Completion Rate (%)" />
+                      <Area type="monotone" dataKey="target" stroke="#7c3aed" strokeWidth={1.5} strokeDasharray="4 4" fillOpacity={1} fill="url(#targetGrad)" name="Target SLA (%)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -301,49 +430,49 @@ export default function ContractorDashboard() {
           {/* Right Column: Supervising Authority, Directory, Hierarchy */}
           <div className="space-y-6">
             {/* Supervising Authority */}
-            <Card className="glass-card border-white/10 bg-[#122131]/40 backdrop-blur">
+            <Card className="glass-panel border-outline-variant bg-surface-container-lowest">
               <CardBody className="p-5">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
-                  <UserCheck className="h-4 w-4 text-[#06B6D4]" />
+                <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface-variant mb-4 flex items-center gap-2">
+                  <UserCheck className="h-4 w-4 text-secondary" />
                   Supervising Authority
                 </h3>
-                <div className="flex items-center gap-3.5 bg-slate-900/30 p-3 rounded-xl border border-white/5">
-                  <div className="h-11 w-11 rounded-full bg-cyan-950 flex items-center justify-center border border-cyan-500/20 text-cyan-400 font-bold text-lg shadow-inner">
+                <div className="flex items-center gap-3.5 bg-surface-container-low p-3 rounded-xl border border-outline-variant">
+                  <div className="h-11 w-11 rounded-full bg-secondary-container flex items-center justify-center border border-secondary/20 text-secondary font-bold text-lg shadow-inner">
                     AT
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-white">Dr. Aris Thorne</h4>
-                    <p className="text-xs text-cyan-400 font-medium">Chief Road Engineer</p>
-                    <p className="text-[10px] text-slate-500">Northwest Institutional Oversight</p>
+                    <h4 className="text-sm font-bold text-on-surface">Dr. Aris Thorne</h4>
+                    <p className="text-xs text-secondary font-medium">Chief Road Engineer</p>
+                    <p className="text-[10px] text-on-surface-variant">Northwest Institutional Oversight</p>
                   </div>
                 </div>
               </CardBody>
             </Card>
 
             {/* On-Site Directory */}
-            <Card className="glass-card border-white/10 bg-[#122131]/40 backdrop-blur">
+            <Card className="glass-panel border-outline-variant bg-surface-container-lowest">
               <CardBody className="p-5">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
-                  <Users className="h-4 w-4 text-[#8B5CF6]" />
+                <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface-variant mb-4 flex items-center gap-2">
+                  <Users className="h-4 w-4 text-secondary" />
                   On-Site Directory
                 </h3>
                 <div className="space-y-3">
                   {[
-                    { name: 'Marcus Halloway', role: 'Lead Site Engineer', initials: 'MH', color: 'border-[#06B6D4] text-[#06B6D4]' },
-                    { name: 'Elena Rodriguez', role: 'Compliance Officer', initials: 'ER', color: 'border-[#8B5CF6] text-[#8B5CF6]' },
-                    { name: 'Julian Chen', role: 'Logistics Coordinator', initials: 'JC', color: 'border-yellow-500 text-yellow-500' },
+                    { name: 'Marcus Halloway', role: 'Lead Site Engineer', initials: 'MH', color: 'border-secondary text-secondary' },
+                    { name: 'Elena Rodriguez', role: 'Compliance Officer', initials: 'ER', color: 'border-tertiary text-tertiary' },
+                    { name: 'Julian Chen', role: 'Logistics Coordinator', initials: 'JC', color: 'border-secondary text-secondary' },
                   ].map((staff) => (
-                    <div key={staff.name} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-white/5 transition duration-200">
+                    <div key={staff.name} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-surface-container-low transition duration-200">
                       <div className="flex items-center gap-3">
-                        <div className={`h-8 w-8 rounded-full border bg-slate-900 flex items-center justify-center font-bold text-xs ${staff.color}`}>
+                        <div className={`h-8 w-8 rounded-full border bg-white flex items-center justify-center font-bold text-xs ${staff.color}`}>
                           {staff.initials}
                         </div>
                         <div>
-                          <h4 className="text-xs font-bold text-white">{staff.name}</h4>
-                          <p className="text-[10px] text-slate-400">{staff.role}</p>
+                          <h4 className="text-xs font-bold text-on-surface">{staff.name}</h4>
+                          <p className="text-[10px] text-on-surface-variant">{staff.role}</p>
                         </div>
                       </div>
-                      <Button className="p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/10">
+                      <Button className="p-1.5 rounded-lg border border-outline-variant text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low">
                         <Phone className="h-3 w-3" />
                       </Button>
                     </div>
@@ -353,13 +482,13 @@ export default function ContractorDashboard() {
             </Card>
 
             {/* Unit Hierarchy */}
-            <Card className="glass-card border-white/10 bg-[#122131]/40 backdrop-blur">
+            <Card className="glass-panel border-outline-variant bg-surface-container-lowest">
               <CardBody className="p-5">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
-                  <Network className="h-4 w-4 text-emerald-400" />
+                <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface-variant mb-4 flex items-center gap-2">
+                  <Network className="h-4 w-4 text-secondary" />
                   Unit Hierarchy
                 </h3>
-                <div className="relative pl-3 border-l-2 border-slate-700/60 ml-2.5 space-y-4">
+                <div className="relative pl-3 border-l-2 border-outline-variant ml-2.5 space-y-4">
                   {[
                     { title: 'Northwest Hub HQ', desc: 'Strategic Oversight', type: 'Hub' },
                     { title: 'Maintenance Unit Alpha', desc: 'Direct Civil Works', type: 'Alpha' },
@@ -367,12 +496,12 @@ export default function ContractorDashboard() {
                   ].map((unit, idx) => (
                     <div key={unit.title} className="relative">
                       {/* Node circle */}
-                      <span className="absolute -left-[19px] top-1 h-3.5 w-3.5 rounded-full bg-slate-950 border-2 border-emerald-500 flex items-center justify-center">
-                        <span className="h-1 w-1 rounded-full bg-emerald-400" />
+                      <span className="absolute -left-[19px] top-1 h-3.5 w-3.5 rounded-full bg-white border-2 border-secondary flex items-center justify-center">
+                        <span className="h-1 w-1 rounded-full bg-secondary" />
                       </span>
                       <div>
-                        <h4 className="text-xs font-bold text-white">{unit.title}</h4>
-                        <p className="text-[10px] text-slate-400 mt-0.5">{unit.desc}</p>
+                        <h4 className="text-xs font-bold text-on-surface">{unit.title}</h4>
+                        <p className="text-[10px] text-on-surface-variant mt-0.5">{unit.desc}</p>
                       </div>
                     </div>
                   ))}
@@ -381,16 +510,16 @@ export default function ContractorDashboard() {
             </Card>
 
             {/* Audit / Ledger Badge */}
-            <Card className="glass-card border-white/10 bg-[#122131]/40 backdrop-blur overflow-hidden">
-              <div className="bg-gradient-to-r from-[#06B6D4]/10 to-[#8B5CF6]/10 p-4 border-b border-white/5 flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-[#06B6D4]" />
-                <h4 className="text-xs font-bold text-white tracking-wide uppercase">Transparency Ledger Active</h4>
+            <Card className="glass-panel border-outline-variant bg-surface-container-lowest overflow-hidden">
+              <div className="bg-secondary-container/20 p-4 border-b border-outline-variant flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-secondary" />
+                <h4 className="text-xs font-bold text-on-surface tracking-wide uppercase">Transparency Ledger Active</h4>
               </div>
               <CardBody className="p-4">
-                <p className="text-[11px] text-slate-400 leading-relaxed">
+                <p className="text-[11px] text-on-surface-variant leading-relaxed">
                   Radical transparency in institutional infrastructure management. Every dispatch, proof upload, and approval signature is anchored in the cryptographically secure transparency ledger.
                 </p>
-                <div className="mt-3 font-mono text-[9px] text-[#06B6D4] bg-cyan-950/30 p-2 rounded border border-cyan-500/10 select-all overflow-hidden text-ellipsis whitespace-nowrap">
+                <div className="mt-3 font-mono text-[9px] text-secondary bg-secondary-container/30 p-2 rounded border border-secondary/10 select-all overflow-hidden text-ellipsis whitespace-nowrap">
                   LEDGER_HASH: 0x82f9c...d81a94e3e5bc
                 </div>
               </CardBody>
@@ -399,5 +528,6 @@ export default function ContractorDashboard() {
         </div>
       </div>
     </Container>
+    </div>
   )
 }

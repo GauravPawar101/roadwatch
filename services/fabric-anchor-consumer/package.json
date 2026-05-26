@@ -15,10 +15,10 @@
     "drizzle-orm": "^0.44.2",
     "dotenv": "^16.6.1",
     "kafkajs": "^2.2.4",
-    "cassandra-driver": "^4.6.0"
+    "pg": "^8.13.1"
   },
   "devDependencies": {
-    
+    "@types/pg": "^8.11.10",
     "tsx": "^4.20.5",
     "typescript": "^5.8.3"
   }

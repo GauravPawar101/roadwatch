@@ -7,15 +7,19 @@ Overview
 Pages (frontend files)
 - **Dashboard:** [frontend/src/pages/dashboard/CitizenDashboard.tsx](frontend/src/pages/dashboard/CitizenDashboard.tsx#L1)
 - **Submit complaint / wizard:** [frontend/src/pages/ComplaintWizard.tsx](frontend/src/pages/ComplaintWizard.tsx#L1)
+- **Complaint creation alias:** `/complaints/new` now routes to the same wizard as `/road/:id/report`.
 - **My complaints (list):** [frontend/src/pages/MyComplaints.tsx](frontend/src/pages/MyComplaints.tsx#L1)
 - **Complaint detail / tracking:** [frontend/src/pages/ComplaintDetail.tsx](frontend/src/pages/ComplaintDetail.tsx#L1)
 - **Media upload (evidence):** [frontend/src/pages/MediaUpload.tsx](frontend/src/pages/MediaUpload.tsx#L1)
 - **Map view:** [frontend/src/pages/MapView.tsx](frontend/src/pages/MapView.tsx#L1)
 - **Road profile & history:** [frontend/src/pages/RoadProfile.tsx](frontend/src/pages/RoadProfile.tsx#L1), [frontend/src/pages/RoadHistory.tsx](frontend/src/pages/RoadHistory.tsx#L1)
 - **Onboarding / settings:** [frontend/src/pages/Onboarding.tsx](frontend/src/pages/Onboarding.tsx#L1), [frontend/src/pages/Settings.tsx](frontend/src/pages/Settings.tsx#L1)
+- **Profile hub alias:** [frontend/src/pages/Settings.tsx](frontend/src/pages/Settings.tsx#L1) is also reachable at `/profile`.
 
 Notes
 - Citizen flows prioritize submission, evidence upload, and tracking. Use the `CitizenDashboard` as the entry point.
+- The complaint wizard now starts with photo upload and keeps the upload running while details are entered.
+- The map page is expected to use aggregated heatmap mode for broader regional views.
 
 Citizen visibility constraint
 - Citizens should only see people explicitly assigned to their own work, complaint, or follow-up flow.

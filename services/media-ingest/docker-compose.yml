@@ -1,23 +1,52 @@
 version: '3.8'
 services:
-  cassandra:
-    image: cassandra:4.1
+  postgres:
+    image: postgres:15-alpine
     environment:
-      CASSANDRA_CLUSTER_NAME: roadwatch
-      CASSANDRA_DC: datacenter1
-      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
-    volumes:
-      - media_cassandra_data:/var/lib/cassandra
+      POSTGRES_DB: roadwatch
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
-      - '9042:9042'
+      - '5432:5432'
+    volumes:
+      - media_postgres_data:/var/lib/postgresql/data
+      - ../../docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d roadwatch"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.24.1-p1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: roadwatch
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 30
+      LISTEN_PORT: 6432
+      AUTH_TYPE: trust
+    ports:
+      - '6432:6432'
 
   media-backend:
     build: .
     env_file: .env.example
+    environment:
+      # Use pooled DB endpoint (PgBouncer in non-local environments).
+      DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
     ports:
       - '4000:4000'
     depends_on:
-      - cassandra
+      pgbouncer:
+        condition: service_started
 
 volumes:
-  media_cassandra_data:
+  media_postgres_data:

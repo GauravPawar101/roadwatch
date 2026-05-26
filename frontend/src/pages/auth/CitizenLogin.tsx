@@ -93,123 +93,131 @@ export default function CitizenLogin() {
   };
 
   return (
-    <div className="bg-background text-on-background min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
-      <div className="absolute inset-0 z-0 opacity-10 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-5%] w-[40%] h-[40%] rounded-full bg-primary-container blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] right-[-5%] w-[40%] h-[40%] rounded-full bg-secondary-container blur-[120px]"></div>
-      </div>
-
-
-      <main className="relative z-10 w-full max-w-[440px] px-4 md:px-0">
-        <div className="flex flex-col items-center mb-8 text-center">
-          <div className="w-16 h-16 bg-primary text-on-primary rounded-xl flex items-center justify-center mb-6 shadow-sm">
-            <span className="material-symbols-outlined text-[32px]">shield_person</span>
+    <div className="min-h-screen bg-background text-on-background relative overflow-hidden">
+      <main className="relative z-10 flex min-h-screen flex-col items-center px-4 pt-8 pb-24 sm:pt-10 sm:pb-20">
+        <div className="flex flex-col items-center text-center">
+          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-on-surface-variant">
+            <span className="h-1.5 w-1.5 rounded-full bg-on-surface-variant" aria-hidden="true" />
+            <span>CivicGuard</span>
           </div>
-          <h1 className="font-headline-lg text-headline-lg text-on-surface mb-2">CivicGuard</h1>
-          <p className="font-body-md text-body-md text-on-surface-variant max-w-[320px]">
+          <p className="mt-3 max-w-[26rem] text-[11px] leading-4 text-on-surface-variant sm:text-[12px] sm:leading-5">
             Radical transparency in infrastructure starts with your secure access.
           </p>
         </div>
 
-        <div className="bg-surface-container-lowest border border-outline-variant p-8 md:p-10 rounded-xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)]">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-4">
-              <div className="flex flex-col gap-2">
-                <label className="font-label-md text-label-md text-on-surface" htmlFor="citizen_id">Citizen Identification</label>
-                <div className="relative group">
-                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline group-focus-within:text-primary transition-colors">fingerprint</span>
-                  <input 
-                    className="w-full bg-surface-container-lowest border border-outline rounded-xl py-3 pl-10 pr-4 text-body-md font-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" 
-                    id="citizen_id" 
-                    placeholder="Enter National ID or Email" 
-                    type="text"
-                    value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
-                    disabled={loading}
-                  />
+        <div className="flex flex-1 items-center justify-center py-10 sm:py-12">
+          <div className="w-full max-w-[372px] rounded-[14px] border border-outline-variant bg-surface-container-lowest px-5 py-5 shadow-[0_1px_0_rgba(0,0,0,0.02)] sm:px-6 sm:py-6">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-medium tracking-[0.08em] text-on-surface-variant" htmlFor="citizen_id">
+                    Citizen Identification
+                  </label>
+                  <div className="relative group">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-outline transition-colors group-focus-within:text-primary">
+                      fingerprint
+                    </span>
+                    <input
+                      className="h-10 w-full rounded-[10px] border border-outline-variant bg-white pl-10 pr-3 text-[13px] text-on-surface outline-none transition-colors placeholder:text-on-surface-variant/55 focus:border-primary focus:ring-1 focus:ring-primary"
+                      id="citizen_id"
+                      placeholder="Enter National ID or Email"
+                      type="text"
+                      value={identifier}
+                      onChange={(e) => setIdentifier(e.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-[11px] font-medium tracking-[0.08em] text-on-surface-variant" htmlFor="password">
+                      Password
+                    </label>
+                    <a className="text-[11px] text-on-surface-variant transition-colors hover:text-primary" href="#">
+                      Forgot password?
+                    </a>
+                  </div>
+                  <div className="relative group">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-outline transition-colors group-focus-within:text-primary">
+                      lock
+                    </span>
+                    <input
+                      className="h-10 w-full rounded-[10px] border border-outline-variant bg-white pl-10 pr-10 text-[13px] text-on-surface outline-none transition-colors placeholder:text-on-surface-variant/55 focus:border-primary focus:ring-1 focus:ring-primary"
+                      id="password"
+                      placeholder="••••••••"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={loading}
+                    />
+                    <button
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-outline transition-colors hover:text-on-surface-variant"
+                      type="button"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">visibility</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-              <div className="flex flex-col gap-2">
-                <div className="flex justify-between items-center">
-                  <label className="font-label-md text-label-md text-on-surface" htmlFor="password">Password</label>
-                  <a className="text-secondary font-label-md text-[12px] hover:underline" href="#">Forgot password?</a>
+
+              {error && (
+                <div className="flex items-start gap-2 rounded-[10px] border border-error/20 bg-error-container px-3 py-3">
+                  <span className="material-symbols-outlined mt-0.5 text-[18px] text-error">error_outline</span>
+                  <p className="text-[13px] leading-5 text-on-error-container">{error}</p>
                 </div>
-                <div className="relative group">
-                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline group-focus-within:text-primary transition-colors">lock</span>
-                  <input 
-                    className="w-full bg-surface-container-lowest border border-outline rounded-xl py-3 pl-10 pr-10 text-body-md font-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" 
-                    id="password" 
-                    placeholder="••••••••" 
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={loading}
-                  />
-                  <button className="absolute right-3 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface-variant" type="button">
-                    <span className="material-symbols-outlined text-[20px]">visibility</span>
-                  </button>
-                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-3 text-[11px] text-on-surface-variant">
+                <label className="flex items-center gap-2 cursor-pointer select-none" htmlFor="remember">
+                  <input className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary" id="remember" type="checkbox" />
+                  <span>Remember this device</span>
+                </label>
               </div>
+
+              <button
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-primary text-[13px] font-semibold text-on-primary transition-transform transition-opacity hover:opacity-95 active:scale-[0.99] disabled:opacity-60"
+                type="submit"
+                disabled={loading}
+              >
+                <span>{loading ? 'Logging in...' : 'Login to Portal'}</span>
+                <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+              </button>
+            </form>
+
+            <div className="mt-5 border-t border-outline-variant/70 pt-4">
+              <p className="text-center text-[12px] leading-5 text-on-surface-variant">
+                New to the transparency initiative?
+                <Link to="/auth/citizen/signup" className="ml-1 font-medium text-secondary transition-colors hover:text-primary hover:underline">
+                  Create a Citizen Account
+                </Link>
+              </p>
             </div>
-
-            {error && (
-              <div className="bg-error-container border border-error/20 p-4 rounded-xl flex items-start gap-3">
-                <span className="material-symbols-outlined text-error text-[20px]">error_outline</span>
-                <p className="font-body-sm text-body-sm text-on-error-container">
-                  {error}
-                </p>
-              </div>
-            )}
-
-            <div className="flex items-center gap-2">
-              <input className="w-4 h-4 rounded border-outline text-primary focus:ring-primary" id="remember" type="checkbox" />
-              <label className="font-body-sm text-body-sm text-on-surface-variant cursor-pointer" htmlFor="remember">Remember this device for 30 days</label>
-            </div>
-
-            <button 
-              className="w-full bg-primary text-on-primary font-headline-sm text-headline-sm py-4 rounded-xl shadow-sm hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
-              type="submit"
-              disabled={loading}
-            >
-              {loading ? 'Logging in...' : 'Login to Portal'}
-              <span className="material-symbols-outlined">arrow_forward</span>
-            </button>
-          </form>
-
-          <div className="mt-8 pt-8 border-t border-outline-variant text-center">
-            <p className="font-body-sm text-body-sm text-on-surface-variant">
-              New to the transparency initiative?
-              <Link to="/auth/citizen/signup" className="text-secondary font-semibold hover:underline ml-1">Create a Citizen Account</Link>
-            </p>
           </div>
         </div>
 
-        <div className="mt-12 flex justify-center items-center gap-8 text-outline">
-          <div className="flex items-center gap-1.5 grayscale opacity-60">
-            <span className="material-symbols-outlined text-[18px]">verified_user</span>
-            <span className="font-label-md text-[12px] uppercase tracking-wider">Secure Access</span>
+        <div className="grid w-full max-w-[372px] grid-cols-2 gap-3 pb-8 sm:pb-10">
+          <div className="flex items-center gap-2 rounded-[10px] border border-outline-variant bg-surface-container-lowest px-3 py-2 text-[11px] text-on-surface-variant">
+            <span className="material-symbols-outlined text-[16px] text-emerald-600">verified_user</span>
+            <span>Secure Access</span>
           </div>
-          <div className="flex items-center gap-1.5 grayscale opacity-60">
-            <span className="material-symbols-outlined text-[18px]">gavel</span>
-            <span className="font-label-md text-[12px] uppercase tracking-wider">Institutional Grade</span>
+          <div className="flex items-center gap-2 rounded-[10px] border border-outline-variant bg-surface-container-lowest px-3 py-2 text-[11px] text-on-surface-variant">
+            <span className="material-symbols-outlined text-[16px] text-slate-500">gavel</span>
+            <span>Institutional Grade</span>
           </div>
         </div>
+
+        <footer className="absolute bottom-0 left-0 right-0 border-t border-outline-variant/60 bg-background/90 px-4 py-3 backdrop-blur-sm sm:px-6">
+          <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-2 text-[11px] text-on-surface-variant sm:flex-row sm:items-center sm:justify-between">
+            <p>© 2024 CivicGuard Institutional Portal. All rights reserved.</p>
+            <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 sm:justify-end">
+              <a className="transition-colors hover:text-primary" href="#">Help Center</a>
+              <a className="transition-colors hover:text-primary" href="#">Privacy Policy</a>
+              <a className="transition-colors hover:text-primary" href="#">Legal Disclosure</a>
+            </nav>
+          </div>
+        </footer>
       </main>
-
-      <footer className="absolute bottom-8 w-full text-center px-4">
-        <nav className="flex justify-center gap-6 mb-4">
-          <a className="font-label-md text-label-md text-on-surface-variant hover:text-primary" href="#">Help Center</a>
-          <a className="font-label-md text-label-md text-on-surface-variant hover:text-primary" href="#">Privacy Policy</a>
-          <a className="font-label-md text-label-md text-on-surface-variant hover:text-primary" href="#">Legal Disclosure</a>
-        </nav>
-        <p className="font-body-sm text-[12px] text-outline">
-          © 2024 CivicGuard Institutional Portal. All rights reserved.
-        </p>
-      </footer>
-
-      <div className="fixed top-0 left-0 w-full h-1 bg-surface-container-high z-50">
-        <div className="bg-primary h-full w-1/3 shadow-[0_0_10px_rgba(0,9,27,0.5)]"></div>
-      </div>
     </div>
   );
 }

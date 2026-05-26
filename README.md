@@ -58,7 +58,8 @@ pnpm dev
 
 ## Local development ports
 
-- **Cassandra (host)**: 127.0.0.1:9042  (containers use `cassandra:9042`)
+- **PgBouncer (host)**: 127.0.0.1:6432  (containers use `pgbouncer:6432`)
+- **PostgreSQL (host)**: 127.0.0.1:5433  (containers use `postgres:5432`)
 - **Zookeeper (host)**: 127.0.0.1:2181
 - **Kafka (host)**: 127.0.0.1:9094  (containers use `kafka:29092`)
 - **Redis (host)**: 127.0.0.1:16379  (containers use `redis:6379`)

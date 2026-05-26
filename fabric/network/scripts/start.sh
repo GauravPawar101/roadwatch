@@ -13,7 +13,12 @@ if [ "$1" = "--reset" ] || [ "$1" = "-r" ]; then
   RESET=true
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+NETWORK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$NETWORK_DIR/../.." && pwd)"
+
+source "$NETWORK_DIR/scripts/env.sh"
+
+CHANNEL="${FABRIC_CHANNEL:-$FABRIC_CHANNEL_NAME}"
 
 # Prefer repo-local Fabric binaries if present.
 if [ -d "$ROOT_DIR/bin" ]; then
@@ -24,10 +29,28 @@ DOCKER_COMPOSE=(docker compose)
 if ! docker compose version >/dev/null 2>&1; then
   DOCKER_COMPOSE=(docker-compose)
 fi
+DOCKER_COMPOSE+=(-p "$FABRIC_COMPOSE_PROJECT_NAME")
+
+# Resolve the Docker daemon socket before starting any containers.
+# On Docker Desktop with WSL integration, the shared socket can be mounted
+# outside the default /var/run path.
+if [ -z "${DOCKER_HOST:-}" ]; then
+  if [ -S /var/run/docker.sock ]; then
+    export DOCKER_HOST=unix:///var/run/docker.sock
+  elif [ -S /mnt/wsl/shared-docker/docker.sock ]; then
+    export DOCKER_HOST=unix:///mnt/wsl/shared-docker/docker.sock
+  else
+    echo "ERROR: Docker daemon is not reachable from this WSL distro."
+    echo "       Enable Docker Desktop WSL integration for Ubuntu or set DOCKER_HOST to a valid unix socket."
+    exit 1
+  fi
+fi
 
 # peer reads core.yaml from FABRIC_CFG_PATH; core.yaml expects organizations/* relative to it.
-cp -f "$ROOT_DIR/config/core.yaml" "$PWD/core.yaml"
-export FABRIC_CFG_PATH="$PWD"
+cp -f "$ROOT_DIR/config/core.yaml" "$NETWORK_DIR/core.yaml"
+export FABRIC_CFG_PATH="$NETWORK_DIR"
+
+ORDERER_CA="$NETWORK_DIR/organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem"
 
 setPeerContext() {
   local ORG="$1"
@@ -35,16 +58,16 @@ setPeerContext() {
     nhai)
       export CORE_PEER_TLS_ENABLED=true
       export CORE_PEER_LOCALMSPID=NHAIMSP
-      export CORE_PEER_ADDRESS=localhost:7051
-      export CORE_PEER_TLS_ROOTCERT_FILE="$PWD/organizations/peerOrganizations/nhai.roadwatch.com/peers/peer0.nhai.roadwatch.com/tls/ca.crt"
-      export CORE_PEER_MSPCONFIGPATH="$PWD/organizations/peerOrganizations/nhai.roadwatch.com/users/Admin@nhai.roadwatch.com/msp"
+      export CORE_PEER_ADDRESS=localhost:$FABRIC_NHAI_PEER_PORT
+      export CORE_PEER_TLS_ROOTCERT_FILE="$NETWORK_DIR/organizations/peerOrganizations/nhai.roadwatch.com/peers/peer0.nhai.roadwatch.com/tls/ca.crt"
+      export CORE_PEER_MSPCONFIGPATH="$NETWORK_DIR/organizations/peerOrganizations/nhai.roadwatch.com/users/Admin@nhai.roadwatch.com/msp"
       ;;
     roadwatch)
       export CORE_PEER_TLS_ENABLED=true
       export CORE_PEER_LOCALMSPID=RoadWatchMSP
-      export CORE_PEER_ADDRESS=localhost:9051
-      export CORE_PEER_TLS_ROOTCERT_FILE="$PWD/organizations/peerOrganizations/roadwatch.roadwatch.com/peers/peer0.roadwatch.roadwatch.com/tls/ca.crt"
-      export CORE_PEER_MSPCONFIGPATH="$PWD/organizations/peerOrganizations/roadwatch.roadwatch.com/users/Admin@roadwatch.roadwatch.com/msp"
+      export CORE_PEER_ADDRESS=localhost:$FABRIC_ROADWATCH_PEER_PORT
+      export CORE_PEER_TLS_ROOTCERT_FILE="$NETWORK_DIR/organizations/peerOrganizations/roadwatch.roadwatch.com/peers/peer0.roadwatch.roadwatch.com/tls/ca.crt"
+      export CORE_PEER_MSPCONFIGPATH="$NETWORK_DIR/organizations/peerOrganizations/roadwatch.roadwatch.com/users/Admin@roadwatch.roadwatch.com/msp"
       ;;
     *)
       echo "Unknown org for peer context: $ORG" >&2
@@ -90,6 +113,105 @@ retryCommand() {
 
   echo "ERROR: ${LABEL} failed after ${ATTEMPTS} attempts" >&2
   return 1
+}
+
+fetchChannelConfig() {
+  local OUTPUT_JSON="$1"
+
+  peer channel fetch config channel-artifacts/config_block.pb \
+    -o localhost:$FABRIC_ORDERER_PORT \
+    -c "$CHANNEL" \
+    --tls \
+    --cafile "$ORDERER_CA"
+
+  configtxlator proto_decode \
+    --input channel-artifacts/config_block.pb \
+    --type common.Block \
+    | jq .data.data[0].payload.data.config > "$OUTPUT_JSON"
+}
+
+createAnchorPeerUpdate() {
+  local ORG="$1"
+  local ANCHOR_HOST="$2"
+  local ANCHOR_PORT="$3"
+  local OUTPUT_TX="$4"
+  local CURRENT_CONFIG_JSON="channel-artifacts/${CORE_PEER_LOCALMSPID}config.json"
+  local MODIFIED_CONFIG_JSON="channel-artifacts/${CORE_PEER_LOCALMSPID}modified_config.json"
+
+  fetchChannelConfig "$CURRENT_CONFIG_JSON"
+
+  jq --arg mspid "$CORE_PEER_LOCALMSPID" --arg host "$ANCHOR_HOST" --argjson port "$ANCHOR_PORT" '
+    .channel_group.groups.Application.groups[$mspid].values += {
+      "AnchorPeers": {
+        "mod_policy": "Admins",
+        "value": {"anchor_peers": [{"host": $host, "port": $port}]},
+        "version": "0"
+      }
+    }
+  ' "$CURRENT_CONFIG_JSON" > "$MODIFIED_CONFIG_JSON"
+
+  configtxlator proto_encode --input "$CURRENT_CONFIG_JSON" --type common.Config --output channel-artifacts/original_config.pb
+  configtxlator proto_encode --input "$MODIFIED_CONFIG_JSON" --type common.Config --output channel-artifacts/modified_config.pb
+
+  if ! configtxlator compute_update \
+    --channel_id "$CHANNEL" \
+    --original channel-artifacts/original_config.pb \
+    --updated channel-artifacts/modified_config.pb \
+    --output channel-artifacts/config_update.pb; then
+    echo "==> Anchor peer already set for ${CORE_PEER_LOCALMSPID}; skipping"
+    return 1
+  fi
+
+  configtxlator proto_decode --input channel-artifacts/config_update.pb --type common.ConfigUpdate --output channel-artifacts/config_update.json
+  jq -n --arg channel "$CHANNEL" --argjson config_update "$(cat channel-artifacts/config_update.json)" '{payload:{header:{channel_header:{channel_id:$channel,type:2}},data:{config_update:$config_update}}}' > channel-artifacts/config_update_in_envelope.json
+  configtxlator proto_encode --input channel-artifacts/config_update_in_envelope.json --type common.Envelope --output "$OUTPUT_TX"
+}
+
+setAnchorPeerForOrg() {
+  local ORG="$1"
+  local ANCHOR_HOST="$2"
+  local ANCHOR_PORT="$3"
+
+  setPeerContext "$ORG"
+
+  local ANCHOR_UPDATE_TX="channel-artifacts/${CORE_PEER_LOCALMSPID}anchors.tx"
+
+  echo "==> Updating anchor peer for ${CORE_PEER_LOCALMSPID} to ${ANCHOR_HOST}:${ANCHOR_PORT}"
+
+  if ! createAnchorPeerUpdate "$ORG" "$ANCHOR_HOST" "$ANCHOR_PORT" "$ANCHOR_UPDATE_TX"; then
+    return 0
+  fi
+
+  # Attempt to apply the channel update. If the orderer rejects the update
+  # due to a ReadSet/WriteSet version mismatch (concurrent channel updates),
+  # refetch the channel config, recompute the update and retry a few times.
+  local ATTEMPT=1
+  local MAX_ATTEMPTS=3
+  while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+    if peer channel update \
+      -o localhost:$FABRIC_ORDERER_PORT \
+      -c "$CHANNEL" \
+      -f "$ANCHOR_UPDATE_TX" \
+      --tls \
+      --cafile "$ORDERER_CA"; then
+      echo "==> Anchor peer set for ${CORE_PEER_LOCALMSPID} on channel ${CHANNEL} to ${ANCHOR_HOST}:${ANCHOR_PORT}"
+      break
+    fi
+
+    echo "==> peer channel update attempt ${ATTEMPT} failed; refetching config and retrying..."
+    ATTEMPT=$((ATTEMPT + 1))
+
+    if [ $ATTEMPT -le $MAX_ATTEMPTS ]; then
+      # Re-fetch the latest channel config and recompute the update
+      if ! createAnchorPeerUpdate "$ORG" "$ANCHOR_HOST" "$ANCHOR_PORT" "$ANCHOR_UPDATE_TX"; then
+        # If recompute indicates the anchor peer is already set, stop retrying
+        break
+      fi
+    else
+      echo "ERROR: Failed to set anchor peer for ${CORE_PEER_LOCALMSPID} after ${MAX_ATTEMPTS} attempts" >&2
+      return 1
+    fi
+  done
 }
 
 waitForCertificateValidity() {
@@ -154,7 +276,7 @@ if [ "$RESET" = true ]; then
     --output=organizations
 else
   echo "==> No reset requested: preserving existing artifacts if present"
-  if [ ! -d "$PWD/organizations" ]; then
+  if [ ! -d "$NETWORK_DIR/organizations" ]; then
     echo "==> Organizations directory missing: generating crypto material"
     cryptogen generate \
       --config=../config/crypto-config.yaml \
@@ -165,12 +287,12 @@ else
 
 fi
 
-NHAI_ADMIN_CERT="$(resolveSignCert "$PWD/organizations/peerOrganizations/nhai.roadwatch.com/users/Admin@nhai.roadwatch.com/msp/signcerts" "NHAI admin")"
-ROADWATCH_ADMIN_CERT="$(resolveSignCert "$PWD/organizations/peerOrganizations/roadwatch.roadwatch.com/users/Admin@roadwatch.roadwatch.com/msp/signcerts" "RoadWatch admin")"
+NHAI_ADMIN_CERT="$(resolveSignCert "$NETWORK_DIR/organizations/peerOrganizations/nhai.roadwatch.com/users/Admin@nhai.roadwatch.com/msp/signcerts" "NHAI admin")"
+ROADWATCH_ADMIN_CERT="$(resolveSignCert "$NETWORK_DIR/organizations/peerOrganizations/roadwatch.roadwatch.com/users/Admin@roadwatch.roadwatch.com/msp/signcerts" "RoadWatch admin")"
 waitForCertificateValidity "$NHAI_ADMIN_CERT" "NHAI admin"
 waitForCertificateValidity "$ROADWATCH_ADMIN_CERT" "RoadWatch admin"
 
-if [ "$RESET" = true ] || [ ! -f channel-artifacts/roadwatch-india.tx ] || [ ! -f channel-artifacts/genesis.block ]; then
+if [ "$RESET" = true ] || [ ! -f channel-artifacts/${CHANNEL}.tx ] || [ ! -f channel-artifacts/genesis.block ]; then
   echo "==> Generating channel artifacts"
   configtxgen \
     -profile RoadWatchOrdererGenesis \
@@ -180,8 +302,8 @@ if [ "$RESET" = true ] || [ ! -f channel-artifacts/roadwatch-india.tx ] || [ ! -
 
   configtxgen \
     -profile RoadWatchIndiaChannel \
-    -outputCreateChannelTx channel-artifacts/roadwatch-india.tx \
-    -channelID roadwatch-india \
+    -outputCreateChannelTx channel-artifacts/${CHANNEL}.tx \
+    -channelID "$CHANNEL" \
     -configPath ../config
 else
   echo "==> Channel artifacts already exist - skipping generation"
@@ -190,57 +312,39 @@ fi
 echo "==> Starting docker containers"
 "${DOCKER_COMPOSE[@]}" -f docker/docker-compose.yaml up -d
 
-waitForPort localhost 7050 "orderer"
-waitForPort localhost 7051 "peer0.nhai"
-waitForPort localhost 9051 "peer0.roadwatch"
+waitForPort localhost "$FABRIC_ORDERER_PORT" "orderer"
+waitForPort localhost "$FABRIC_NHAI_PEER_PORT" "peer0.nhai"
+waitForPort localhost "$FABRIC_ROADWATCH_PEER_PORT" "peer0.roadwatch"
 
 echo "==> Creating channel"
 setPeerContext nhai
-retryCommand "peer channel create" peer channel create \
-  -o localhost:7050 \
-  -c roadwatch-india \
-  -f channel-artifacts/roadwatch-india.tx \
+
+if peer channel fetch 0 ${CHANNEL}.block \
+  -o localhost:$FABRIC_ORDERER_PORT \
+  -c "$CHANNEL" \
   --tls \
-  --cafile organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem
+  --cafile organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem; then
+  echo "==> Channel $CHANNEL already exists; reusing fetched genesis block"
+else
+  retryCommand "peer channel create" peer channel create \
+    -o localhost:$FABRIC_ORDERER_PORT \
+    -c "$CHANNEL" \
+    -f channel-artifacts/${CHANNEL}.tx \
+    --tls \
+    --cafile organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem
+fi
 
 echo "==> Joining NHAI peer to channel"
 setPeerContext nhai
-peer channel join -b roadwatch-india.block
+peer channel join -b ${CHANNEL}.block
 
 echo "==> Joining RoadWatch peer to channel"
 setPeerContext roadwatch
-peer channel join -b roadwatch-india.block
+peer channel join -b ${CHANNEL}.block
 
 echo "==> Setting anchor peers"
-configtxgen \
-  -profile RoadWatchIndiaChannel \
-  -outputAnchorPeersUpdate channel-artifacts/NHAIMSPAnchors.tx \
-  -channelID roadwatch-india \
-  -asOrg NHAIMSP \
-  -configPath ../config
-
-configtxgen \
-  -profile RoadWatchIndiaChannel \
-  -outputAnchorPeersUpdate channel-artifacts/RoadWatchMSPAnchors.tx \
-  -channelID roadwatch-india \
-  -asOrg RoadWatchMSP \
-  -configPath ../config
-
-setPeerContext nhai
-peer channel update \
-  -o localhost:7050 \
-  -c roadwatch-india \
-  -f channel-artifacts/NHAIMSPAnchors.tx \
-  --tls \
-  --cafile organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem
-
-setPeerContext roadwatch
-peer channel update \
-  -o localhost:7050 \
-  -c roadwatch-india \
-  -f channel-artifacts/RoadWatchMSPAnchors.tx \
-  --tls \
-  --cafile organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem
+setAnchorPeerForOrg nhai localhost "$FABRIC_NHAI_PEER_PORT"
+setAnchorPeerForOrg roadwatch localhost "$FABRIC_ROADWATCH_PEER_PORT"
 
 echo "==> Deploying chaincode"
 if [ -x "./scripts/deploy-chaincode.sh" ]; then

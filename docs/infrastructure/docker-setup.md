@@ -11,7 +11,7 @@ All docker-compose files have been rewritten for **lightweight operation** with 
 | Feature | Before | After |
 |---------|--------|-------|
 | Compose version | 3.8 | 3.9 |
-| Cassandra | n/a | cassandra:4.1 |
+| Postgres | n/a | postgres:16 |
 | Kafka image | confluentinc/cp-kafka:7.6.1 | confluentinc/cp-kafka:7.7-alpine |
 | Resource limits | ❌ None | ✅ CPU/Memory limits & reservations |
 | Health checks | Basic | Enhanced with start_period |
@@ -21,23 +21,23 @@ All docker-compose files have been rewritten for **lightweight operation** with 
 | Stub API | ❌ Broken service | ✅ Removed |
 
 **Port mapping (no conflicts):**
-- `9042:9042` → Cassandra (always enabled)
+- `5432:5432` → Postgres (always enabled)
 - `2181:2181` → Zookeeper (profile: kafka)
 - `9094:9092` → Kafka (profile: kafka)
 - `6379:6379` → Redis (profile: redis)
 
 **Usage:**
 ```bash
-# Start Cassandra only (default)
+# Start Postgres only (default)
 docker compose up
 
-# Start Cassandra + Kafka + Zookeeper
+# Start Postgres + Kafka + Zookeeper
 docker compose --profile kafka up
 
-# Start Cassandra + Redis
+# Start Postgres + Redis
 docker compose --profile redis up
 
-# Start all (Cassandra + Kafka + Redis)
+# Start all (Postgres + Kafka + Redis)
 docker compose --profile kafka --profile redis up
 ```
 

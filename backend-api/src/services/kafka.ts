@@ -7,6 +7,11 @@ type UpstashProduceRequest = {
   headers?: Array<{ key: string; value: string }>;
 };
 
+export type KafkaPublishOptions = {
+  key?: string;
+  headers?: Record<string, string>;
+};
+
 function getUpstashBaseUrl(): string | undefined {
   const url = process.env.UPSTASH_KAFKA_REST_URL?.trim();
   if (!url) return undefined;
@@ -102,10 +107,18 @@ async function getKafkaJsProducer() {
  */
 export async function emitComplaintEvent(
   event: unknown,
-  topic = process.env.KAFKA_TOPIC_COMPLAINTS?.trim() || 'complaint.submitted'
+  topic = process.env.KAFKA_TOPIC_COMPLAINTS?.trim() || 'complaint.submitted',
+  options: KafkaPublishOptions = {}
 ) {
   if (getUpstashBaseUrl()) {
-    await upstashProduce({ topic, value: JSON.stringify(event) });
+    await upstashProduce({
+      topic,
+      value: JSON.stringify(event),
+      key: options.key,
+      headers: options.headers
+        ? Object.entries(options.headers).map(([key, value]) => ({ key, value }))
+        : undefined
+    });
     return;
   }
 
@@ -119,7 +132,13 @@ export async function emitComplaintEvent(
   try {
     await producer.send({
       topic,
-      messages: [{ value: JSON.stringify(event) }]
+      messages: [
+        {
+          key: options.key,
+          value: JSON.stringify(event),
+          headers: options.headers
+        }
+      ]
     });
   } finally {
     await producer.disconnect();

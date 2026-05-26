@@ -1,12 +1,13 @@
 import dotenv from 'dotenv';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { Client } from 'cassandra-driver';
+import pg from 'pg';
 import { z } from 'zod';
-
 import { randomUUID } from 'crypto';
 
 dotenv.config();
+
+const { Pool } = pg;
 
 const LatLngSchema = z.object({ lat: z.number(), lng: z.number() });
 
@@ -122,15 +123,28 @@ function parseArgs(argv: string[]): Args {
   return out;
 }
 
-// Schema is created via docker/cassandra/init.cql. This script performs idempotent
-// upserts against Cassandra tables using the cassandra-driver client.
+// Schema is created via migrations. This script performs idempotent
+// upserts against PostgreSQL tables using the pg Pool client.
 
-async function upsertCountry(client: Client, input: { code: string; name: string; defaultTimeZone: string }) {
-  await client.execute('INSERT INTO countries (code, name, default_time_zone) VALUES (?, ?, ?)', [input.code.toUpperCase(), input.name, input.defaultTimeZone], { prepare: true });
+async function upsertCountry(pool: pg.Pool, input: { code: string; name: string; defaultTimeZone: string }) {
+  await pool.query(
+    `INSERT INTO countries (code, name, default_time_zone)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (code) DO UPDATE
+       SET name = EXCLUDED.name,
+           default_time_zone = EXCLUDED.default_time_zone`,
+    [input.code.toUpperCase(), input.name, input.defaultTimeZone]
+  );
 }
 
-async function upsertState(client: Client, input: { countryCode: string; code: string; name: string }) {
-  await client.execute('INSERT INTO states (country_code, code, name) VALUES (?, ?, ?)', [input.countryCode.toUpperCase(), input.code.toUpperCase(), input.name], { prepare: true });
+async function upsertState(pool: pg.Pool, input: { countryCode: string; code: string; name: string }) {
+  await pool.query(
+    `INSERT INTO states (country_code, code, name)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (country_code, code) DO UPDATE
+       SET name = EXCLUDED.name`,
+    [input.countryCode.toUpperCase(), input.code.toUpperCase(), input.name]
+  );
 }
 
 async function upsertDistrict(
@@ -148,15 +162,28 @@ async function upsertDistrict(
 ): Promise<string> {
   const zoomMin = input.zoom?.min ?? 10;
   const zoomMax = input.zoom?.max ?? 16;
-
   const id = input.id ?? randomUUID();
-  await client.execute(
-    'INSERT INTO districts_by_state (country_code, state_code, code, id, name, top_left_lat, top_left_lng, bottom_right_lat, bottom_right_lng, min_zoom, max_zoom, tile_style_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+
+  await pool.query(
+    `INSERT INTO districts (id, country_code, state_code, code, name,
+       top_left_lat, top_left_lng, bottom_right_lat, bottom_right_lng,
+       min_zoom, max_zoom, tile_style_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     ON CONFLICT (country_code, state_code, code) DO UPDATE
+       SET id             = EXCLUDED.id,
+           name           = EXCLUDED.name,
+           top_left_lat   = EXCLUDED.top_left_lat,
+           top_left_lng   = EXCLUDED.top_left_lng,
+           bottom_right_lat = EXCLUDED.bottom_right_lat,
+           bottom_right_lng = EXCLUDED.bottom_right_lng,
+           min_zoom       = EXCLUDED.min_zoom,
+           max_zoom       = EXCLUDED.max_zoom,
+           tile_style_url = EXCLUDED.tile_style_url`,
     [
+      id,
       input.countryCode.toUpperCase(),
       input.stateCode.toUpperCase(),
       input.code.toUpperCase(),
-      id,
       input.name,
       input.bbox.topLeft.lat,
       input.bbox.topLeft.lng,
@@ -165,8 +192,7 @@ async function upsertDistrict(
       zoomMin,
       zoomMax,
       input.tileStyleUrl ?? null
-    ],
-    { prepare: true }
+    ]
   );
   return id;
 }
@@ -183,24 +209,46 @@ async function upsertRoad(
     geometry?: any;
   }
 ) {
-  await client.execute('INSERT INTO roads_catalog (id, name, district_id, metadata) VALUES (?, ?, ?, ?)', [
-    input.id,
-    input.name,
-    input.districtId,
-    JSON.stringify({ road_type: input.roadType, authority_id: input.authorityId, total_length_km: input.totalLengthKm ?? 0, geometry: input.geometry ?? null })
-  ], { prepare: true });
+  await pool.query(
+    `INSERT INTO roads_catalog (id, name, district_id, road_type, authority_id, total_length_km, geometry)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (id) DO UPDATE
+       SET name           = EXCLUDED.name,
+           district_id    = EXCLUDED.district_id,
+           road_type      = EXCLUDED.road_type,
+           authority_id   = EXCLUDED.authority_id,
+           total_length_km = EXCLUDED.total_length_km,
+           geometry       = EXCLUDED.geometry`,
+    [
+      input.id,
+      input.name,
+      input.districtId,
+      input.roadType,
+      input.authorityId,
+      input.totalLengthKm ?? 0,
+      input.geometry ? JSON.stringify(input.geometry) : null
+    ]
+  );
 }
 
 async function upsertContractor(
   pool: pg.Pool,
   input: { id: string; name: string; registrationNumber?: string; contactPhoneMasked?: string }
 ) {
-  await client.execute('INSERT INTO contractors (id, name, metadata, created_at) VALUES (?, ?, ?, ?)', [
-    input.id,
-    input.name,
-    JSON.stringify({ registrationNumber: input.registrationNumber ?? null, contactPhoneMasked: input.contactPhoneMasked ?? null }),
-    new Date()
-  ], { prepare: true });
+  await pool.query(
+    `INSERT INTO contractors (id, name, registration_number, contact_phone_masked, created_at)
+     VALUES ($1, $2, $3, $4, NOW())
+     ON CONFLICT (id) DO UPDATE
+       SET name                  = EXCLUDED.name,
+           registration_number   = EXCLUDED.registration_number,
+           contact_phone_masked  = EXCLUDED.contact_phone_masked`,
+    [
+      input.id,
+      input.name,
+      input.registrationNumber ?? null,
+      input.contactPhoneMasked ?? null
+    ]
+  );
 }
 
 async function upsertAuthorityDirectory(
@@ -215,16 +263,27 @@ async function upsertAuthorityDirectory(
     address?: string;
   }
 ) {
-  await client.execute('INSERT INTO authority_directory (authority_id, name, department, public_phone, public_email, website, address, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
-    input.authorityId,
-    input.name,
-    input.department ?? null,
-    input.publicPhone ?? null,
-    input.publicEmail ?? null,
-    input.website ?? null,
-    input.address ?? null,
-    new Date()
-  ], { prepare: true });
+  await pool.query(
+    `INSERT INTO authority_directory (authority_id, name, department, public_phone, public_email, website, address, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+     ON CONFLICT (authority_id) DO UPDATE
+       SET name         = EXCLUDED.name,
+           department   = EXCLUDED.department,
+           public_phone = EXCLUDED.public_phone,
+           public_email = EXCLUDED.public_email,
+           website      = EXCLUDED.website,
+           address      = EXCLUDED.address,
+           updated_at   = NOW()`,
+    [
+      input.authorityId,
+      input.name,
+      input.department ?? null,
+      input.publicPhone ?? null,
+      input.publicEmail ?? null,
+      input.website ?? null,
+      input.address ?? null
+    ]
+  );
 }
 
 async function createRoadAssignment(
@@ -232,35 +291,55 @@ async function createRoadAssignment(
   input: { roadId: string; contractorId?: string; engineerUserId?: string; startsOn?: string; endsOn?: string }
 ) {
   const id = randomUUID();
-  const meta = JSON.stringify({ engineerUserId: input.engineerUserId ?? null, startsOn: input.startsOn ?? null, endsOn: input.endsOn ?? null });
-  await client.execute('INSERT INTO road_assignments (id, road_id, contractor_id, assigned_at, metadata) VALUES (?, ?, ?, ?, ?)', [id, input.roadId, input.contractorId ?? null, new Date(), meta], { prepare: true });
+  await pool.query(
+    `INSERT INTO road_assignments (id, road_id, contractor_id, engineer_user_id, starts_on, ends_on, assigned_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW())
+     ON CONFLICT (road_id) DO UPDATE
+       SET contractor_id    = EXCLUDED.contractor_id,
+           engineer_user_id = EXCLUDED.engineer_user_id,
+           starts_on        = EXCLUDED.starts_on,
+           ends_on          = EXCLUDED.ends_on,
+           assigned_at      = NOW()`,
+    [
+      id,
+      input.roadId,
+      input.contractorId ?? null,
+      input.engineerUserId ?? null,
+      input.startsOn ?? null,
+      input.endsOn ?? null
+    ]
+  );
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  const contactPoints = (process.env.CASSANDRA_CONTACT_POINTS || '127.0.0.1:9042').split(',');
-  const keyspace = process.env.CASSANDRA_KEYSPACE || 'roadwatch';
-  const localDc = process.env.CASSANDRA_LOCAL_DC || 'datacenter1';
   const seedPath = args.file;
   const raw = await readFile(seedPath, 'utf8');
   const seed = SeedSchema.parse(JSON.parse(raw)) satisfies Seed;
 
-  const client = new Client({ contactPoints: contactPoints.map((c) => c.split(':')[0]), localDataCenter: localDc, keyspace });
-  await client.connect();
-  try {
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    // Fallback to individual env vars if DATABASE_URL is not set
+    host:     process.env.PGHOST     || '127.0.0.1',
+    port:     Number(process.env.PGPORT || 5432),
+    database: process.env.PGDATABASE || 'roadwatch',
+    user:     process.env.PGUSER     || 'postgres',
+    password: process.env.PGPASSWORD || '',
+  });
 
+  try {
     let contractorCount = 0;
     let authorityCount = 0;
     let assignmentCount = 0;
 
     for (const c of seed.contractors) {
-      await upsertContractor(client, c);
+      await upsertContractor(pool, c);
       contractorCount++;
     }
 
     for (const a of seed.authorityDirectory) {
-      await upsertAuthorityDirectory(client, a);
+      await upsertAuthorityDirectory(pool, a);
       authorityCount++;
     }
 
@@ -270,15 +349,15 @@ async function main() {
     let roadCount = 0;
 
     for (const country of seed.countries) {
-      await upsertCountry(client, country);
+      await upsertCountry(pool, country);
       countryCount++;
 
       for (const state of country.states) {
-        await upsertState(client, { countryCode: country.code, code: state.code, name: state.name });
+        await upsertState(pool, { countryCode: country.code, code: state.code, name: state.name });
         stateCount++;
 
         for (const district of state.districts) {
-          const districtId = await upsertDistrict(client, {
+          const districtId = await upsertDistrict(pool, {
             id: district.id,
             countryCode: country.code,
             stateCode: state.code,
@@ -291,7 +370,7 @@ async function main() {
           districtCount++;
 
           for (const road of district.roads) {
-            await upsertRoad(client, { districtId, ...road });
+            await upsertRoad(pool, { districtId, ...road });
             roadCount++;
           }
         }
@@ -299,7 +378,7 @@ async function main() {
     }
 
     for (const ra of seed.roadAssignments) {
-      await createRoadAssignment(client, ra);
+      await createRoadAssignment(pool, ra);
       assignmentCount++;
     }
 
@@ -308,7 +387,7 @@ async function main() {
       `[seed-backend] upserted: countries=${countryCount} states=${stateCount} districts=${districtCount} roads=${roadCount} contractors=${contractorCount} authorities=${authorityCount} assignments=${assignmentCount}`
     );
   } finally {
-    await client.shutdown();
+    await pool.end();
   }
 }
 

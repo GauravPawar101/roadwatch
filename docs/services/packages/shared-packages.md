@@ -146,10 +146,8 @@ export const getConfig = (): AppConfig => ({
     }
   },
   database: {
-    // Cassandra-first configuration
-    contactPoints: (process.env.CASSANDRA_CONTACT_POINTS || '127.0.0.1:9042').split(','),
-    keyspace: process.env.CASSANDRA_KEYSPACE || 'roadwatch',
-    localDc: process.env.CASSANDRA_LOCAL_DC || 'datacenter1'
+    // Postgres-first configuration (point to PgBouncer-backed pooled endpoint)
+    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:6432/roadwatch'
   },
   // ... other config sections
 });

@@ -35,9 +35,7 @@ Before running any seeding or development, complete these steps in order.
   cp apps/gateway-api/.env.example apps/gateway-api/.env
   ```
   Fill in:
-  - `CASSANDRA_CONTACT_POINTS` (default: `cassandra:9042`)
-  - `CASSANDRA_KEYSPACE` (default: `roadwatch`)
-  - `CASSANDRA_LOCAL_DC` (default: `datacenter1`)
+  - `DATABASE_URL` (target the PgBouncer-backed Postgres endpoint; the app uses `pg.Pool`)
   - `JWT_SECRET` (any random string)
   - `GEMINI_API_KEY` (get from aistudio.google.com — optional, will use fallbacks)
   - Keep `ALLOW_DEV_OTP_ECHO=true` for dev
@@ -49,7 +47,7 @@ Before running any seeding or development, complete these steps in order.
   ```
   Fill in:
   - `JWT_SECRET` (match gateway-api value)
-  - If you still run Postgres for legacy reasons, set `POSTGRES_PASSWORD`.
+  - `POSTGRES_PASSWORD` (if needed for your local Postgres container)
 
 - [ ] **services/fabric-anchor-consumer/.env** (optional, if running Kafka consumer)
   ```bash
@@ -61,14 +59,14 @@ Before running any seeding or development, complete these steps in order.
 
 ## ✅ Phase 3: Start Core Infrastructure
 
-### Start Cassandra
+### Start Postgres
 ```bash
 # From repo root
-docker compose up -d cassandra cassandra-init
+docker compose up -d postgres
 
 # Verify it's healthy
 docker compose ps
-# Look for: roadwatch_cassandra  ...  (healthy)
+# Look for: roadwatch_postgres  ...  (healthy)
 
 # Wait ~10-20 seconds for it to be ready
 ```

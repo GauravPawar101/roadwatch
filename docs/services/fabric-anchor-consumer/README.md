@@ -7,7 +7,7 @@ Kafka consumer service that processes complaint events, batches them into Merkle
 - **Runtime**: Node.js with TypeScript
 - **Event Streaming**: Kafka (KafkaJS or Upstash)
 - **Blockchain**: Hyperledger Fabric Gateway SDK
-- **Database**: Cassandra for proof storage (preferred). Legacy Postgres support exists for some scripts.
+- **Database**: PostgreSQL for proof storage (preferred). Legacy migration helpers may still exist for historical data movement.
 - **Cryptography**: SHA-256 Merkle trees
 - **Deployment**: Docker container
 

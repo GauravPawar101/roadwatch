@@ -7,6 +7,12 @@ set -e
 echo "🚀 Starting RoadWatch Services..."
 echo ""
 
+LOCAL_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:6432/roadwatch'
+
+# Pin local dev to the Docker PgBouncer endpoint so inherited environment
+# variables cannot redirect the gateway to a different Postgres port.
+export DATABASE_URL="$LOCAL_DATABASE_URL"
+
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -42,7 +48,7 @@ echo ""
 echo -e "${BLUE}🔌 Step 4: Starting Gateway API...${NC}"
 echo "Gateway API will run on http://localhost:3100"
 echo "Starting in background..."
-pnpm --filter @roadwatch/gateway-api dev > logs/gateway-api.log 2>&1 &
+DATABASE_URL="$LOCAL_DATABASE_URL" pnpm --filter @roadwatch/gateway-api dev > logs/gateway-api.log 2>&1 &
 GATEWAY_PID=$!
 echo $GATEWAY_PID > .pids/gateway-api.pid
 echo -e "${GREEN}✓ Gateway API started (PID: $GATEWAY_PID)${NC}"

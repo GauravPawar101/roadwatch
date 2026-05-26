@@ -328,10 +328,8 @@ jobs:
       - name: Run integration tests
         run: npm run test:integration
         env:
-          # Prefer Cassandra for integration tests; fallback to Postgres if needed
-          CASSANDRA_CONTACT_POINTS: cassandra:9042
-          CASSANDRA_KEYSPACE: test_roadwatch
-          CASSANDRA_LOCAL_DC: datacenter1
+          # Prefer PgBouncer-backed Postgres endpoint for integration tests
+          DATABASE_URL: postgresql://postgres:postgres@postgres:5432/test_roadwatch
           REDIS_URL: redis://localhost:6379
 ```
 

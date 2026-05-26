@@ -78,10 +78,8 @@ class ConfigLoader {
 ```typescript
 // Environment variable mapping
 const ENV_MAPPING = {
-  // Cassandra (primary)
-  CASSANDRA_CONTACT_POINTS: 'database.contactPoints',
-  CASSANDRA_KEYSPACE: 'database.keyspace',
-  CASSANDRA_LOCAL_DC: 'database.localDc',
+  // Postgres (primary)
+  DATABASE_URL: 'database.connectionString',
   // Legacy Postgres (optional/deprecated)
   DATABASE_URL: 'database.url', // Only for backward compatibility with legacy scripts
   KAFKA_BROKERS: 'kafka.brokers',

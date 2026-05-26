@@ -1,6 +1,6 @@
+import { AnimatePresence, motion } from 'framer-motion'
 import { useState } from 'react'
-import { Link, useParams, useNavigate } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import ResumableUpload from '../components/ResumableUpload'
 import { useAuth } from '../contexts/AuthContext'
 import { enqueueAction, saveRecord } from '../lib/offlineStore'
@@ -30,7 +30,7 @@ export default function ComplaintWizard() {
   // Auth loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f8f9ff] flex items-center justify-center">
+      <div className="page-radial-bg min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1960a3]" />
       </div>
     )
@@ -40,29 +40,29 @@ export default function ComplaintWizard() {
   if (!isAuthenticated) {
     const next = encodeURIComponent(`/road/${id}/report`)
     return (
-      <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30] flex items-center justify-center p-6 relative overflow-hidden font-sans">
+      <div className="page-radial-bg min-h-screen text-on-surface flex items-center justify-center p-6 relative overflow-hidden font-sans">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="max-w-md w-full rounded-2xl border border-[#d3e4fe] bg-white p-8 shadow-xl text-center flex flex-col items-center gap-6"
+          className="max-w-md w-full rounded-[16px] border border-outline-variant bg-surface-container-lowest p-8 shadow-xl text-center flex flex-col items-center gap-6"
         >
-          <div className="w-16 h-16 rounded-full bg-[#ba1a1a]/10 border border-[#ba1a1a]/20 flex items-center justify-center text-[#ba1a1a]">
+            <div className="w-16 h-16 rounded-full bg-error-container/10 border border-error/20 flex items-center justify-center text-error">
             <span className="material-symbols-outlined text-[32px]">lock</span>
           </div>
           <div>
-            <h1 className="text-[24px] font-bold text-[#002045] mb-2">Authentication Required</h1>
-            <p className="text-[#43474e] text-[14px] leading-[20px]">
+            <h1 className="text-[24px] font-bold text-primary mb-2">Authentication Required</h1>
+            <p className="text-on-surface-variant text-[14px] leading-[20px]">
               You must be signed in as a registered citizen to file grievances. Register your feedback to track updates dynamically.
             </p>
           </div>
           <div className="w-full flex flex-col gap-3">
             <Link to={`/auth/citizen/login?next=${next}`} className="w-full">
-              <button className="w-full py-3 rounded-lg bg-[#002045] hover:bg-[#1960a3] font-bold text-white shadow-sm transition-all active:scale-95 text-[14px]">
+              <button className="w-full py-3 rounded-[10px] bg-primary hover:bg-secondary font-bold text-white shadow-sm transition-all active:scale-95 text-[14px]">
                 Sign In Now
               </button>
             </Link>
             <Link to={`/road/${id}`} className="w-full">
-              <button className="w-full py-3 rounded-lg border border-[#c4c6cf] hover:bg-[#eff4ff] font-semibold text-[#43474e] transition-colors text-[14px]">
+              <button className="w-full py-3 rounded-[10px] border border-outline-variant hover:bg-surface-container-low font-semibold text-on-surface-variant transition-colors text-[14px]">
                 Back to Road Profile
               </button>
             </Link>
@@ -143,32 +143,32 @@ export default function ComplaintWizard() {
   // Submitted success state
   if (status === 'submitted') {
     return (
-      <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30] flex items-center justify-center p-6 font-sans">
+      <div className="page-radial-bg min-h-screen text-on-surface flex items-center justify-center p-6 font-sans">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full rounded-2xl border border-[#d3e4fe] bg-white p-8 shadow-xl text-center flex flex-col items-center gap-6"
+          className="max-w-md w-full rounded-[16px] border border-outline-variant bg-surface-container-lowest p-8 shadow-xl text-center flex flex-col items-center gap-6"
         >
           <div className="w-16 h-16 rounded-full bg-[#005231]/10 border border-[#005231]/20 flex items-center justify-center text-[#005231]">
             <span className="material-symbols-outlined text-[32px] animate-bounce">verified_user</span>
           </div>
           <div>
-            <span className="px-3 py-1 rounded-lg bg-[#9ff5c1] text-[#005231] text-[12px] font-semibold uppercase tracking-wider mb-3 inline-block">
+            <span className="px-3 py-1 rounded-[8px] bg-tertiary-fixed text-on-tertiary-fixed text-[12px] font-semibold uppercase tracking-wider mb-3 inline-block">
               Saved Offline First
             </span>
-            <h1 className="text-[24px] font-bold text-[#002045] tracking-tight mb-2">Grievance Logged</h1>
-            <p className="text-[#43474e] text-[14px] leading-[20px]">
+            <h1 className="text-[24px] font-bold text-primary tracking-tight mb-2">Grievance Logged</h1>
+            <p className="text-on-surface-variant text-[14px] leading-[20px]">
               Your structural grievance has been encrypted and saved in the secure device database. Offline outbox will automatically broadcast it to local authorities upon cellular connectivity.
             </p>
           </div>
           <div className="w-full flex flex-col gap-3">
             <Link to={`/complaints/${complaintId}`} className="w-full">
-              <button className="w-full py-3 rounded-lg bg-[#002045] hover:bg-[#1960a3] font-bold text-white shadow-sm transition-all active:scale-95 text-[14px]">
+              <button className="w-full py-3 rounded-[10px] bg-primary hover:bg-secondary font-bold text-white shadow-sm transition-all active:scale-95 text-[14px]">
                 Open Live Timeline
               </button>
             </Link>
             <Link to="/complaints" className="w-full">
-              <button className="w-full py-3 rounded-lg border border-[#c4c6cf] hover:bg-[#eff4ff] font-semibold text-[#43474e] transition-colors text-[14px]">
+              <button className="w-full py-3 rounded-[10px] border border-outline-variant hover:bg-surface-container-low font-semibold text-on-surface-variant transition-colors text-[14px]">
                 Back to All Complaints
               </button>
             </Link>
@@ -179,28 +179,63 @@ export default function ComplaintWizard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30] font-sans pb-20 pt-10">
+    <div className="page-radial-bg min-h-screen text-on-surface font-sans pb-20 pt-10">
       <main className="max-w-[1280px] mx-auto w-full px-4 md:px-16">
         
         {/* Header Section */}
         <div className="mb-10">
-          <h1 className="text-[30px] font-bold text-[#002045] leading-[38px] mb-2">Submit a New Grievance</h1>
-          <p className="text-[16px] leading-[24px] text-[#43474e] max-w-2xl">
+          <h1 className="text-[30px] font-bold text-primary leading-[38px] mb-2">Submit a New Grievance</h1>
+          <p className="text-[16px] leading-[24px] text-on-surface-variant max-w-2xl">
             Your report facilitates institutional accountability. Provide accurate details to ensure rapid response and transparency.
           </p>
         </div>
 
+        <section className="glass-panel rounded-xl p-6 mb-10">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+            <div className="max-w-2xl">
+              <h2 className="text-[20px] font-bold text-primary mb-2">1. Add a photo first</h2>
+              <p className="text-[14px] text-on-surface-variant leading-[20px]">
+                Select your evidence photo now. The upload continues in the background while you move through the rest of the complaint details.
+              </p>
+            </div>
+            <div className="w-full lg:max-w-md">
+              <ResumableUpload onComplete={onMediaComplete} metadata={{ type: 'citizen_complaint', roadId: id || 'r1' }} />
+            </div>
+          </div>
+          {mediaAsset && (
+            <div className="mt-5 flex items-center justify-between p-3 bg-surface-container-low border border-outline-variant border-l-4 border-l-secondary rounded-[10px]">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded bg-secondary-container overflow-hidden border border-outline-variant flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-secondary">image</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[14px] font-bold text-on-surface truncate max-w-[240px]">
+                    {mediaAsset.filename}
+                  </p>
+                  <p className="text-[12px] text-on-surface-variant">Upload complete. Details can continue below.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setMediaAsset(null)}
+                className="text-[#43474e] hover:text-[#ba1a1a] transition-colors p-1"
+              >
+                <span className="material-symbols-outlined text-[20px]">delete</span>
+              </button>
+            </div>
+          )}
+        </section>
+
         {/* Stepper Component */}
-        <div className="bg-white border border-[#c4c6cf] rounded-xl p-6 mb-10 shadow-sm overflow-x-auto">
+        <div className="glass-panel border-outline-variant rounded-xl p-6 mb-10 shadow-sm overflow-x-auto">
           <div className="flex items-center justify-between min-w-[600px] px-8">
             {/* Step 1 Category */}
             <div className="flex flex-col items-center gap-2 cursor-pointer" onClick={() => setStep(1)}>
               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${
                 step > 1 
-                  ? 'bg-[#9ff5c1] text-[#005231]' 
+                  ? 'bg-amber-100 text-amber-900' 
                   : step === 1 
-                    ? 'bg-[#002045] text-white shadow' 
-                    : 'bg-[#dce9ff] text-[#43474e]'
+                    ? 'bg-secondary text-white shadow' 
+                    : 'bg-surface-container-low text-on-surface-variant'
               }`}>
                 {step > 1 ? <span className="material-symbols-outlined text-[20px]">check</span> : '1'}
               </div>
@@ -213,10 +248,10 @@ export default function ComplaintWizard() {
             <div className="flex flex-col items-center gap-2 cursor-pointer" onClick={() => { if (step >= 1) setStep(2) }}>
               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${
                 step > 2 
-                  ? 'bg-[#9ff5c1] text-[#005231]' 
+                  ? 'bg-amber-100 text-amber-900' 
                   : step === 2 
-                    ? 'bg-[#002045] text-white shadow' 
-                    : 'bg-[#dce9ff] text-[#43474e]'
+                    ? 'bg-secondary text-white shadow' 
+                    : 'bg-surface-container-low text-on-surface-variant'
               }`}>
                 {step > 2 ? <span className="material-symbols-outlined text-[20px]">check</span> : '2'}
               </div>
@@ -229,8 +264,8 @@ export default function ComplaintWizard() {
             <div className="flex flex-col items-center gap-2 cursor-pointer" onClick={() => { if (step >= 2) setStep(3) }}>
               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${
                 step === 3 
-                  ? 'bg-[#002045] text-white shadow' 
-                  : 'bg-[#dce9ff] text-[#43474e]'
+                  ? 'bg-secondary text-white shadow' 
+                  : 'bg-surface-container-low text-on-surface-variant'
               }`}>
                 3
               </div>
@@ -248,7 +283,7 @@ export default function ComplaintWizard() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.2 }}
-              className="bg-white border border-[#c4c6cf] rounded-xl p-8 shadow-sm"
+              className="glass-panel border-outline-variant rounded-xl p-8 shadow-sm"
             >
               <h2 className="text-[20px] font-bold text-[#002045] mb-2 flex items-center gap-2">
                 <span className="material-symbols-outlined text-[#1960a3]">category</span>
@@ -267,8 +302,8 @@ export default function ComplaintWizard() {
                       onClick={() => setDamageType(t.id)}
                       className={`p-6 rounded-xl border-2 cursor-pointer flex flex-col gap-2 transition-all ${
                         isSelected
-                          ? 'bg-[#eff4ff] border-[#1960a3] shadow-sm'
-                          : 'bg-white border-[#c4c6cf] hover:border-[#74777f]'
+                          ? 'bg-surface-container-low border-secondary shadow-sm'
+                          : 'glass-panel hover:border-secondary'
                       }`}
                     >
                       <div className="flex justify-between items-center">
@@ -300,8 +335,8 @@ export default function ComplaintWizard() {
               <div className="lg:col-span-8 space-y-8">
                 
                 {/* Location Picker Visual */}
-                <section className="bg-white border border-[#c4c6cf] rounded-xl overflow-hidden shadow-sm">
-                  <div className="p-6 border-b border-[#c4c6cf] flex justify-between items-center bg-[#eff4ff]">
+                <section className="glass-panel border-outline-variant rounded-xl overflow-hidden shadow-sm">
+                  <div className="p-6 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
                     <div>
                       <h2 className="text-[20px] font-bold text-[#002045]">Pin Location</h2>
                       <p className="text-[14px] text-[#43474e]">Mark the exact site of the infrastructure failure on the map.</p>
@@ -335,7 +370,7 @@ export default function ComplaintWizard() {
                 </section>
 
                 {/* Details Form Card */}
-                <section className="bg-white border border-[#c4c6cf] rounded-xl p-6 shadow-sm">
+                <section className="glass-panel border-outline-variant rounded-xl p-6 shadow-sm">
                   <h2 className="text-[20px] font-bold text-[#002045] mb-6">Issue Details</h2>
                   <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -376,23 +411,19 @@ export default function ComplaintWizard() {
                 </section>
               </div>
 
-              {/* Right Sidebar Uploader Panel */}
+              {/* Right Sidebar Evidence Summary */}
               <div className="lg:col-span-4 space-y-8">
-                <section className="bg-white border border-[#c4c6cf] rounded-xl p-6 shadow-sm sticky top-24">
-                  <h2 className="text-[20px] font-bold text-[#002045] mb-2">Evidence Upload</h2>
-                  <p className="text-[14px] text-[#43474e] mb-6">Visual documentation facilitates rapid institutional verification.</p>
-                  
-                  {/* Uploader Box */}
-                  <div className="bg-[#eff4ff] border-2 border-dashed border-[#c4c6cf] hover:border-[#1960a3] rounded-xl p-6 flex flex-col items-center justify-center text-center transition-all cursor-pointer">
-                    <span className="material-symbols-outlined text-[36px] text-[#43474e] mb-2">cloud_upload</span>
-                    <ResumableUpload
-                      metadata={{ type: 'complaint', complaintId, roadId: id || 'r1' }}
-                      onComplete={onMediaComplete}
-                    />
-                  </div>
+                <section className="glass-panel border-outline-variant rounded-xl p-6 shadow-sm sticky top-24">
+                  <h2 className="text-[20px] font-bold text-[#002045] mb-2">Evidence Timeline</h2>
+                  <p className="text-[14px] text-[#43474e] mb-6">Your upload is tracked separately from the form, so it can continue in the background while you type.</p>
 
-                  {/* Files Preview Grid */}
-                  <div className="mt-6 space-y-3">
+                  <div className="space-y-3">
+                    <div className="p-4 rounded-xl bg-[#eff4ff] border border-[#d3e4fe]">
+                      <div className="text-[11px] uppercase tracking-widest text-[#74777f] font-bold">Current upload state</div>
+                      <div className="mt-2 text-[14px] font-semibold text-[#002045]">
+                        {mediaAsset ? 'Photo captured and queued for submission' : 'Waiting for the first photo'}
+                      </div>
+                    </div>
                     {mediaAsset && (
                       <div className="flex items-center justify-between p-3 bg-[#eff4ff] border border-[#c4c6cf] border-l-4 border-l-[#1960a3] rounded-lg">
                         <div className="flex items-center gap-3">
@@ -414,14 +445,12 @@ export default function ComplaintWizard() {
                         </button>
                       </div>
                     )}
-                  </div>
-
-                  {/* Cryptographic Hash badge */}
-                  <div className="mt-8 p-4 bg-[#eff4ff] border border-[#d3e4fe] rounded-lg flex items-start gap-3">
-                    <span className="material-symbols-outlined text-[#1960a3] text-[20px]">verified_user</span>
-                    <p className="text-[13px] text-[#002045] font-medium leading-relaxed">
-                      All uploads are cryptographically hashed to ensure evidentiary integrity, preventing any tampering during review pipelines.
-                    </p>
+                    <div className="mt-2 p-4 bg-[#eff4ff] border border-[#d3e4fe] rounded-lg flex items-start gap-3">
+                      <span className="material-symbols-outlined text-[#1960a3] text-[20px]">verified_user</span>
+                      <p className="text-[13px] text-[#002045] font-medium leading-relaxed">
+                        All uploads are cryptographically hashed to ensure evidentiary integrity, preventing any tampering during review pipelines.
+                      </p>
+                    </div>
                   </div>
                 </section>
               </div>
@@ -435,7 +464,7 @@ export default function ComplaintWizard() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.2 }}
-              className="bg-white border border-[#c4c6cf] rounded-xl p-8 shadow-sm max-w-2xl mx-auto"
+              className="glass-panel border-outline-variant rounded-xl p-8 shadow-sm max-w-2xl mx-auto"
             >
               <h2 className="text-[20px] font-bold text-[#002045] mb-2 flex items-center gap-2">
                 <span className="material-symbols-outlined text-[#ba1a1a]">warning</span>

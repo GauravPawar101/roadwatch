@@ -1,69 +1,6 @@
 import { randomUUID } from 'crypto';
-import { client, connect, execute } from './cassandra.js';
+import { pool } from './postgres.js';
 import { encryptPhone, hashPhone, maskPhone, normalizePhone, phoneLast4 } from './security/phone.js';
-
-// Compatibility shim: provide a `pool.query(sql, params)` wrapper used by other modules.
-export const pool: {
-  query: <T = any>(sql: string, params?: any[]) => Promise<any>;
-  connect: () => Promise<{ query: <T = any>(sql: string, params?: any[]) => Promise<any>; release: () => void }>;
-} = {
-  async query<T = any>(sql: string, params?: any[]) {
-    const raw = (sql || '');
-    const s = raw.trim().toUpperCase();
-    // Common health check pattern used in services
-    if (s === 'SELECT 1' || s.startsWith('SELECT 1;')) {
-      const r = await execute('SELECT release_version FROM system.local', [], { prepare: true });
-      return { rows: [{ release_version: r.rows[0]?.release_version ?? null }] } as any;
-    }
-    if (s.startsWith('SELECT NOW()') || s.startsWith('SELECT NOW')) {
-      const r = await execute('SELECT now() FROM system.local', [], { prepare: true });
-      return { rows: [{ now: r.rows[0]?.now ?? new Date() }] } as any;
-    }
-
-    // Attempt a best-effort translation of Postgres parameterized SQL to simple CQL
-    try {
-      let cql = raw;
-      const newParams: any[] = Array.isArray(params) ? params.slice() : [];
-
-      // Remove type casts like ::uuid, ::jsonb
-      cql = cql.replace(/::[a-zA-Z0-9_]+/g, '');
-
-      // Replace Postgres $1, $2 placeholders with CQL ?
-      cql = cql.replace(/\$\d+/g, '?');
-
-      // Strip RETURNING clauses (Cassandra does not support)
-      cql = cql.replace(/\bRETURNING\b[\s\S]*$/i, '');
-
-      // Remove ON CONFLICT ... DO UPDATE (Cassandra INSERT will upsert)
-      cql = cql.replace(/ON\s+CONFLICT[\s\S]*?DO\s+UPDATE[\s\S]*/i, '');
-
-      // Replace now() usages with parameterized Date values
-      if (/now\s*\(\s*\)/i.test(cql) || /CURRENT_TIMESTAMP/i.test(cql)) {
-        cql = cql.replace(/now\s*\(\s*\)/ig, '?');
-        cql = cql.replace(/CURRENT_TIMESTAMP/ig, '?');
-        newParams.push(new Date());
-      }
-
-      // Basic cast removals for json operations like '::jsonb' done above. Also remove '::text' etc.
-
-      const res = await execute(cql, newParams, { prepare: true });
-      // Normalize to match pg Pool.query shape
-      return { rows: res.rows } as any;
-    } catch (e) {
-      throw new Error(`Unmapped or failed SQL -> CQL translation for query: ${sql}\nError: ${String(e)}`);
-    }
-  }
-  ,
-  async connect() {
-    // Provide a minimal client wrapper so code that calls `pool.connect()` still typechecks and runs.
-    return {
-      query: async <T = any>(sql: string, params?: any[]) => {
-        return await (pool.query as any)(sql, params) as any;
-      },
-      release: () => {}
-    };
-  }
-};
 
 export type Role = 'CE' | 'EE' | 'CONTRACTOR' | 'CITIZEN';
 
@@ -94,12 +31,16 @@ export type ContractorRow = {
 };
 
 export async function initDb(): Promise<void> {
-  // DDL and seeding moved to docker/cassandra/init.cql + seed scripts.
-  // Just ensure Cassandra client is connected for runtime use.
-  await connect();
-  return;
+  // PostgreSQL migrations are handled by migration scripts.
+  // Verify connection to database.
+  const client = await pool.connect();
+  try {
+    await client.query('SELECT NOW()');
+    console.log('PostgreSQL connected and ready');
+  } finally {
+    client.release();
+  }
 }
- 
 
 export async function createContractor(input: {
   companyName: string;
@@ -111,11 +52,11 @@ export async function createContractor(input: {
   const districts = input.districts ?? [];
   const zones = input.zones ?? [];
   const id = randomUUID();
-  const metadata = JSON.stringify({ registrationNumber: input.registrationNumber, contactPhoneMasked: input.contactPhoneMasked ?? null, districts, zones });
-  await execute(
-    `INSERT INTO contractors (id, name, metadata, created_at) VALUES (?, ?, ?, ?)`,
-    [id, input.companyName, metadata, new Date()],
-    { prepare: true }
+
+  await pool.query(
+    `INSERT INTO contractors (id, name, registration_number, contact_phone_masked, districts, zones, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [id, input.companyName, input.registrationNumber, input.contactPhoneMasked ?? null, districts, zones, new Date()]
   );
 
   return {
@@ -128,36 +69,33 @@ export async function createContractor(input: {
   };
 }
 
-async function backfillLegacyPhones(): Promise<void> {
-  // Legacy backfill is not implemented for Cassandra migration.
-  // Use `scripts/migrate-postgres-to-cassandra` to perform data migration.
-  return;
-}
-
 export async function getUserByPhone(phone: string): Promise<UserRow | null> {
   const normalized = normalizePhone(phone);
   const h = hashPhone(normalized);
-  // Lookup via users_by_phonehash table
-  const map = await execute('SELECT user_id FROM users_by_phonehash WHERE phone_hash = ?', [h], { prepare: true });
-  const userId = map.rows[0]?.user_id;
-  if (!userId) return null;
-  const r2 = await execute('SELECT id, phone, phone_hash, identifier, metadata, created_at, updated_at FROM users WHERE id = ?', [userId], { prepare: true });
-  const row = r2.rows[0];
-  if (!row) return null;
-  const meta = row.metadata ? JSON.parse(row.metadata) : {};
+
+  const result = await pool.query(
+    `SELECT id, phone, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, districts, zones, created_at
+     FROM users
+     WHERE phone_hash = $1`,
+    [h]
+  );
+
+  if (result.rows.length === 0) return null;
+
+  const row = result.rows[0];
   return {
     id: row.id,
-    phone: row.phone ?? meta.phone_masked ?? '',
+    phone: row.phone ?? '',
     phoneHash: row.phone_hash ?? null,
-    phoneEnc: meta.phone_enc ?? null,
-    phoneLast4: meta.phone_last4 ?? null,
-    username: meta.username ?? null,
-    clerkUserId: meta.clerk_user_id ?? null,
-    email: meta.email ?? null,
-    govtId: meta.govt_id ?? null,
-    role: (meta.role as Role) ?? 'CITIZEN',
-    districts: meta.districts ?? [],
-    zones: meta.zones ?? [],
+    phoneEnc: row.phone_enc ?? null,
+    phoneLast4: row.phone_last4 ?? null,
+    username: row.username ?? null,
+    clerkUserId: row.clerk_user_id ?? null,
+    email: row.email ?? null,
+    govtId: row.govt_id ?? null,
+    role: (row.role as Role) ?? 'CITIZEN',
+    districts: row.districts ?? [],
+    zones: row.zones ?? [],
     created_at: row.created_at
   };
 }
@@ -165,11 +103,38 @@ export async function getUserByPhone(phone: string): Promise<UserRow | null> {
 export async function getUserByIdentifier(identifier: string): Promise<UserRow | null> {
   const normalized = identifier.trim();
   const normalizedPhone = normalized.startsWith('+') || /^\d+$/.test(normalized) ? normalizePhone(normalized) : null;
-  const phoneHash = normalizedPhone ? hashPhone(normalizedPhone) : null;
-  const loginName = normalized.toLowerCase();
-  if (phoneHash) return getUserByPhone(normalizedPhone as string);
-  // Non-phone identifier lookups require additional denormalized tables (username/email). Not implemented yet.
-  return null;
+
+  if (normalizedPhone) {
+    return getUserByPhone(normalizedPhone);
+  }
+
+  // Try username or email lookup
+  const lowerIdent = normalized.toLowerCase();
+  const result = await pool.query(
+    `SELECT id, phone, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, districts, zones, created_at
+     FROM users
+     WHERE LOWER(username) = $1 OR LOWER(email) = $1`,
+    [lowerIdent]
+  );
+
+  if (result.rows.length === 0) return null;
+
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    phone: row.phone ?? '',
+    phoneHash: row.phone_hash ?? null,
+    phoneEnc: row.phone_enc ?? null,
+    phoneLast4: row.phone_last4 ?? null,
+    username: row.username ?? null,
+    clerkUserId: row.clerk_user_id ?? null,
+    email: row.email ?? null,
+    govtId: row.govt_id ?? null,
+    role: (row.role as Role) ?? 'CITIZEN',
+    districts: row.districts ?? [],
+    zones: row.zones ?? [],
+    created_at: row.created_at
+  };
 }
 
 export async function upsertUser(params: {
@@ -197,32 +162,43 @@ export async function upsertUser(params: {
     }
   })();
 
-  // Upsert user into `users` table storing most attributes in `metadata` JSON.
-  const existing = await execute('SELECT user_id FROM users_by_phonehash WHERE phone_hash = ?', [phoneHash], { prepare: true });
-  let id = existing.rows[0]?.user_id;
-  const metadata = {
-    phone_enc: enc,
-    phone_last4: last4,
-    phone_masked: phoneMasked,
-    username,
-    clerk_user_id: clerkUserId,
-    email,
-    govt_id: params.govtId ?? null,
-    role: params.role,
-    districts: params.districts,
-    zones: params.zones
-  };
-  if (!id) {
-    id = randomUUID();
-    await execute('INSERT INTO users (id, phone, phone_hash, identifier, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [id, normalized, phoneHash, null, JSON.stringify(metadata), new Date(), new Date()], { prepare: true });
-    await execute('INSERT INTO users_by_phonehash (phone_hash, user_id) VALUES (?, ?)', [phoneHash, id], { prepare: true });
-  } else {
-    // Update metadata for existing user (replace whole metadata blob)
-    await execute('UPDATE users SET phone = ?, metadata = ?, updated_at = ? WHERE id = ?', [normalized, JSON.stringify(metadata), new Date(), id], { prepare: true });
-  }
+  const now = new Date();
+
+  await pool.query(
+    `INSERT INTO users (id, phone, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, districts, zones, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     ON CONFLICT (phone_hash) DO UPDATE SET
+       phone = $2,
+       phone_enc = $4,
+       phone_last4 = $5,
+       username = $6,
+       clerk_user_id = $7,
+       email = $8,
+       govt_id = $9,
+       role = $10,
+       districts = $11,
+       zones = $12,
+       updated_at = $14`,
+    [
+      randomUUID(),
+      normalized,
+      phoneHash,
+      enc,
+      last4,
+      username,
+      clerkUserId,
+      email,
+      params.govtId ?? null,
+      params.role,
+      params.districts,
+      params.zones,
+      now,
+      now
+    ]
+  );
 
   return {
-    id,
+    id: randomUUID(),
     phone: phoneMasked,
     phoneHash,
     phoneEnc: enc,
@@ -234,39 +210,45 @@ export async function upsertUser(params: {
     role: params.role,
     districts: params.districts,
     zones: params.zones,
-    created_at: new Date()
+    created_at: now
   };
 }
 
 export async function listUsers(params?: { roles?: Role[]; limit?: number }): Promise<UserRow[]> {
   const limit = Math.min(5000, Math.max(1, Math.floor(params?.limit ?? 500)));
-  // Simple listing via scanning `users` (may be inefficient for large datasets).
-  const r = await execute(`SELECT id, phone, phone_hash, metadata, created_at FROM users LIMIT ?`, [limit], { prepare: true });
-  return r.rows.map((row: any) => {
-    const meta = row.metadata ? JSON.parse(row.metadata) : {};
-    return {
-      id: row.id,
-      phone: row.phone ?? meta.phone_masked ?? '',
-      phoneHash: row.phone_hash ?? null,
-      phoneEnc: meta.phone_enc ?? null,
-      phoneLast4: meta.phone_last4 ?? null,
-      username: meta.username ?? null,
-      clerkUserId: meta.clerk_user_id ?? null,
-      email: meta.email ?? null,
-      govtId: meta.govt_id ?? null,
-      role: (meta.role as Role) ?? 'CITIZEN',
-      districts: meta.districts ?? [],
-      zones: meta.zones ?? [],
-      created_at: row.created_at
-    } as UserRow;
-  });
+
+  let query = 'SELECT id, phone, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, districts, zones, created_at FROM users';
+  const queryParams: any[] = [];
+
+  if (params?.roles && params.roles.length > 0) {
+    query += ' WHERE role = ANY($1)';
+    queryParams.push(params.roles);
+  }
+
+  query += ` LIMIT $${queryParams.length + 1}`;
+  queryParams.push(limit);
+
+  const result = await pool.query(query, queryParams);
+
+  return result.rows.map((row: any) => ({
+    id: row.id,
+    phone: row.phone ?? '',
+    phoneHash: row.phone_hash ?? null,
+    phoneEnc: row.phone_enc ?? null,
+    phoneLast4: row.phone_last4 ?? null,
+    username: row.username ?? null,
+    clerkUserId: row.clerk_user_id ?? null,
+    email: row.email ?? null,
+    govtId: row.govt_id ?? null,
+    role: (row.role as Role) ?? 'CITIZEN',
+    districts: row.districts ?? [],
+    zones: row.zones ?? [],
+    created_at: row.created_at
+  })) as UserRow[];
 }
 
 // ---------------------------------------------------------------------------
 // Public onboarding data (mobile-host)
-//
-// This is intentionally minimal and non-PII. The primary goal is to provide a
-// stable API surface for clients and local dev.
 // ---------------------------------------------------------------------------
 
 export type Country = { code: string; name: string; timeZone: string };
@@ -286,44 +268,53 @@ export type RoadCatalogItem = {
   totalLengthKm: number;
 };
 
-type CountryRow = { code: string; name: string; default_time_zone: string };
-type StateRow = { country_code: string; code: string; name: string };
-type DistrictRow = {
-  id: string;
-  country_code: string;
-  state_code: string;
-  code: string;
-  name: string;
-  top_left_lat: number;
-  top_left_lng: number;
-  bottom_right_lat: number;
-  bottom_right_lng: number;
-  min_zoom: number;
-  max_zoom: number;
-  tile_style_url: string | null;
-};
-
 export async function listCountries(): Promise<Country[]> {
-  const r = await execute('SELECT code, name, default_time_zone FROM countries', [], { prepare: true });
-  const rows = r.rows as CountryRow[];
-  return rows.map((c) => ({ code: c.code, name: c.name, timeZone: c.default_time_zone })).sort((a, b) => a.name.localeCompare(b.name));
+  const result = await pool.query(
+    `SELECT code, name, default_time_zone FROM countries ORDER BY name ASC`
+  );
+
+  return result.rows.map((c: any) => ({
+    code: c.code,
+    name: c.name,
+    timeZone: c.default_time_zone
+  }));
 }
 
 export async function listStates(countryCode: string): Promise<State[]> {
-  const r = await execute('SELECT code, name FROM states WHERE country_code = ?', [countryCode], { prepare: true });
-  const rows = r.rows as Array<{ code: string; name: string }>;
-  return rows.map((s) => ({ code: s.code, name: s.name })).sort((a, b) => a.name.localeCompare(b.name));
+  const result = await pool.query(
+    `SELECT code, name FROM states WHERE country_code = $1 ORDER BY name ASC`,
+    [countryCode]
+  );
+
+  return result.rows.map((s: any) => ({
+    code: s.code,
+    name: s.name
+  }));
 }
 
 export async function listDistricts(countryCode: string, stateCode: string): Promise<District[]> {
-  const r = await execute('SELECT id, code, name FROM districts_by_state WHERE country_code = ? AND state_code = ?', [countryCode, stateCode], { prepare: true });
-  return (r.rows || []).map((d: any) => ({ id: d.id, code: d.code, name: d.name }));
+  const result = await pool.query(
+    `SELECT id, code, name FROM districts WHERE country_code = $1 AND state_code = $2`,
+    [countryCode, stateCode]
+  );
+
+  return result.rows.map((d: any) => ({
+    id: d.id,
+    code: d.code,
+    name: d.name
+  }));
 }
 
 export async function getDistrictOfflineManifest(districtId: string): Promise<OfflineManifest | null> {
-  const r = await execute('SELECT id, top_left_lat, top_left_lng, bottom_right_lat, bottom_right_lng, min_zoom, max_zoom, tile_style_url FROM districts_by_state WHERE id = ? ALLOW FILTERING', [districtId], { prepare: true });
-  const d = r.rows[0];
-  if (!d) return null;
+  const result = await pool.query(
+    `SELECT id, top_left_lat, top_left_lng, bottom_right_lat, bottom_right_lng, min_zoom, max_zoom, tile_style_url
+     FROM districts WHERE id = $1`,
+    [districtId]
+  );
+
+  if (result.rows.length === 0) return null;
+
+  const d = result.rows[0];
   return {
     districtId: d.id,
     bbox: {
@@ -336,17 +327,19 @@ export async function getDistrictOfflineManifest(districtId: string): Promise<Of
 }
 
 export async function listRoadsForDistrict(districtId: string): Promise<RoadCatalogItem[]> {
-  const r = await execute('SELECT id, name, metadata FROM roads_catalog WHERE district_id = ? ALLOW FILTERING', [districtId], { prepare: true });
-  return (r.rows || []).map((row: any) => {
-    const meta = row.metadata ? JSON.parse(row.metadata) : {};
-    return {
-      id: row.id,
-      name: row.name,
-      roadType: meta.road_type ?? '',
-      authorityId: meta.authority_id ?? '',
-      totalLengthKm: meta.total_length_km ?? 0
-    } as RoadCatalogItem;
-  });
+  const result = await pool.query(
+    `SELECT id, name, road_type, authority_id, total_length_km
+     FROM roads_catalog WHERE district_id = $1`,
+    [districtId]
+  );
+
+  return result.rows.map((row: any) => ({
+    id: row.id,
+    name: row.name,
+    roadType: row.road_type ?? '',
+    authorityId: row.authority_id ?? '',
+    totalLengthKm: row.total_length_km ?? 0
+  })) as RoadCatalogItem[];
 }
 
 export async function upsertCountry(input: {
@@ -354,13 +347,35 @@ export async function upsertCountry(input: {
   name: string;
   defaultTimeZone: string;
 }): Promise<Country> {
-  await execute('INSERT INTO countries (code, name, default_time_zone) VALUES (?, ?, ?)', [input.code.toUpperCase(), input.name, input.defaultTimeZone], { prepare: true });
-  return { code: input.code.toUpperCase(), name: input.name, timeZone: input.defaultTimeZone };
+  await pool.query(
+    `INSERT INTO countries (code, name, default_time_zone) VALUES ($1, $2, $3)
+     ON CONFLICT (code) DO UPDATE SET name = $2, default_time_zone = $3`,
+    [input.code.toUpperCase(), input.name, input.defaultTimeZone]
+  );
+
+  return {
+    code: input.code.toUpperCase(),
+    name: input.name,
+    timeZone: input.defaultTimeZone
+  };
 }
 
-export async function upsertState(input: { countryCode: string; code: string; name: string }): Promise<State & { countryCode: string }> {
-  await execute('INSERT INTO states (country_code, code, name) VALUES (?, ?, ?)', [input.countryCode.toUpperCase(), input.code.toUpperCase(), input.name], { prepare: true });
-  return { countryCode: input.countryCode.toUpperCase(), code: input.code.toUpperCase(), name: input.name };
+export async function upsertState(input: {
+  countryCode: string;
+  code: string;
+  name: string;
+}): Promise<State & { countryCode: string }> {
+  await pool.query(
+    `INSERT INTO states (country_code, code, name) VALUES ($1, $2, $3)
+     ON CONFLICT (country_code, code) DO UPDATE SET name = $3`,
+    [input.countryCode.toUpperCase(), input.code.toUpperCase(), input.name]
+  );
+
+  return {
+    countryCode: input.countryCode.toUpperCase(),
+    code: input.code.toUpperCase(),
+    name: input.name
+  };
 }
 
 export async function upsertDistrict(input: {
@@ -374,15 +389,19 @@ export async function upsertDistrict(input: {
 }): Promise<District> {
   const zoomMin = input.zoom?.min ?? 10;
   const zoomMax = input.zoom?.max ?? 16;
-
   const id = randomUUID();
-  await execute(
-    'INSERT INTO districts_by_state (country_code, state_code, code, id, name, top_left_lat, top_left_lng, bottom_right_lat, bottom_right_lng, min_zoom, max_zoom, tile_style_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+
+  await pool.query(
+    `INSERT INTO districts (id, country_code, state_code, code, name, top_left_lat, top_left_lng, bottom_right_lat, bottom_right_lng, min_zoom, max_zoom, tile_style_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     ON CONFLICT (id) DO UPDATE SET
+       code = $4, name = $5, top_left_lat = $6, top_left_lng = $7,
+       bottom_right_lat = $8, bottom_right_lng = $9, min_zoom = $10, max_zoom = $11, tile_style_url = $12`,
     [
+      id,
       input.countryCode.toUpperCase(),
       input.stateCode.toUpperCase(),
       input.code.toUpperCase(),
-      id,
       input.name,
       input.bbox.topLeft.lat,
       input.bbox.topLeft.lng,
@@ -391,10 +410,14 @@ export async function upsertDistrict(input: {
       zoomMin,
       zoomMax,
       input.tileStyleUrl ?? null
-    ],
-    { prepare: true }
+    ]
   );
-  return { id, code: input.code.toUpperCase(), name: input.name };
+
+  return {
+    id,
+    code: input.code.toUpperCase(),
+    name: input.name
+  };
 }
 
 export async function bulkUpsertRoads(input: {
@@ -409,11 +432,37 @@ export async function bulkUpsertRoads(input: {
   }>;
 }): Promise<{ insertedOrUpdated: number }> {
   if (input.roads.length === 0) return { insertedOrUpdated: 0 };
-  const queries = input.roads.map((road) => ({
-    query: 'INSERT INTO roads_catalog (id, name, district_id, metadata) VALUES (?, ?, ?, ?) ',
-    params: [road.id, road.name, input.districtId, JSON.stringify({ road_type: road.roadType, authority_id: road.authorityId, total_length_km: road.totalLengthKm ?? 0, geometry: road.geometry ?? null })]
-  }));
-  await client.batch(queries, { prepare: true, logged: true });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    for (const road of input.roads) {
+      await client.query(
+        `INSERT INTO roads_catalog (id, name, district_id, road_type, authority_id, total_length_km, geometry)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (id) DO UPDATE SET
+           name = $2, road_type = $4, authority_id = $5, total_length_km = $6, geometry = $7`,
+        [
+          road.id,
+          road.name,
+          input.districtId,
+          road.roadType,
+          road.authorityId,
+          road.totalLengthKm ?? 0,
+          road.geometry ?? null
+        ]
+      );
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
   return { insertedOrUpdated: input.roads.length };
 }
 
@@ -436,8 +485,12 @@ export async function upsertAuthorityDirectory(input: {
   updatedAt: string;
 }> {
   const updatedAt = new Date();
-  await execute(
-    'INSERT INTO authority_directory (authority_id, name, department, public_phone, public_email, website, address, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+
+  await pool.query(
+    `INSERT INTO authority_directory (authority_id, name, department, public_phone, public_email, website, address, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (authority_id) DO UPDATE SET
+       name = $2, department = $3, public_phone = $4, public_email = $5, website = $6, address = $7, updated_at = $8`,
     [
       input.authorityId,
       input.name,
@@ -447,9 +500,9 @@ export async function upsertAuthorityDirectory(input: {
       input.website ?? null,
       input.address ?? null,
       updatedAt
-    ],
-    { prepare: true }
+    ]
   );
+
   return {
     authorityId: input.authorityId,
     name: input.name,
@@ -478,9 +531,22 @@ export async function createRoadAssignment(input: {
   createdAt: string;
 }> {
   const id = randomUUID();
-  const meta = JSON.stringify({ engineerUserId: input.engineerUserId ?? null, startsOn: input.startsOn ?? null, endsOn: input.endsOn ?? null });
   const now = new Date();
-  await execute('INSERT INTO road_assignments (id, road_id, contractor_id, assigned_at, metadata) VALUES (?, ?, ?, ?, ?)', [id, input.roadId, input.contractorId ?? null, now, meta], { prepare: true });
+
+  await pool.query(
+    `INSERT INTO road_assignments (id, road_id, contractor_id, engineer_user_id, starts_on, ends_on, assigned_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      id,
+      input.roadId,
+      input.contractorId ?? null,
+      input.engineerUserId ?? null,
+      input.startsOn ?? null,
+      input.endsOn ?? null,
+      now
+    ]
+  );
+
   return {
     id,
     roadId: input.roadId,

@@ -54,8 +54,10 @@ export default function SyncStatus() {
   const syncProgress = queue.length > 0 ? Math.round((syncedCount / queue.length) * 100) : 100
 
   return (
-    <div className="stitch-display-grid stitch-gap-20">
-      <Card>
+    <div className="page-radial-bg min-h-screen py-12 text-on-surface">
+      <div className="container-max">
+      <div className="stitch-display-grid stitch-gap-20">
+      <Card className="glass-panel rounded-2xl">
         <CardBody>
           <div className="chip">Sync status</div>
           <h1 className="stitch-mt-12 stitch-font-28 stitch-font-800">Monitor offline queue and sync health.</h1>
@@ -78,7 +80,7 @@ export default function SyncStatus() {
         ))}
       </StatsGrid>
 
-      <Card>
+      <Card className="glass-panel rounded-2xl">
         <CardBody>
           <div className="stitch-display-flex stitch-justify-between stitch-items-center">
             <div>
@@ -98,7 +100,7 @@ export default function SyncStatus() {
         </CardBody>
       </Card>
 
-      <Card>
+      <Card className="glass-panel rounded-2xl">
         <CardBody>
           <div className="stitch-font-18 stitch-font-800">Detailed sync information</div>
           <div className="stitch-mt-12 stitch-grid-auto-fit-220">
@@ -124,7 +126,7 @@ export default function SyncStatus() {
         </CardBody>
       </Card>
 
-      <Card>
+      <Card className="glass-panel rounded-2xl">
         <CardBody>
           <div className="stitch-font-18 stitch-font-800">Outbox queue</div>
           <div className="stitch-mt-12 stitch-display-grid stitch-gap-12">
@@ -145,6 +147,8 @@ export default function SyncStatus() {
           </div>
         </CardBody>
       </Card>
+      </div>
+      </div>
     </div>
   )
 }

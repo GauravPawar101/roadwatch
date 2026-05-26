@@ -1,12 +1,13 @@
 import express, { Request, Response } from 'express';
 import * as crypto from 'node:crypto';
+import { pool } from '../../../apps/gateway-api/src/postgres.js';
 import {
     ImageSubmissionDB,
     KarmaDB,
     NonceDB,
     PrivacyDB,
     VerificationAuditDB,
-} from '../../../packages/core/src/db-helpers';
+} from '../../../packages/core/src/db-helpers.ts';
 import type { GenerateNonceRequest, VerificationConfig } from '../../../packages/core/src/image-types';
 import {
     applyDuplicatePenalty,
@@ -33,7 +34,10 @@ import {
     hammingDistance,
     performVerification,
 } from '../../../packages/core/src/verification-service';
-import { validateJWT } from '../middleware/jwt';
+import { requireUserContext, type AuthenticatedRequest } from '../../../packages/sidecar-auth/dist/index.js';
+import { ensureAuthenticated } from '../middleware/auth.js';
+import { requireAuthority } from '../middleware/rbac.js';
+import { permissiveSidecarAuth } from '../middleware/sidecarFallback.js';
 
 const router = express.Router();
 
@@ -92,9 +96,9 @@ export function initializeImageRoutes(pool: Pool): typeof router {
  * POST /submissions/nonce
  * Generate a short-lived nonce for image submission
  */
-router.post('/submissions/nonce', validateJWT, async (req: Request, res: Response) => {
+router.post('/submissions/nonce', permissiveSidecarAuth, requireUserContext, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
+    const userId = req.userContext!.id;
     const { request_id, ttl_seconds } = req.body as GenerateNonceRequest;
 
     if (!userId || !request_id) {
@@ -102,7 +106,20 @@ router.post('/submissions/nonce', validateJWT, async (req: Request, res: Respons
     }
 
     // Check rate limiting
-    const rateCheckResult = canGenerateNonce(0, Date.now() - 2000, 10);
+    const recentNonceRes = await pool.query<{ attempts: number; last_nonce_generated_at: Date | null }>(
+      `SELECT COUNT(*)::int AS attempts,
+              MAX(issued_at) AS last_nonce_generated_at
+       FROM server_nonces
+       WHERE user_id = $1
+         AND issued_at >= NOW() - INTERVAL '1 minute'`,
+      [userId]
+    );
+    const recentNonceRow = recentNonceRes.rows[0];
+    const rateCheckResult = canGenerateNonce(
+      Number(recentNonceRow?.attempts ?? 0),
+      recentNonceRow?.last_nonce_generated_at ? new Date(recentNonceRow.last_nonce_generated_at).getTime() : 0,
+      10
+    );
     if (!rateCheckResult.allowed) {
       return res.status(429).json({
         error: rateCheckResult.reason,
@@ -146,11 +163,11 @@ router.post('/submissions/nonce', validateJWT, async (req: Request, res: Respons
  */
 router.post(
   '/submissions',
-  validateJWT,
+  ensureAuthenticated,
   express.raw({ type: 'application/octet-stream', limit: '50mb' }),
   async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).user?.id;
+      const userId = (req as any).userId;
       const body = req.body as Buffer;
       const {
         request_id,
@@ -185,14 +202,18 @@ router.post(
       if (!nonceRecord) {
         return res.status(400).json({ error: 'Invalid nonce' });
       }
-
+      // After the isNonceFresh check, add:
       if (!isNonceFresh(nonceRecord.issued_at, nonceRecord.expires_at)) {
         return res.status(400).json({
           error: 'Nonce expired',
           time_remaining_ms: getTimeRemaining(nonceRecord.expires_at),
         });
       }
-
+      
+      if (nonceRecord.request_id !== (request_id as string)) {
+        return res.status(400).json({ error: 'Nonce was not issued for this request_id' });
+      }
+      
       // Generate perceptual hash
       const phash = generatePerceptualHash(body);
 
@@ -332,10 +353,10 @@ router.post(
  * GET /submissions/:id
  * Retrieve a submission with privacy filtering
  */
-router.get('/submissions/:id', validateJWT, async (req: Request, res: Response) => {
+router.get('/submissions/:id', ensureAuthenticated, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-    const userRoles = (req as any).user?.roles || ['citizen'];
+    const userId = (req as any).userId;
+    const userRoles = [(req as any).userRole || 'citizen'];
     const { id } = req.params;
 
     const submission = await db.image.getSubmissionById(id);
@@ -390,10 +411,11 @@ router.get('/submissions/:id', validateJWT, async (req: Request, res: Response) 
  * GET /submissions
  * List submissions with filtering and privacy
  */
-router.get('/submissions', validateJWT, async (req: Request, res: Response) => {
+// Listing submissions (bulk) exposes many records — require authority/admin
+router.get('/submissions', ensureAuthenticated, requireAuthority, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-    const userRoles = (req as any).user?.roles || ['citizen'];
+    const userId = (req as any).userId;
+    const userRoles = [(req as any).userRole || 'citizen'];
     const { request_id, status, limit = 50, offset = 0 } = req.query;
 
     const submissions = await db.image.searchSubmissions(
@@ -430,11 +452,11 @@ router.get('/submissions', validateJWT, async (req: Request, res: Response) => {
  * GET /karma/:userId
  * Get user karma (with privacy filtering)
  */
-router.get('/karma/:userId', validateJWT, async (req: Request, res: Response) => {
+router.get('/karma/:userId', ensureAuthenticated, async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
-    const requestingUserId = (req as any).user?.id;
-    const userRoles = (req as any).user?.roles || ['citizen'];
+    const requestingUserId = (req as any).userId;
+    const userRoles = [(req as any).userRole || 'citizen'];
 
     // Citizens can only see their own karma; others are admin/authority
     if (userRoles.includes('citizen') && userId !== requestingUserId) {
@@ -453,7 +475,8 @@ router.get('/karma/:userId', validateJWT, async (req: Request, res: Response) =>
  * GET /karma/leaderboard
  * Get karma leaderboard (top trusted users)
  */
-router.get('/karma/leaderboard', async (req: Request, res: Response) => {
+// Leaderboard may expose aggregate trust info — restrict to authority/admin
+router.get('/karma/leaderboard', ensureAuthenticated, requireAuthority, async (req: Request, res: Response) => {
   try {
     const { tier, limit = 100, offset = 0 } = req.query;
     const leaderboard = await db.karma.getLeaderboard(

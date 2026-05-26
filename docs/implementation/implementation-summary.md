@@ -10,12 +10,12 @@ Complete, conflict-free implementation of geotagged image submissions with anti-
 
 ### Database Layer
 
-**Migrations** (Cassandra schema)
+**Migrations** (PostgreSQL schema)
 ```
 packages/core/migrations/
-├── 001_create_image_submissions.cql      [273 lines] - Image submissions, server nonces
-├── 002_create_karma_audit.cql            [223 lines] - Karma records, verification audits, appeals
-└── 003_create_privacy_rbac.cql           [189 lines] - Privacy profiles, access logs, encryption metadata
+├── 001_create_image_submissions.sql      [273 lines] - Image submissions, server nonces
+├── 002_create_karma_audit.sql            [223 lines] - Karma records, verification audits, appeals
+└── 003_create_privacy_rbac.sql           [189 lines] - Privacy profiles, access logs, encryption metadata
 ```
 
 **Summary**: 7 tables, 35+ indexes, immutable audit trail for compliance
@@ -130,7 +130,7 @@ packages/core/src/config.ts               [221 lines]
 **Migration Runner**
 ```
 packages/core/src/migration-runner.ts     [92 lines]
-├── runMigrations() - Execute CQL in order
+├── runMigrations() - Execute SQL migrations in order
 ├── setupDevelopmentDatabase() - Full setup
 └── seedInitialData() - Create admin profile
 ```
@@ -297,7 +297,7 @@ IMAGE_SUBMISSION_SYSTEM.md                [600+ lines]
 ```
 Total Files Created:        16
 Total Lines of Code:        3,500+
-Database Migrations:        680 lines (CQL)
+Database Migrations:        680 lines (SQL)
 TypeScript Services:        1,740 lines
 API Routes:                 377 lines
 Tests:                      487 lines
@@ -308,8 +308,8 @@ Configuration:              221 lines
 ## ⚙️ Technology Stack
 
 - **Runtime**: Node.js + TypeScript
-- **Database**: Apache Cassandra 4.1+
-- **Driver**: cassandra-driver (prepared CQL queries)
+- **Database**: PostgreSQL 16+
+- **Driver**: pg (prepared SQL queries)
 - **Testing**: Vitest
 - **Verification**: 
   - Haversine formula (geofence)

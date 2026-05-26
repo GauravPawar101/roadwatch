@@ -33,17 +33,34 @@ export async function uploadFileToPinata(filePath: string, mimeType = 'applicati
   const fileBytes = await fs.readFile(filePath);
   const fileName = path.basename(filePath);
 
-  const form = new FormData();
-  form.append('file', new Blob([fileBytes], { type: mimeType }), fileName);
-  form.append('pinataMetadata', JSON.stringify({ name: fileName, keyvalues: { sha256: hash } }));
-  form.append('pinataOptions', JSON.stringify({ cidVersion: 1 }));
+  // Build multipart form data in a Node-friendly way. Prefer global FormData if available (Node 18+),
+  // otherwise fall back to the lightweight `form-data` package if installed.
+  let form: any;
+  let headers: Record<string, string> = { Authorization: `Bearer ${env.PINATA_JWT}` };
+
+  if (typeof FormData !== 'undefined' && typeof Blob !== 'undefined') {
+    form = new FormData();
+    form.append('file', new Blob([fileBytes], { type: mimeType }), fileName);
+    form.append('pinataMetadata', JSON.stringify({ name: fileName, keyvalues: { sha256: hash } }));
+    form.append('pinataOptions', JSON.stringify({ cidVersion: 1 }));
+    // Let fetch set content-type for native FormData
+  } else {
+    // Dynamic import to avoid adding hard dependency during tests
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const FormDataNode = await import('form-data').then(m => m.default || m);
+    form = new FormDataNode();
+    form.append('file', fileBytes, { filename: fileName, contentType: mimeType });
+    form.append('pinataMetadata', JSON.stringify({ name: fileName, keyvalues: { sha256: hash } }));
+    form.append('pinataOptions', JSON.stringify({ cidVersion: 1 }));
+    // `form.getHeaders()` provides required multipart headers
+    headers = { ...headers, ...(form.getHeaders ? form.getHeaders() : {}) };
+  }
 
   const response = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.PINATA_JWT}`
-    },
-    body: form
+    headers,
+    // `form` may be a FormData or form-data instance; fetch accepts both in Node 18+, and node-fetch supports form-data.
+    body: form as any
   });
 
   if (!response.ok) {

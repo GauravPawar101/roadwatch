@@ -1,9 +1,9 @@
-Migration helper: Postgres -> Cassandra
+Migration helper: Postgres -> Cassandra (legacy)
 
 Overview
 --------
 This folder contains a simple, idempotent helper script to copy data from
-Postgres tables into Cassandra tables for local development and migration
+Postgres tables into Cassandra tables for legacy migration only
 experiments. It is NOT a production-grade migration tool — review and test
 carefully before using on large datasets.
 
@@ -12,7 +12,7 @@ Prerequisites
 - Node.js installed
 - Set environment variables or use a tool like `direnv`/`.env` file:
   - `PG_CONNECTION_STRING` — Postgres connection string
-  - `CASSANDRA_CONTACT_POINTS` — comma-separated list (e.g. `cassandra:9042`)
+  - `CASSANDRA_CONTACT_POINTS` — comma-separated list (e.g. `cassandra:9042`) for this legacy migration helper
   - `CASSANDRA_LOCAL_DC` — local dc (default: `datacenter1`)
   - `CASSANDRA_KEYSPACE` — keyspace name (default: `roadwatch`)
 

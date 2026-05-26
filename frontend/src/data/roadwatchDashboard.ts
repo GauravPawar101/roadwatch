@@ -94,6 +94,70 @@ export const complaints: ComplaintRecord[] = [
   { id: 'cmp-1006', complaintId: 'RW-CHE-6214', roadId: 'TN-08F', title: 'Crack propagation in arterial road', category: 'Crack', district: 'Chennai', state: 'Tamil Nadu', geo: '13.082, 80.270', severity: 8, status: 'Verified', slaHoursLeft: 26, trustImpact: 7, karmaImpact: 4, blockchainRef: 'FAB-1D9A-6C01', assignedAuthority: 'Section Officer, Chennai East', assignedContractor: 'MetroRoads Ltd', updatedAt: '5h ago', createdAt: '2026-05-10T11:52:00Z', evidenceCount: 5, fraudRisk: 14, duplicateCluster: 'Cluster-B' },
 ]
 
+function normalizeValue(value: string | undefined) {
+  return value.trim().toLowerCase()
+}
+
+function compareComplaintPriority(left: ComplaintRecord, right: ComplaintRecord) {
+  const severityDelta = (right.severity ?? 0) - (left.severity ?? 0)
+  if (severityDelta !== 0) return severityDelta
+
+  const slaDelta = (left.slaHoursLeft ?? 0) - (right.slaHoursLeft ?? 0)
+  if (slaDelta !== 0) return slaDelta
+
+  return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+}
+
+export function getAuthorityProfileForLevel(level: AuthorityLevel) {
+  return authorityProfiles.find((item) => item.level === level) ?? authorityProfiles[1] ?? authorityProfiles[0]
+}
+
+export function getAuthorityComplaintRows(level: AuthorityLevel) {
+  const profile = getAuthorityProfileForLevel(level)
+
+  const rows = complaints.filter((item) => {
+    if (level === 'chief-engineer') return true
+
+    const sameState = profile.state ? normalizeValue(item.state) === normalizeValue(profile.state) : false
+    const sameDistrict = profile.district ? normalizeValue(item.district) === normalizeValue(profile.district) : false
+
+    if (level === 'district-officer') return sameState
+    if (level === 'junior-engineer') return sameDistrict || sameState
+    return sameState || sameDistrict
+  })
+
+  return rows.sort(compareComplaintPriority)
+}
+
+export function getContractorComplaintRows(contractorNameOrHandle?: string) {
+  const lookup = normalizeValue(contractorNameOrHandle ?? contractorProfiles[0]?.name ?? '')
+  const profile = contractorProfiles.find((item) => normalizeValue(item.handle) === lookup || normalizeValue(item.name) === lookup) ?? contractorProfiles[0]
+  const regions = new Set(profile.regions.map(normalizeValue))
+
+  const rows = complaints.filter((item) => {
+    if (normalizeValue(item.assignedContractor) === normalizeValue(profile.name)) return true
+    return regions.has(normalizeValue(item.district)) || regions.has(normalizeValue(item.state))
+  })
+
+  return rows.sort(compareComplaintPriority)
+}
+
+export function getRoleComplaintRows(role: DashboardRole, authorityLevel: AuthorityLevel, contractorNameOrHandle?: string) {
+  if (role === 'authority') {
+    return getAuthorityComplaintRows(authorityLevel)
+  }
+
+  if (role === 'contractor') {
+    return getContractorComplaintRows(contractorNameOrHandle)
+  }
+
+  if (role === 'super-admin') {
+    return [...complaints].sort(compareComplaintPriority)
+  }
+
+  return [...complaints].sort(compareComplaintPriority).slice(0, 5)
+}
+
 for (let index = 7; index <= 18; index += 1) {
   complaints.push({
     id: `cmp-${1000 + index}`,

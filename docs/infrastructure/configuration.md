@@ -20,9 +20,9 @@ Service Config (.env files)
 └── services/fabric-anchor-consumer/.env
 
 Runtime Config (Environment Variables)
-├── CASSANDRA_CONTACT_POINTS
-├── CASSANDRA_KEYSPACE
-├── CASSANDRA_LOCAL_DC
+├── DATABASE_URL
+├── POSTGRES_HOST
+├── POSTGRES_PORT
 ├── KAFKA_BROKERS
 ├── FABRIC_PEER_ENDPOINT
 └── JWT_SECRET
@@ -64,11 +64,9 @@ class ConfigurationManager {
   
   private loadEnvironmentVariables(): Partial<AppConfig> {
     return {
-      // Cassandra connection settings (preferred)
+      // PgBouncer-backed Postgres connection settings (preferred)
       database: {
-        contactPoints: (process.env.CASSANDRA_CONTACT_POINTS || '127.0.0.1:9042').split(','),
-        keyspace: process.env.CASSANDRA_KEYSPACE || 'roadwatch',
-        localDc: process.env.CASSANDRA_LOCAL_DC || 'datacenter1'
+        connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:6432/roadwatch'
       },
       kafka: {
         brokers: process.env.KAFKA_BROKERS?.split(',') || ['localhost:9092'],
@@ -472,9 +470,10 @@ services:
     build: ./apps/gateway-api
     environment:
       - NODE_ENV=development
-      - CASSANDRA_CONTACT_POINTS=cassandra:9042
-      - CASSANDRA_KEYSPACE=roadwatch
-      - CASSANDRA_LOCAL_DC=datacenter1
+      # DATABASE_URL should target the PgBouncer-backed pooled endpoint.
+      - DATABASE_URL=postgresql://postgres:postgres@pgbouncer:6432/roadwatch
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
       - KAFKA_BROKERS=kafka:9092
       - REDIS_URL=redis://redis:6379
     volumes:
@@ -484,12 +483,14 @@ services:
       - kafka
       - redis
 
-  cassandra:
-    image: cassandra:4.1
+  postgres:
+    image: postgres:16
     environment:
-      - CASSANDRA_CLUSTER_NAME=roadwatch
+      - POSTGRES_DB=roadwatch
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
     volumes:
-      - cassandra_data:/var/lib/cassandra
+      - postgres_data:/var/lib/postgresql/data
 
   kafka:
     image: confluentinc/cp-kafka:latest
@@ -526,12 +527,8 @@ metadata:
   name: roadwatch-secrets
 type: Opaque
 stringData:
-  # Cassandra connection parameters (preferred)
-  CASSANDRA_CONTACT_POINTS: "cassandra:9042"
-  CASSANDRA_KEYSPACE: "roadwatch"
-  CASSANDRA_LOCAL_DC: "datacenter1"
-  # Legacy Postgres connection (optional)
-  # DATABASE_URL: "postgresql://user:password@postgres:5432/roadwatch"
+  # Postgres connection parameters (prefer PgBouncer-backed pooled endpoint)
+  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/roadwatch"
   JWT_SECRET: "your-jwt-secret"
   FABRIC_IDENTITY_KEY: |
     -----BEGIN PRIVATE KEY-----
@@ -632,8 +629,8 @@ class ConfigValidator {
   
   static validateRequired(): void {
     const required = [
-      'CASSANDRA_CONTACT_POINTS',
-      'CASSANDRA_KEYSPACE',
+      'DATABASE_URL',
+      'POSTGRES_HOST',
       'JWT_SECRET',
       'FABRIC_PEER_ENDPOINT'
     ];

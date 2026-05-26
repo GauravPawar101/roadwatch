@@ -172,9 +172,9 @@ Platform-specific scripts for starting and stopping all services.
 # Start all RoadWatch services on Windows
 Write-Host "Starting RoadWatch services..." -ForegroundColor Green
 
-# Start infrastructure services (Cassandra preferred)
-Write-Host "Starting Cassandra (via Docker Compose)..." -ForegroundColor Yellow
-Start-Process -FilePath "docker" -ArgumentList "compose up -d cassandra cassandra-init"
+# Start infrastructure services (Postgres preferred)
+Write-Host "Starting Postgres (via Docker Compose)..." -ForegroundColor Yellow
+Start-Process -FilePath "docker" -ArgumentList "compose up -d postgres"
 
 Write-Host "Starting Redis..." -ForegroundColor Yellow
 Start-Process -FilePath "docker" -ArgumentList "compose up -d redis"
@@ -202,9 +202,9 @@ Write-Host "All services started!" -ForegroundColor Green
 
 echo "Starting RoadWatch services..."
 
-# Start infrastructure services (Cassandra preferred)
-echo "Starting Cassandra (Docker Compose)..."
-docker compose up -d cassandra cassandra-init
+# Start infrastructure services (Postgres preferred)
+echo "Starting Postgres (Docker Compose)..."
+docker compose up -d postgres
 
 echo "Starting Redis..."
 docker compose up -d redis
@@ -350,10 +350,11 @@ Each service has its own package.json with specific scripts:
 
 ### Environment Files
 ```bash
-# .env.example - Template for environment variables
-CASSANDRA_CONTACT_POINTS=cassandra:9042
-CASSANDRA_KEYSPACE=roadwatch
-CASSANDRA_LOCAL_DC=datacenter1
+# .env.example - Template for environment variables (PgBouncer-backed Postgres)
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:6432/roadwatch
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
+POSTGRES_DB=roadwatch
 KAFKA_BROKERS=localhost:9092
 REDIS_URL=redis://localhost:6379
 FABRIC_PEER_ENDPOINT=peer0.roadwatch.com:7051
@@ -372,8 +373,8 @@ ENABLE_CORS=true
 class EnvValidator {
   static validate(): void {
     const required = [
-      'CASSANDRA_CONTACT_POINTS',
-      'CASSANDRA_KEYSPACE',
+      'DATABASE_URL',
+      'POSTGRES_HOST',
       'JWT_SECRET',
       'FABRIC_PEER_ENDPOINT'
     ];

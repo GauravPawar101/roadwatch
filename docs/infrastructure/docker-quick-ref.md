@@ -3,16 +3,16 @@
 ## Start Infrastructure
 
 ```bash
-# Cassandra only (preferred)
-docker compose up -d cassandra cassandra-init
+# Postgres only (preferred)
+docker compose up -d postgres
 
-# Full stack: Cassandra + Kafka + Zookeeper
+# Full stack: Postgres + Kafka + Zookeeper
 docker compose --profile kafka up -d
 
-# Full stack: Cassandra + Redis
+# Full stack: Postgres + Redis
 docker compose --profile redis up -d
 
-# Full stack: Everything (Cassandra + Kafka + Redis)
+# Full stack: Everything (Postgres + Kafka + Redis)
 docker compose --profile kafka --profile redis up -d
 
 # Fabric network (LevelDB, lightweight)
@@ -44,9 +44,9 @@ docker compose logs -f peer0.nhai.roadwatch.com
 docker inspect roadwatch_postgres
 docker stats roadwatch_postgres
 
-# Get into container (Cassandra)
-docker compose exec cassandra bash
-docker compose exec cassandra cqlsh --execute "DESCRIBE KEYSPACES"
+# Get into container (Postgres)
+docker compose exec postgres bash
+docker compose exec postgres psql -U postgres -d roadwatch -c "\l"
 
 # View resource usage
 docker stats
@@ -57,8 +57,8 @@ docker stats
 ## Connect to Services
 
 ```bash
-# Cassandra
-cqlsh 127.0.0.1 9042
+# Postgres
+psql 127.0.0.1 5432
 
 # Redis
 redis-cli -h 127.0.0.1 -p 6379
@@ -111,7 +111,7 @@ docker system prune -a --volumes
 
 | Port | Service | Profile |
 |------|---------|---------|
-| 9042 | Cassandra | default |
+| 5432 | Postgres | default |
 | 2181 | Zookeeper | kafka |
 | 9094 | Kafka | kafka |
 | 6379 | Redis | redis |
@@ -138,9 +138,8 @@ cp docker/.env.example docker/.env
 cp services/fabric-anchor-consumer/.env.example services/fabric-anchor-consumer/.env
 
 # Fill required fields
-REQUIRED for Gateway API (Cassandra preferred):
-  - CASSANDRA_CONTACT_POINTS (default: cassandra:9042)
-  - CASSANDRA_KEYSPACE (default: roadwatch)
+REQUIRED for Gateway API (Postgres preferred):
+  - DATABASE_URL (point to PgBouncer-backed pooled endpoint)
   - JWT_SECRET (any random string)
   - ALLOW_DEV_OTP_ECHO=true
 
@@ -155,8 +154,8 @@ OPTIONAL:
 ## Health Checks
 
 ```bash
-# Cassandra (cqlsh)
-docker compose exec cassandra cqlsh -e 'SELECT now() FROM system.local;'
+# Postgres
+docker compose exec postgres psql -U postgres -d roadwatch -c 'SELECT NOW();'
 
 # Redis
 docker compose exec redis redis-cli ping
@@ -213,17 +212,17 @@ docker stats --no-stream
 docker volume ls | grep roadwatch
 
 # Inspect volume
-docker volume inspect cassandra_data
+docker volume inspect postgres_data
 
-# Backup Cassandra data
-docker run --rm -v cassandra_data:/data -v $(pwd):/backup \
-  alpine tar czf /backup/cassandra_backup.tar.gz -C /data .
+# Backup Postgres data
+docker run --rm -v postgres_data:/data -v $(pwd):/backup \
+  alpine tar czf /backup/postgres_backup.tar.gz -C /data .
 
-# Restore Cassandra data
-docker volume rm cassandra_data
-docker volume create cassandra_data
-docker run --rm -v cassandra_data:/data -v $(pwd):/backup \
-  alpine tar xzf /backup/cassandra_backup.tar.gz -C /data
+# Restore Postgres data
+docker volume rm postgres_data
+docker volume create postgres_data
+docker run --rm -v postgres_data:/data -v $(pwd):/backup \
+  alpine tar xzf /backup/postgres_backup.tar.gz -C /data
 ```
 
 ---
@@ -232,7 +231,7 @@ docker run --rm -v cassandra_data:/data -v $(pwd):/backup \
 
 ```bash
 # Test internal network connectivity
-docker compose exec cassandra bash
+docker compose exec postgres bash
   ping kafka        # if kafka profile enabled
   ping redis        # if redis profile enabled
 

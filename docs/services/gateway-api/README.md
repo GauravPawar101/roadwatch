@@ -1,7 +1,7 @@
 # Gateway API Service
 
 ## Overview
-Central REST API service that serves as the main backend for the RoadWatch complaint management system. Built with Express.js and PostgreSQL, it handles authentication, complaint lifecycle management, analytics, and real-time updates.
+Central REST API service that serves as the main backend for the RoadWatch complaint management system. Built with Express.js and PostgreSQL, it handles authentication, complaint lifecycle management, analytics, and real-time updates. Database access goes through a shared `pg.Pool`, and the connection target should be the PgBouncer-backed Postgres endpoint.
 
 ## Architecture
 - **Framework**: Express.js with TypeScript
@@ -192,14 +192,14 @@ type Complaint = {
 
 ## Configuration
 
--### Environment Variables
-- Database (Cassandra preferred):
-- - `CASSANDRA_CONTACT_POINTS` - Cassandra contact points (comma-separated, e.g. `cassandra:9042`)
-- - `CASSANDRA_KEYSPACE` - Cassandra keyspace name (e.g. `roadwatch`)
-- - `CASSANDRA_LOCAL_DC` - Cassandra local datacenter (e.g. `datacenter1`)
--
-- Legacy/Postgres (optional):
-- - `DATABASE_URL` - PostgreSQL connection string (only used if running Postgres; Cassandra is the recommended default)
+### Environment Variables
+- Database (PgBouncer-backed Postgres preferred):
+- - `DATABASE_URL` - PostgreSQL connection string targeting the pooled endpoint
+- - `POSTGRES_HOST` - PostgreSQL host
+- - `POSTGRES_PORT` - PostgreSQL port
+- - `POSTGRES_DB` - PostgreSQL database name
+- - `POSTGRES_USER` - PostgreSQL user
+- - `POSTGRES_PASSWORD` - PostgreSQL password
 - `JWT_SECRET` - JWT signing secret
 - `KAFKA_BROKERS` - Kafka broker list
 - `GEMINI_API_KEY` - Google AI API key for agent
@@ -207,19 +207,17 @@ type Complaint = {
 - `PORT` - Server port (default: 3000)
 
 ### Database Connection
-This project uses Cassandra by default. Example Cassandra client initialization:
+This project uses Postgres by default through `pg.Pool`. Example pool initialization:
 
 ```typescript
-import { Client } from 'cassandra-driver';
+import { Pool } from 'pg';
 
-export const cassClient = new Client({
-  contactPoints: (process.env.CASSANDRA_CONTACT_POINTS || '127.0.0.1:9042').split(','),
-  localDataCenter: process.env.CASSANDRA_LOCAL_DC || 'datacenter1',
-  keyspace: process.env.CASSANDRA_KEYSPACE || 'roadwatch'
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL
 });
 ```
 
-The codebase has migrated entirely to Cassandra. Legacy `DATABASE_URL` is preserved in compatibility code for some offline migration scripts only; new development uses Cassandra client exclusively.
+The primary runtime uses a pooled Postgres connection path. Any legacy migration helpers are historical only.
 
 ### Kafka Configuration
 ```typescript

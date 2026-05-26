@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import type { Request, Response } from 'express';
-import { execute } from '../cassandra.js';
 import { getEnv } from '../env.js';
+import { pool } from '../postgres.js';
 import { verifyRefreshToken } from './jwt.js';
 
 const env = getEnv();
@@ -13,18 +13,26 @@ export function hashToken(token: string): string {
 export async function storeRefreshToken(token: string, userId: string): Promise<void> {
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + env.REFRESH_TOKEN_EXPIRES_DAYS * 24 * 60 * 60 * 1000);
-  // Attempt to insert into refresh_tokens; if table missing, bubble error.
-  await execute('INSERT INTO refresh_tokens (user_id, token_hash, expires_at, is_revoked) VALUES (?, ?, ?, ?)', [userId, tokenHash, expiresAt, false], { prepare: true });
+  await pool.query(
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, is_revoked) VALUES ($1, $2, $3, $4)`,
+    [userId, tokenHash, expiresAt, false]
+  );
 }
 
 export async function revokeRefreshTokenByHash(token: string): Promise<void> {
   const tokenHash = hashToken(token);
-  await execute('UPDATE refresh_tokens SET is_revoked = ? WHERE token_hash = ?', [true, tokenHash], { prepare: true });
+  await pool.query(
+    `UPDATE refresh_tokens SET is_revoked = $1 WHERE token_hash = $2`,
+    [true, tokenHash]
+  );
 }
 
 export async function findValidRefreshToken(token: string) {
   const tokenHash = hashToken(token);
-  const result = await execute('SELECT id, user_id, expires_at, is_revoked FROM refresh_tokens WHERE token_hash = ? LIMIT 1', [tokenHash], { prepare: true });
+  const result = await pool.query(
+    `SELECT id, user_id, expires_at, is_revoked FROM refresh_tokens WHERE token_hash = $1 LIMIT 1`,
+    [tokenHash]
+  );
   if (result.rows.length === 0) return null;
   const row = result.rows[0];
   if (row.is_revoked) return null;

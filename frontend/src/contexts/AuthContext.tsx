@@ -51,74 +51,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (storedToken && storedUser) {
         try {
-          const parsedUser = JSON.parse(storedUser);
-          setToken(storedToken);
-          setUser(parsedUser);
-          // ensure stored normalized role is available for other parts of the app
-          const norm = normalizeRole(parsedUser.role as string);
-          if (localStorage.getItem('roadwatch_role') !== norm) {
-            localStorage.setItem('roadwatch_role', norm);
+          // Validate token with backend
+          const response = await fetch(`${apiBase}/auth/me`, {
+            headers: {
+              'Authorization': `Bearer ${storedToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (response.ok) {
+            const userData = await response.json();
+            if (mounted) {
+              setToken(storedToken);
+              setUser(userData);
+            }
+          } else if (response.status === 401) {
+            // Token expired, try to refresh
+            const refreshResponse = await fetch(`${apiBase}/auth/refresh`, {
+              method: 'POST',
+              credentials: 'include' // Include refresh token cookie
+            });
+
+            if (refreshResponse.ok) {
+              const { token: newToken, user: refreshedUser } = await refreshResponse.json();
+              if (mounted) {
+                localStorage.setItem('roadwatch_token', newToken);
+                localStorage.setItem('roadwatch_user', JSON.stringify(refreshedUser));
+                setToken(newToken);
+                setUser(refreshedUser);
+              }
+            } else {
+              // Refresh failed, clear auth
+              if (mounted) {
+                localStorage.removeItem('roadwatch_token');
+                localStorage.removeItem('roadwatch_user');
+                setToken(null);
+                setUser(null);
+              }
+            }
           }
-        } catch (e) {
-          console.error('Failed to parse stored user:', e);
-          localStorage.removeItem('roadwatch_token');
-          localStorage.removeItem('roadwatch_user');
+        } catch (error) {
+          console.error('Auth validation failed:', error);
+          if (mounted) {
+            // Keep stored auth for offline usage
+            try {
+              const parsedUser = JSON.parse(storedUser);
+              setToken(storedToken);
+              setUser(parsedUser);
+            } catch (parseError) {
+              localStorage.removeItem('roadwatch_token');
+              localStorage.removeItem('roadwatch_user');
+            }
+          }
         }
       }
 
-      try {
-        // If we have a stored token, first validate it by calling /auth/me
-        if (storedToken) {
-          const meRes = await fetch(`${apiBase}/auth/me`, {
-            headers: { Authorization: `Bearer ${storedToken}` }
-          });
-          if (meRes.ok) {
-            const meData = await meRes.json();
-            if (!mounted) return;
-            setUser(meData.user);
-            localStorage.setItem('roadwatch_user', JSON.stringify(meData.user));
-            // ensure role is normalized
-            localStorage.setItem('roadwatch_role', normalizeRole(meData.user.role));
-            setLoading(false);
-            return;
-          }
-          // if token invalid, try refresh
-        }
-
-        // Attempt silent refresh using HttpOnly refresh cookie
-        const r = await fetch(`${apiBase}/auth/refresh`, { method: 'POST', credentials: 'include' });
-        if (r.ok) {
-          const data = await r.json();
-          if (data && data.token) {
-            if (!mounted) return;
-            setToken(data.token as string);
-            localStorage.setItem('roadwatch_token', data.token as string);
-
-            // Fetch user info
-            const me = await fetch(`${apiBase}/auth/me`, {
-              headers: { Authorization: `Bearer ${data.token}` }
-            });
-            if (me.ok) {
-              const meData = await me.json();
-              setUser(meData.user);
-              localStorage.setItem('roadwatch_user', JSON.stringify(meData.user));
-              localStorage.setItem('roadwatch_role', normalizeRole(meData.user.role));
-            }
-          }
-        } else {
-          // refresh failed; clear local storage and state
-          if (mounted) {
-            setToken(null);
-            setUser(null);
-            localStorage.removeItem('roadwatch_token');
-            localStorage.removeItem('roadwatch_user');
-            localStorage.removeItem('roadwatch_role');
-          }
-        }
-      } catch (e) {
-        // ignore network errors
-      } finally {
-        if (mounted) setLoading(false);
+      if (mounted) {
+        setLoading(false);
       }
     }
 
@@ -128,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
     };
   }, []);
+
 
   const login = (newToken: string, newUser: AuthUser) => {
     setToken(newToken);

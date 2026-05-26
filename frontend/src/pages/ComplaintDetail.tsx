@@ -109,13 +109,13 @@ export default function ComplaintDetail() {
   ]
 
   return (
-    <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30] py-12 px-6 selection:bg-[#1960a3]/20 font-sans">
+    <div className="page-radial-bg min-h-screen text-on-surface py-12 px-6 selection:bg-secondary/20 font-sans">
       
-      <div className="max-w-[1280px] mx-auto">
+      <div className="container-max">
         {/* Navigation Back */}
         <button
           onClick={() => navigate('/complaints')}
-          className="mb-8 px-4 py-2 rounded-lg border border-[#c4c6cf] hover:bg-[#eff4ff] text-[#43474e] hover:text-[#0b1c30] transition-all flex items-center gap-2 text-sm font-semibold cursor-pointer"
+          className="mb-8 px-4 py-2 rounded-[10px] border border-outline-variant hover:bg-surface-container-low text-on-surface-variant hover:text-on-surface transition-all flex items-center gap-2 text-sm font-semibold cursor-pointer"
         >
           <span className="material-symbols-outlined text-[18px]">arrow_back</span>
           <span>Back to My History</span>
@@ -124,23 +124,23 @@ export default function ComplaintDetail() {
         {/* Hero Title Section */}
         <div className="mb-12">
           <div className="flex items-center gap-2 mb-3">
-            <span className="px-3 py-1 rounded-full bg-[#d3e4ff]/60 text-[#00477f] font-bold text-[12px] uppercase select-none">
+            <span className="px-3 py-1 rounded-full bg-secondary-container/60 text-on-secondary-container font-bold text-[12px] uppercase select-none">
               {displayStatus}
             </span>
-            <span className="text-[#43474e] text-[12px] uppercase tracking-widest font-bold">
+            <span className="text-on-surface-variant text-[12px] uppercase tracking-widest font-bold">
               Case #IGP-{currentComplaint.id}
             </span>
           </div>
-          <h1 className="text-3xl md:text-4xl font-extrabold text-[#0b1c30] mb-4 tracking-tight leading-tight">
+          <h1 className="text-3xl md:text-4xl font-extrabold text-on-surface mb-4 tracking-tight leading-tight">
             {currentComplaint.title}
           </h1>
-          <div className="flex flex-wrap items-center gap-6 text-[#43474e] text-sm">
+          <div className="flex flex-wrap items-center gap-6 text-on-surface-variant text-sm">
             <div className="flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[#1960a3] text-[18px]">calendar_today</span>
+              <span className="material-symbols-outlined text-secondary text-[18px]">calendar_today</span>
               <span>Reported: {new Date(currentComplaint.createdAt).toLocaleDateString()}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[#1960a3] text-[18px]">location_on</span>
+              <span className="material-symbols-outlined text-secondary text-[18px]">location_on</span>
               <span>{currentComplaint.roadId}</span>
             </div>
           </div>
@@ -153,44 +153,44 @@ export default function ComplaintDetail() {
           <div className="lg:col-span-8 space-y-6">
             
             {/* Evidence Gallery */}
-            <section className="bg-white border border-[#dce9ff] rounded-xl p-6 shadow-sm">
+            <section className="glass-panel rounded-xl p-6">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-[20px] font-bold text-[#0b1c30]">Evidence Gallery</h2>
-                <button className="text-[#1960a3] font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 hover:underline cursor-pointer">
+                <h2 className="text-[20px] font-bold text-on-surface">Evidence Gallery</h2>
+                <button className="text-secondary font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 hover:underline cursor-pointer">
                   <span className="material-symbols-outlined text-[18px]">download</span> Download All
                 </button>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="aspect-video rounded-lg overflow-hidden group relative cursor-pointer border border-[#c4c6cf] bg-[#eff4ff]">
+                <div className="aspect-video rounded-[10px] overflow-hidden group relative cursor-pointer border border-outline-variant bg-surface-container-low">
                   <img
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     src="https://lh3.googleusercontent.com/aida-public/AB6AXuCDaucMZaLdgP1BjhVaufppsq-8SIEUNsvVd3I_3Jg0yJVuaYkd2YAasQELvjpnPZpg5nski_eqgee-565h0V_A3VhJzXjHijiczRBl8HLcohL5SofwKYglQgFlOYB9GFDYBC_MvfR_Ldy9IBwBJYoYy3s2kPW02hNkwsQ0S9QNjaecH_jqDkeHqXPkuTpiSKnYzh_ZcSrWGXwjVXR8ij15HMiVVelkJNzxS3F8Usy5Fg4WPj07m5bTc5QB_PB5b8SCgyi0u_oo-gw"
                     alt="Core Damage"
                   />
-                  <div className="absolute inset-0 bg-[#002045]/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <div className="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     <span className="material-symbols-outlined text-white text-[24px]">zoom_in</span>
                   </div>
                 </div>
 
-                <div className="aspect-video rounded-lg overflow-hidden group relative cursor-pointer border border-[#c4c6cf] bg-[#eff4ff]">
+                <div className="aspect-video rounded-[10px] overflow-hidden group relative cursor-pointer border border-outline-variant bg-surface-container-low">
                   <img
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     src="https://lh3.googleusercontent.com/aida-public/AB6AXuBHMLQF3ghgNGc3PrQYeVFpoh7pgAAUsBR5WX8xNsHmI4TwaHOsdWCBq3HN_XuC6plXJ67UCkMfk9GQjF8hLoktBzLTbdTxO1WgRSBTksek0D15ugLBp60t4JcwhSSktY9DnZtg9WzuFevZjeLyHcDgkEYOOpGIAqELnMtYAddXqerSrK37Rg0TmASPSjfD5RtV2AK2xWTk3aZMXKkrsS7Flst1mzGvtOZMJr10xEMCp-3YToArmz12_uxiqL0TydDmDRAtA7lz3s4"
                     alt="Road Area Damage"
                   />
-                  <div className="absolute inset-0 bg-[#002045]/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <div className="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     <span className="material-symbols-outlined text-white text-[24px]">zoom_in</span>
                   </div>
                 </div>
 
-                <div className="aspect-video rounded-lg overflow-hidden group relative cursor-pointer border border-[#c4c6cf] bg-[#eff4ff]">
+                <div className="aspect-video rounded-[10px] overflow-hidden group relative cursor-pointer border border-outline-variant bg-surface-container-low">
                   <img
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     src="https://lh3.googleusercontent.com/aida-public/AB6AXuArUwo3FZLRVRss9HX8eOR8-t8N-8sJmdQIPqIz7h8E7xrhWqU9vyejXm3Ql5PExbam3CZkFaWWukUD2gBA2AIqJHnt_PWSidlj3FvAXFFB4RMVxaIdl04fWJwCHeHCbfIOdCTFKOTm3ZH71Tql-TsBaQY-hERq3awaKyL_ufEd7oLETHvuKeLghwSmfWzaBRPSVKxyeLb5Msn75BF9r173YmKBCRzbOGFOWwthJuPjUsexYhbW3_KAykQiYg6ihoYWNoCSc0YnISI"
                     alt="Structural crack depth"
                   />
-                  <div className="absolute inset-0 bg-[#002045]/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <div className="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     <span className="material-symbols-outlined text-white text-[24px]">zoom_in</span>
                   </div>
                 </div>
@@ -199,43 +199,43 @@ export default function ComplaintDetail() {
 
             {/* Blockchain Anchoring Block */}
             {upload?.ipfs && (
-              <section className="bg-white border border-[#dce9ff] rounded-xl p-6 shadow-sm flex flex-col gap-4">
+              <section className="glass-panel rounded-xl p-6 flex flex-col gap-4">
                 <div className="flex items-center gap-2">
                   <span className="material-symbols-outlined text-emerald-600 text-[22px]">verified_user</span>
-                  <h3 className="text-[16px] font-bold text-[#0b1c30]">Blockchain Proof Integrity</h3>
+                  <h3 className="text-[16px] font-bold text-on-surface">Blockchain Proof Integrity</h3>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                  <div className="bg-[#f8f9ff] p-3 rounded-lg border border-[#c4c6cf]/60">
-                    <span className="text-[#74777f] block uppercase tracking-wider mb-1">IPFS CID</span>
-                    <span className="text-[#1960a3] break-all">{upload.ipfs}</span>
+                  <div className="bg-surface-container-low p-3 rounded-[10px] border border-outline-variant/60">
+                    <span className="text-on-surface-variant block uppercase tracking-wider mb-1">IPFS CID</span>
+                    <span className="text-secondary break-all">{upload.ipfs}</span>
                   </div>
-                  <div className="bg-[#f8f9ff] p-3 rounded-lg border border-[#c4c6cf]/60">
-                    <span className="text-[#74777f] block uppercase tracking-wider mb-1">SHA-256 Checksum</span>
-                    <span className="text-[#0b1c30] break-all">{upload.sha || 'Pending verification'}</span>
+                  <div className="bg-surface-container-low p-3 rounded-[10px] border border-outline-variant/60">
+                    <span className="text-on-surface-variant block uppercase tracking-wider mb-1">SHA-256 Checksum</span>
+                    <span className="text-on-surface break-all">{upload.sha || 'Pending verification'}</span>
                   </div>
                 </div>
               </section>
             )}
 
             {/* Progress Timeline */}
-            <section className="bg-white border border-[#dce9ff] rounded-xl p-6 shadow-sm">
-              <h2 className="text-[20px] font-bold text-[#0b1c30] mb-8">Progress Timeline</h2>
-              <div className="relative pl-8 border-l border-[#dce9ff] space-y-8">
+            <section className="glass-panel rounded-xl p-6">
+              <h2 className="text-[20px] font-bold text-on-surface mb-8">Progress Timeline</h2>
+              <div className="relative pl-8 border-l border-outline-variant space-y-8">
                 {timelineEvents.map((ev, idx) => (
                   <div key={idx} className="relative">
                     {/* Event Indicator Pin */}
-                    <div className="absolute -left-[45px] top-1 w-6 h-6 rounded-full bg-white border-2 border-[#1960a3] flex items-center justify-center z-10 shadow-sm">
-                      <div className={`w-2 h-2 rounded-full ${ev.active ? 'bg-[#1960a3]' : 'bg-[#c4c6cf]'}`} />
+                    <div className="absolute -left-[45px] top-1 w-6 h-6 rounded-full bg-white border-2 border-secondary flex items-center justify-center z-10 shadow-sm">
+                      <div className={`w-2 h-2 rounded-full ${ev.active ? 'bg-secondary' : 'bg-outline-variant'}`} />
                     </div>
 
                     <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-2">
                       <div>
-                        <h3 className="text-[16px] font-bold text-[#0b1c30]">
+                        <h3 className="text-[16px] font-bold text-on-surface">
                           {ev.title}
                         </h3>
-                        <p className="text-[#43474e] text-sm leading-relaxed mt-1">{ev.desc}</p>
+                        <p className="text-on-surface-variant text-sm leading-relaxed mt-1">{ev.desc}</p>
                       </div>
-                      <span className="text-xs font-medium text-[#74777f] shrink-0 bg-[#eff4ff] px-2.5 py-1 rounded border border-[#d3e4fe]">
+                      <span className="text-xs font-medium text-on-surface-variant shrink-0 bg-surface-container-low px-2.5 py-1 rounded-[10px] border border-outline-variant">
                         {ev.time}
                       </span>
                     </div>
@@ -248,10 +248,10 @@ export default function ComplaintDetail() {
           {/* Right Column: Location map & Institutional Actions */}
           <div className="lg:col-span-4 space-y-6">
             {/* Map Card */}
-            <section className="bg-white border border-[#dce9ff] rounded-xl overflow-hidden shadow-sm">
+            <section className="glass-panel rounded-xl overflow-hidden">
               <div className="p-6">
-                <h2 className="text-[20px] font-bold text-[#0b1c30] mb-1">Incident Location</h2>
-                <div className="flex items-center gap-1.5 text-xs text-[#43474e]">
+                <h2 className="text-[20px] font-bold text-on-surface mb-1">Incident Location</h2>
+                <div className="flex items-center gap-1.5 text-xs text-on-surface-variant">
                   <span className="material-symbols-outlined text-[14px]">pin_drop</span>
                   <span>
                     {currentComplaint.location?.lat?.toFixed(4) || '30.2672'}° N,{' '}
@@ -259,21 +259,21 @@ export default function ComplaintDetail() {
                   </span>
                 </div>
               </div>
-              <div className="h-64 relative bg-[#eff4ff] overflow-hidden border-t border-[#dce9ff] group">
+                <div className="h-64 relative bg-surface-container-low overflow-hidden border-t border-outline-variant group">
                 <img
                   className="w-full h-full object-cover grayscale opacity-85 group-hover:scale-105 duration-1000"
                   src="https://lh3.googleusercontent.com/aida-public/AB6AXuAZ3pE3z0KD0ZDkxScI5FI8fQPz8z5VI5m3YXe7c3HyDseS93serQzFIn7qz3SUih1iCHWYQ-NrzvV3YHz__H4eU_C4BAauP6Pl_lDjq_qIqM6qGTSnEAhOdg8uFDr0AP6F7BiMKJ1qV0Ls3kQHeHqlUGT3iUD0XyU-9OPiTRBkKUS90EEwgUmUDcRn2I8VMs8yA3z6U28kbpqRxUp50ETpxPZGRziP0QeoG5UCQTr4H8kFLhGDMteZ9MCIEAo-RaQmKt1WpC5kX_w"
                   alt="Incident Map Grid"
                 />
-                <button className="absolute bottom-4 right-4 bg-gradient-to-r from-[#002045] to-[#1960a3] p-3 rounded-lg shadow-xl text-white hover:opacity-90 active:scale-95 transition-all">
+                <button className="absolute bottom-4 right-4 bg-primary p-3 rounded-[10px] shadow-xl text-white hover:opacity-90 active:scale-95 transition-all">
                   <span className="material-symbols-outlined text-white">directions</span>
                 </button>
               </div>
             </section>
 
             {/* Actions Card */}
-            <section className="bg-white border border-[#dce9ff] rounded-xl p-6 shadow-sm flex flex-col gap-5">
-              <h2 className="text-[20px] font-bold text-[#0b1c30]">Institutional Actions</h2>
+            <section className="glass-panel rounded-xl p-6 flex flex-col gap-5">
+              <h2 className="text-[20px] font-bold text-on-surface">Institutional Actions</h2>
               <div className="flex flex-col gap-3">
                 <button className="w-full py-3 rounded-lg bg-gradient-to-r from-[#002045] to-[#1960a3] hover:opacity-95 text-white font-bold text-[14px] flex items-center justify-center gap-2 shadow-md transition-all active:scale-95 cursor-pointer">
                   <span className="material-symbols-outlined text-white">verified</span> Verify Resolution

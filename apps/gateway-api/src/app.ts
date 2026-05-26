@@ -9,10 +9,13 @@ import agentRouter from './routes/agent.js';
 import authRouter from './routes/auth.js';
 import authorityRouter from './routes/authority.js';
 import citizenRouter from './routes/citizen.js';
+import complaintsRouter from './routes/complaints.js';
 import notificationsRouter from './routes/notifications.js';
+import proxyRouter from './routes/proxy.js';
 import publicRouter from './routes/public.js';
 import reportsRouter from './routes/reports.js';
 import rtiRouter from './routes/rti.js';
+import servicesRouter from './routes/services.js';
 
 export function createApp() {
   const app = express();
@@ -68,6 +71,8 @@ export function createApp() {
   app.use('/public', publicRouter);
   // Citizen actions (authenticated as CITIZEN)
   app.use('/citizen', citizenRouter);
+  // Complaints management
+  app.use('/complaints', complaintsRouter);
   // Lightweight agent endpoint (LLM inference happens server-side)
   app.use('/public/agent', agentRouter);
   // RTI workflow is token-tracked (separate from complaints)
@@ -76,6 +81,8 @@ export function createApp() {
   app.use('/authority', authorityRouter);
   app.use('/reports', reportsRouter);
   app.use('/notifications', notificationsRouter);
+  app.use('/services', servicesRouter);
+  app.use('/proxy', proxyRouter);
 
   // Real-time SSE stream
   app.get('/events', requireAuth, (req, res) => {

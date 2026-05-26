@@ -8,6 +8,11 @@ Write-Host ""
 
 $GatewayPort = if ($env:ROADWATCH_GATEWAY_PORT) { [int]$env:ROADWATCH_GATEWAY_PORT } else { 3100 }
 $GatewayUrl = "http://localhost:$GatewayPort"
+$LocalDatabaseUrl = 'postgresql://postgres:postgres@127.0.0.1:6432/roadwatch'
+
+# Pin local dev to the Docker PgBouncer endpoint so an inherited DATABASE_URL
+# from the host shell cannot redirect the gateway to a different Postgres port.
+$env:DATABASE_URL = $LocalDatabaseUrl
 
 # Helper: launches a service in a new PowerShell window with a custom font color (black background).
 # Uses -EncodedCommand so the command string is never re-parsed by the child PowerShell process.
@@ -49,8 +54,8 @@ $Command 2>&1 | Tee-Object -FilePath '$LogFile'
 }
 
 # Step 1: Start infrastructure (Docker - background)
-Write-Host "📦 Step 1: Starting Cassandra, Kafka, Redis, and Zookeeper..." -ForegroundColor Blue
-docker-compose up -d cassandra zookeeper kafka redis
+Write-Host "📦 Step 1: Starting Postgres, Kafka, Redis, and Zookeeper..." -ForegroundColor Blue
+docker-compose up -d postgres zookeeper kafka redis
 Write-Host "✓ Infrastructure services started" -ForegroundColor Green
 Write-Host ""
 
@@ -108,7 +113,7 @@ $env:BACKEND_PORT = $preferredBackendPort
 Write-Host "🔧 Step 4: Starting Backend API in separate terminal..." -ForegroundColor Blue
 $backendProc = Start-ServiceWindow `
     -Title "🔧 RoadWatch — Backend API  |  http://localhost:$preferredBackendPort" `
-    -Command "`$env:BACKEND_PORT=$preferredBackendPort; pnpm --dir backend-api dev" `
+    -Command "`$env:BACKEND_PORT=$preferredBackendPort; `$env:DATABASE_URL='$LocalDatabaseUrl'; pnpm --dir backend-api dev" `
     -Color "Blue" `
     -PidFile ".pids\backend-api.pid" `
     -LogFile ".\logs\backend-api.log"
@@ -121,7 +126,7 @@ Start-Sleep -Seconds 3
 Write-Host "🔌 Step 5: Starting Gateway API in separate terminal..." -ForegroundColor Blue
 $gatewayProc = Start-ServiceWindow `
     -Title "🔌 RoadWatch — Gateway API  |  $GatewayUrl" `
-    -Command "`$env:PORT=$GatewayPort; pnpm --filter @roadwatch/gateway-api dev" `
+    -Command "`$env:PORT=$GatewayPort; `$env:DATABASE_URL='$LocalDatabaseUrl'; pnpm --filter @roadwatch/gateway-api dev" `
     -Color "Cyan" `
     -PidFile ".pids\gateway-api.pid" `
     -LogFile ".\logs\gateway-api.log"
@@ -147,7 +152,7 @@ Write-Host "✨ All services started successfully!" -ForegroundColor Green
 Write-Host ("━" * 62) -ForegroundColor Green
 Write-Host ""
 Write-Host "📋 Service URLs & Windows:" -ForegroundColor Yellow
-Write-Host "  🔧 Backend API:       http://localhost:4001    " -NoNewline; Write-Host "[BLUE]"     -ForegroundColor Blue
+Write-Host "  🔧 Backend API:       http://localhost:$preferredBackendPort    " -NoNewline; Write-Host "[BLUE]"     -ForegroundColor Blue
 Write-Host "  🌐 Frontend:          http://localhost:5173    " -NoNewline; Write-Host "[MAGENTA]" -ForegroundColor Magenta
 Write-Host "  🔌 Gateway API:       $GatewayUrl    " -NoNewline; Write-Host "[CYAN]"    -ForegroundColor Cyan
 Write-Host "  ⛓️  Fabric (WSL):                               " -NoNewline; Write-Host "[GREEN]"   -ForegroundColor Green

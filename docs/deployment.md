@@ -1,284 +1,264 @@
-# RoadWatch deployment (free-tier friendly)
+# RoadWatch Deployment Guide
 
-This repo contains multiple moving parts. A “full pipeline” typically means:
+This is a monorepo with multiple applications and services. Deploy components based on your needs - start minimal and scale up.
 
-- Web frontend: `apps/authority-portal` (Vite)
-- API backend: `apps/gateway-api` (Express + Postgres)
-- Event pipeline: Kafka topics (best via Upstash Kafka)
-- Fabric anchoring: `services/fabric-anchor-consumer` (consumes Kafka, anchors Merkle roots to Fabric)
-- Hyperledger Fabric network: `fabric/network` (orderer + peers + couchdb)
+## Architecture Overview
 
-## Recommended free-tier layout
+**Core Applications:**
+- `frontend/` - Web dashboard (Vite + React)
+- `apps/gateway-api` - Main REST API (Node.js + Express)
+- `apps/mobile-host` - React Native mobile app
 
-### What to deploy where
+**Background Services:**
+- `services/scheduler` - Cron jobs and scheduled tasks
+- `services/webhook-handler` - Kafka event consumer
+- `services/fabric-anchor-consumer` - Blockchain integration
 
-- **Frontend (web)**: Vercel (free Hobby) ✅
-- **API + long-running workers + Fabric**: one **always-free VM** (recommended: Oracle Cloud “Always Free” compute)
-- **Postgres**: either
-  - **Managed free Postgres** (recommended): Neon or Supabase, OR
-  - Postgres on the same VM (simpler accounts, heavier VM)
-- **Kafka**: **Upstash Kafka (REST)** free tier (works well with this repo)
-- **Redis (optional)**: **Upstash Redis (REST)** free tier (used for idempotency/dedupe)
-- **Public HTTPS for the API**: Cloudflare Tunnel (free) or a reverse proxy on the VM
+**Infrastructure:**
+- PostgreSQL database
+- Redis cache
+- Kafka message queue
+- Hyperledger Fabric (optional)
 
-Why this split: serverless platforms are great for the frontend, but **Fabric + Kafka consumers require always-on processes and stable networking**.
+## Deployment Strategy
 
-## Step-by-step
+### Minimal Setup (Start Here)
 
-### 1) Create the managed services (free)
+Deploy only the essential components:
 
-#### A) Upstash Kafka (REST)
-Create a Kafka database in Upstash and copy the REST API credentials.
+1. **Frontend** → Vercel/Netlify
+2. **Gateway API** → Render/Railway/Fly.io
+3. **Database** → Neon/Supabase PostgreSQL
+4. **Cache** → Upstash Redis
 
-You will need **one** of these auth sets:
+### Full Production Setup
 
-- `UPSTASH_KAFKA_REST_URL` + `UPSTASH_KAFKA_REST_TOKEN` (common in the UI)
-- OR `UPSTASH_KAFKA_REST_URL` + `UPSTASH_KAFKA_REST_USERNAME` + `UPSTASH_KAFKA_REST_PASSWORD`
+Add background services for complete functionality:
 
-This repo supports either form.
+5. **Message Queue** → Upstash Kafka
+6. **Background Services** → Same host as API or separate containers
+7. **Blockchain** → Hyperledger Fabric network (optional)
 
-#### B) Upstash Redis (REST) (optional)
-If you configure Redis, the API will use it for **idempotent Kafka publishing** (dedupe across retries).
+## Step-by-Step Deployment
 
-Set:
+### 1. Deploy the Frontend
 
-- `UPSTASH_REDIS_REST_URL`
-- `UPSTASH_REDIS_REST_TOKEN`
+**Target:** `frontend/` folder
 
-#### C) Database (choose one)
+**Platform:** Vercel (recommended)
 
-- **Cassandra (recommended)**: Use a managed or local Cassandra cluster. Set the following env vars for the API and services:
-  - `CASSANDRA_CONTACT_POINTS=cassandra:9042`
-  - `CASSANDRA_KEYSPACE=roadwatch`
-  - `CASSANDRA_LOCAL_DC=datacenter1`
+**Build Configuration:**
+- Root Directory: `frontend`
+- Build Command: `pnpm build`
+- Output Directory: `dist`
 
-- **Postgres (legacy / unsupported)**: The codebase has fully migrated to Cassandra as the primary database. Postgres support is no longer maintained for most runtime code; legacy scripts may still work with `DATABASE_URL` but new development should use Cassandra.
-
-### 2) Create an always-free VM (recommended: Oracle Cloud)
-
-Create a small Ubuntu VM (Arm is fine). You’ll run:
-
-- Fabric network containers
-- `apps/gateway-api`
-- `services/fabric-anchor-consumer`
-
-Install prerequisites:
-
+**Environment Variables:**
 ```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl git
-
-# Docker
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker $USER
-
-# Docker Compose plugin (usually included with modern Docker installs)
-docker compose version
+VITE_API_BASE=https://your-api-domain.com
 ```
 
-Re-login after adding yourself to the `docker` group.
-
-### 3) Deploy Fabric network on the VM
-
-On the VM:
-
+**Build Commands:**
 ```bash
-git clone <your repo url>
-cd roadWatch/fabric/network
-./scripts/start.sh
-```
-
-This script:
-
-- generates crypto material under `fabric/network/organizations/`
-- starts orderer + peers + couchdb via `fabric/network/docker/docker-compose.yaml`
-- creates channel `roadwatch-india`
-- deploys chaincode (defaults: `complaint-anchor`)
-
-If you re-deploy chaincode, bump one of:
-
-- `FABRIC_CC_VERSION`
-- `FABRIC_CC_SEQUENCE`
-
-### 4) Configure and run the API (gateway-api)
-
-On the VM, copy the template and fill real values:
-
-- Copy: `apps/gateway-api/.env.example` → `apps/gateway-api/.env`
-
-Minimum production set (Cassandra preferred):
-
-- `NODE_ENV=production`
-- `PORT=3000`
-- `CASSANDRA_CONTACT_POINTS=cassandra:9042`
-- `CASSANDRA_KEYSPACE=roadwatch`
-- `CASSANDRA_LOCAL_DC=datacenter1`
-- `JWT_SECRET=...` (strong random)
-
-Strongly recommended for production PII handling:
-
-- `PHONE_HASH_PEPPER=...`
-- `PHONE_ENC_KEY=...` (base64 32-byte key)
-
-Optional but common:
-
-- Kafka via Upstash: `UPSTASH_KAFKA_REST_URL` + (`UPSTASH_KAFKA_REST_TOKEN` or `UPSTASH_KAFKA_REST_USERNAME/PASSWORD`)
-- Notifications (Twilio/MSG91/FCM) if you enable the dispatcher
-
-Run the service:
-
-```bash
-cd roadWatch
-corepack enable
 pnpm install --frozen-lockfile
+pnpm --filter roadwatch-frontend build
+```
 
+### 2. Deploy the Gateway API
+
+**Target:** `apps/gateway-api`
+
+**Platform:** Render, Railway, or Fly.io
+
+**Build Configuration:**
+- Root Directory: `apps/gateway-api`
+- Build Command: `pnpm build`
+- Start Command: `pnpm start`
+
+**Required Environment Variables:**
+```bash
+# Server
+PORT=3100
+NODE_ENV=production
+
+# Database (PgBouncer-backed PostgreSQL endpoint)
+DATABASE_URL=postgresql://user:pass@host:5432/roadwatch
+
+# Auth
+JWT_SECRET=your-secure-jwt-secret
+OTP_TTL_SECONDS=300
+
+# Redis (for caching)
+REDIS_URL=redis://user:pass@host:6379/0
+# OR Upstash Redis
+UPSTASH_REDIS_REST_URL=https://...
+UPSTASH_REDIS_REST_TOKEN=...
+
+# Kafka (for events)
+KAFKA_BROKER=host:9092
+# OR Upstash Kafka
+UPSTASH_KAFKA_REST_URL=https://...
+UPSTASH_KAFKA_REST_TOKEN=...
+```
+
+**Optional LLM Configuration:**
+```bash
+# Gemini (recommended)
+GEMINI_API_KEY=your-api-key
+GEMINI_MODEL=gemini-2.0-flash
+
+# Fallbacks
+OLLAMA_BASE_URL=http://localhost:11434
+LLAMACPP_BASE_URL=http://localhost:8080
+LLM_FALLBACK_ORDER=gemini,ollama,llamacpp
+```
+
+**Build Commands:**
+```bash
+pnpm install --frozen-lockfile
 pnpm --filter @roadwatch/gateway-api build
 pnpm --filter @roadwatch/gateway-api start
 ```
 
-For keeping it alive on reboot, use `systemd` (recommended) or a process manager (pm2).
+### 3. Set Up Database
 
-### 5) Configure and run fabric-anchor-consumer
+**Platform:** Neon, Supabase, or managed PostgreSQL
 
-This service reads from Kafka and anchors to Fabric.
+**Schema Setup:**
+1. Create a PostgreSQL database named `roadwatch`
+2. Run the schema from `docker/postgres/init.sql`
+3. Set `DATABASE_URL` in your API environment
 
-- Copy: `services/fabric-anchor-consumer/.env.example` → `services/fabric-anchor-consumer/.env`
-
-Required env vars:
-
-- Kafka (Upstash REST): `UPSTASH_KAFKA_REST_URL`, `UPSTASH_KAFKA_REST_USERNAME`, `UPSTASH_KAFKA_REST_PASSWORD` (or token variant)
-  - `CASSANDRA_CONTACT_POINTS` (same DB is fine)
-  - `CASSANDRA_KEYSPACE`
-  - `CASSANDRA_LOCAL_DC`
-- Fabric gateway material:
-  - `FABRIC_TLS_CERT_PATH`
-  - `FABRIC_PEER_ENDPOINT`
-  - `FABRIC_PEER_HOST_ALIAS`
-  - `FABRIC_CHANNEL_NAME`
-  - `FABRIC_CHAINCODE_NAME`
-  - `FABRIC_X509_CERT_PATH`
-  - `FABRIC_X509_KEY_PATH`
-
-Run it:
-
+**Seeding (Optional):**
 ```bash
-cd roadWatch
-pnpm --filter @roadwatch/fabric-anchor-consumer dev
+pnpm seed:backend  # Basic data
+pnpm seed:demo     # Demo data
 ```
 
-(Despite the name, this is a single-run process; it does not watch files.)
+### 4. Deploy Background Services (Optional)
 
-### 6) Expose the API over HTTPS (recommended: Cloudflare Tunnel)
+Only deploy these if you need async processing:
 
-Vercel sites are served over HTTPS; to avoid mixed-content issues your API should be reachable over **HTTPS** too.
+#### Scheduler Service
+**Target:** `services/scheduler`
+**Purpose:** Runs cron jobs (SLA checks, cleanup, reports)
 
-Cloudflare Tunnel is the easiest free option:
+#### Webhook Handler
+**Target:** `services/webhook-handler`
+**Purpose:** Processes Kafka events
 
-- Create a Cloudflare account
-- Add a domain (or use a free subdomain if you have one)
-- Install `cloudflared` on the VM
-- Create a tunnel and route `https://api.your-domain.com` → `http://localhost:3100`
+#### Fabric Anchor Consumer
+**Target:** `services/fabric-anchor-consumer`
+**Purpose:** Blockchain integration
 
-### 7) Deploy the web frontend to Vercel
+**Deployment Options:**
+- Same host as Gateway API
+- Separate containers (Docker)
+- Serverless functions (for scheduler only)
 
-Project: `apps/authority-portal`
+### 5. Mobile App Deployment
 
-In Vercel → **New Project** → Import your Git repo:
+**Target:** `apps/mobile-host`
 
-- **Root Directory**: `apps/authority-portal`
-- **Framework Preset**: Vite
-- **Install Command**: `pnpm install --frozen-lockfile`
-- **Build Command**: `pnpm -w --filter @roadwatch/authority-portal build`
-- **Output Directory**: `dist`
+**Platform:** App Store / Google Play
 
-Add an environment variable:
-
-- `VITE_API_BASE` = `https://api.your-domain.com` (your tunneled API URL)
-
-Deploy.
-
-## Secrets / env var matrix (what goes where)
-
-### Frontend (Vercel) — public build-time vars
-
-- `VITE_API_BASE`
-  - **Where**: Vercel Project → Settings → Environment Variables
-  - **Value**: `https://api.<your-domain>`
-  - **Note**: Anything `VITE_*` becomes public in the built JS bundle.
-
-### API backend (VM env) — MUST stay private
-
-- Core:
--
-- `CASSANDRA_CONTACT_POINTS` (managed or local Cassandra)
-- `CASSANDRA_KEYSPACE`
-- `CASSANDRA_LOCAL_DC`
-- `JWT_SECRET` (generate strong random)
-
-PII protection (recommended):
-
-- `PHONE_HASH_PEPPER` (random string)
-- `PHONE_ENC_KEY` (base64-encoded 32 bytes)
-
-Kafka (if using Upstash):
-
-- `UPSTASH_KAFKA_REST_URL`
-- `UPSTASH_KAFKA_REST_TOKEN` (or `UPSTASH_KAFKA_REST_USERNAME` + `UPSTASH_KAFKA_REST_PASSWORD`)
-
-LLM (optional):
-
-- `GEMINI_API_KEY` (if using Gemini)
-
-Notifications (optional):
-
-- `FCM_SERVER_KEY` (server-side only)
-- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
-- `MSG91_AUTH_KEY`, `MSG91_SENDER_ID`
-- `TWILIO_WHATSAPP_FROM`
-
-### Fabric anchor consumer (VM env) — MUST stay private
-
-Kafka:
-
-- Same `UPSTASH_KAFKA_REST_*` as above
-
-Fabric gateway:
-
-- `FABRIC_TLS_CERT_PATH`
-- `FABRIC_X509_CERT_PATH`
-- `FABRIC_X509_KEY_PATH`
-- `FABRIC_PEER_ENDPOINT`, `FABRIC_PEER_HOST_ALIAS`
-- `FABRIC_CHANNEL_NAME`, `FABRIC_CHAINCODE_NAME`
-
-Important: these are **file paths on the VM** (or mounted into a container). Do not put certs/keys into Vercel.
-
-## Generating strong secrets
-
-On Linux/macOS:
-
+**Build Process:**
 ```bash
-# JWT secret (base64)
-openssl rand -base64 48
+# iOS
+pnpm --filter @roadwatch/mobile-host ios
 
-# Phone hash pepper (hex)
-openssl rand -hex 32
-
-# AES-256-GCM key (32 bytes, base64)
-openssl rand -base64 32
+# Android
+pnpm --filter @roadwatch/mobile-host android
 ```
 
-On Windows PowerShell:
+**Configuration:**
+- Update API endpoints in app config
+- Configure push notifications
+- Set up app store credentials
 
-```powershell
-# 48 bytes -> base64
-[Convert]::ToBase64String((1..48 | ForEach-Object {Get-Random -Max 256}))
+## Environment Configuration
 
-# 32 bytes -> base64
-[Convert]::ToBase64String((1..32 | ForEach-Object {Get-Random -Max 256}))
+### Development
+Use `.env.example` as a template:
+```bash
+cp .env.example .env
+# Edit .env with your values
 ```
 
-## Notes / gotchas
+### Production
+Set these environment variables in your hosting platform:
 
-- SSE endpoint (`/events`) works best on an always-on VM (serverless platforms often time out long-lived connections).
-- In production, set `ALLOW_DEV_OTP_ECHO=false`.
-- Keep Fabric peer/orderer ports private if possible; prefer running Fabric on the VM and only exposing the HTTP API.
+**Required:**
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `REDIS_URL` or `UPSTASH_REDIS_REST_*`
+
+**Optional but Recommended:**
+- `KAFKA_BROKER` or `UPSTASH_KAFKA_REST_*`
+- `GEMINI_API_KEY`
+
+**Fabric (Advanced):**
+- `FABRIC_PEER_ENDPOINT`
+- `FABRIC_MSP_ID`
+- `FABRIC_CHANNEL=roadwatch-india`
+- `FABRIC_CHAINCODE=complaint-anchor`
+
+## Scaling Considerations
+
+### Start Small
+1. Frontend + Gateway API + Managed Database
+2. Add Redis for caching
+3. Add Kafka for events
+
+### Scale Up
+1. Add background services
+2. Enable Fabric blockchain
+3. Add monitoring and logging
+4. Implement load balancing
+
+### Cost Optimization
+- **Free Tier:** Vercel + Render + Neon + Upstash
+- **Low Cost:** Railway + Supabase + Upstash
+- **Self-Hosted:** VPS + Docker Compose
+
+## Monitoring & Health Checks
+
+**Health Endpoints:**
+- Gateway API: `GET /health`
+- Database: Built-in health checks in `docker-compose.yml`
+
+**Logging:**
+- Application logs via Morgan middleware
+- Database query logs
+- Kafka consumer logs
+
+## Troubleshooting
+
+**Common Issues:**
+1. **Database Connection:** Check `DATABASE_URL` format
+2. **Redis Connection:** Verify Redis URL and credentials
+3. **Kafka Issues:** Ensure topic creation and consumer groups
+4. **Build Failures:** Check Node.js version (requires Node 18+)
+
+**Debug Commands:**
+```bash
+# Check service health
+curl https://your-api.com/health
+
+# View logs
+pnpm --filter @roadwatch/gateway-api dev
+
+# Test database connection
+psql $DATABASE_URL
+```
+
+## Security Checklist
+
+- [ ] Use strong `JWT_SECRET`
+- [ ] Enable HTTPS for all services
+- [ ] Restrict database access
+- [ ] Use environment variables for secrets
+- [ ] Enable CORS properly
+- [ ] Set up rate limiting
+- [ ] Configure proper authentication
+
+This deployment guide reflects the current codebase structure and active services. Start with the minimal setup and add components as needed.

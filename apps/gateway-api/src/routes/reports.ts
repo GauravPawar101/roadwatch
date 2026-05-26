@@ -1,7 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { getContractorScorecard, getHotspots } from '../analytics/service.js';
-import { execute } from '../cassandra.js';
+import { query } from '../postgres.js';
 import { assertDistrictAccess, requireAuth, requireRole } from '../rbac.js';
 import { streamDistrictReportPdf } from '../reports/districtPdf.js';
 import { streamMinistryReportPdf } from '../reports/ministryPdf.js';
@@ -14,16 +14,23 @@ router.get('/district/:districtId.pdf', requireAuth, async (req, res) => {
   if (!district) return res.status(400).json({ error: 'Missing districtId' });
   if (!assertDistrictAccess(user, district)) return res.status(403).json({ error: 'Forbidden' });
 
-  // Fetch complaints for district and aggregate in application code (PoC). Replace with denormalized tables for production.
-  const rowsRes = await execute('SELECT id, zone, description, status, updated_at FROM complaints WHERE district = ? ALLOW FILTERING', [district], { prepare: true });
-  const byStatus: Record<string, number> = {};
-  for (const r of rowsRes.rows as any[]) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+  // Native Postgres query using tagged template literals
+  const complaints = await query(`
+    SELECT id, zone, description, status, updated_at 
+    FROM complaints 
+    WHERE district = $1`, [district]);
 
-  const topPending = (rowsRes.rows as any[])
+  const byStatus: Record<string, number> = {};
+  for (const r of complaints.rows) {
+    byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+  }
+
+  const topPending = (complaints.rows as any[])
     .filter((r) => r.status !== 'RESOLVED')
-    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    // postgres.js automatically instantiates timestamp columns into raw JS Date objects
+    .sort((a: any, b: any) => b.updated_at.getTime() - a.updated_at.getTime())
     .slice(0, 15)
-    .map((r) => ({ id: r.id, zone: r.zone, description: r.description, status: r.status }));
+    .map((r: any) => ({ id: r.id, zone: r.zone, description: r.description, status: r.status }));
 
   const pending = byStatus['FILED'] ?? 0;
   const inProgress = byStatus['IN_PROGRESS'] ?? 0;
@@ -52,7 +59,7 @@ router.get('/district/:districtId.pdf', requireAuth, async (req, res) => {
 });
 
 router.get('/ministry.pdf', requireAuth, requireRole(['CE']), async (req, res) => {
-  const query = z
+  const params = z
     .object({
       from: z.string().datetime().optional(),
       to: z.string().datetime().optional(),
@@ -60,17 +67,23 @@ router.get('/ministry.pdf', requireAuth, requireRole(['CE']), async (req, res) =
     })
     .parse(req.query);
 
-  // Aggregate across all complaints in app code (PoC). Replace with materialized views/denormalized tables for production.
-  const allRows = await execute('SELECT id, district, status, created_at FROM complaints ALLOW FILTERING', [], { prepare: true });
+  // Native Postgres dump for processing calculations
+  const { rows: allRows } = await query(`SELECT id, district, status, created_at FROM complaints`);
+  
   const totalsByStatus: Record<string, number> = {};
-  for (const r of allRows.rows as any[]) totalsByStatus[r.status] = (totalsByStatus[r.status] ?? 0) + 1;
+  for (const r of allRows) {
+    totalsByStatus[r.status] = (totalsByStatus[r.status] ?? 0) + 1;
+  }
 
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - query.chronicDays);
-  const chronicCount = { rows: [{ count: String(allRows.rows.filter((r: any) => r.status !== 'RESOLVED' && new Date(r.created_at) <= cutoff).length) }] } as any;
+  cutoff.setDate(cutoff.getDate() - params.chronicDays);
+  
+  const chronicCount = allRows.filter(
+    (r: any) => r.status !== 'RESOLVED' && r.created_at <= cutoff
+  ).length;
 
   const districtMap: Record<string, { district: string; total: number; unresolved: number; resolved: number; escalated: number }> = {};
-  for (const r of allRows.rows as any[]) {
+  for (const r of allRows) {
     const d = String(r.district ?? 'UNK');
     districtMap[d] = districtMap[d] || { district: d, total: 0, unresolved: 0, resolved: 0, escalated: 0 };
     districtMap[d].total += 1;
@@ -78,7 +91,10 @@ router.get('/ministry.pdf', requireAuth, requireRole(['CE']), async (req, res) =
     if (r.status === 'RESOLVED') districtMap[d].resolved += 1;
     if (r.status === 'ESCALATED') districtMap[d].escalated += 1;
   }
-  const districtBreakdown = Object.values(districtMap).sort((a, b) => (b.unresolved - a.unresolved) || (b.total - a.total)).slice(0, 200);
+  
+  const districtBreakdown = Object.values(districtMap)
+    .sort((a: any, b: any) => (b.unresolved - a.unresolved) || (b.total - a.total))
+    .slice(0, 200);
 
   const hotspots = await getHotspots({ days: 30, cellKm: 1, limit: 20 });
   const contractors = await getContractorScorecard({ limit: 50 });
@@ -86,17 +102,17 @@ router.get('/ministry.pdf', requireAuth, requireRole(['CE']), async (req, res) =
   streamMinistryReportPdf(res, {
     title: 'RoadWatch Ministry-Level Report',
     generatedAt: new Date().toISOString(),
-    period: { from: query.from ?? null, to: query.to ?? null },
+    period: { from: params.from ?? null, to: params.to ?? null },
     totalsByStatus,
-    chronic: { days: query.chronicDays, count: Number(chronicCount.rows[0]?.count ?? '0') },
-    districts: (districtBreakdown as any[]).map((d) => ({
+    chronic: { days: params.chronicDays, count: chronicCount },
+    districts: districtBreakdown.map((d: any) => ({
       district: d.district,
       total: d.total,
       unresolved: d.unresolved,
       resolved: d.resolved,
       escalated: d.escalated
     })),
-    hotspots: hotspots.map((h) => ({ key: h.key, count: h.count, centroid: h.centroid })),
+    hotspots: hotspots.map((h: any) => ({ key: h.key, count: h.count, centroid: h.centroid })),
     contractors: contractors.map((c) => ({
       contractorId: c.contractorId,
       contractorName: c.contractorName,

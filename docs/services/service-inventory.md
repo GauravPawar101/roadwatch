@@ -18,8 +18,8 @@ This document provides a comprehensive inventory of all services in the RoadWatc
 ├─────────────────────────────────────────────────────────┤
 │                                                           │
 │  ┌─────────────┐     ┌──────────────┐     ┌──────────┐  │
-│  │ Gateway API │────▶│  Cassandra   │◀────│ Scheduler│  │
-│  │  (3000)     │     │   (9042)     │     │ (cron)   │  │
+│  │ Gateway API │────▶│   Postgres    │◀────│ Scheduler│  │
+│  │  (3000)     │     │   (5432)     │     │ (cron)   │  │
 │  └──────┬──────┘     └──────────────┘     └──────────┘  │
 │         │                                                 │
 │         ▼                                                 │
@@ -46,10 +46,10 @@ This document provides a comprehensive inventory of all services in the RoadWatc
 
 ## Core Services
 
-### 1. **Cassandra** (Database)
-- **Container:** `roadwatch_cassandra`
-- **Image:** `cassandra:4.1`
-- **Port:** 9042 → 9042
+### 1. **Postgres** (Database)
+- **Container:** `roadwatch_postgres`
+- **Image:** `postgres:16`
+- **Port:** 5432 → 5432
 - **Status:** Always running ✅
 - **Responsibilities:**
   - Core data persistence (complaints, users, repairs, etc.)
@@ -57,14 +57,13 @@ This document provides a comprehensive inventory of all services in the RoadWatc
   - Event logs and audit trails
   - Service metrics and health data
 - **Dependencies:** None (foundational)
-- **Health Check:** cqlsh readiness / Cassandra health endpoint
+- **Health Check:** pg_isready / Postgres health endpoint
 - **Resource Limits:** 1 CPU, 1GB RAM minimum recommended
-- **Data Volume:** `cassandra_data:/var/lib/cassandra`
+- **Data Volume:** `postgres_data:/var/lib/postgresql/data`
 - **Environment:**
   ```
-  CASSANDRA_CONTACT_POINTS: cassandra:9042
-  CASSANDRA_KEYSPACE: roadwatch
-  CASSANDRA_LOCAL_DC: datacenter1
+  # Point to PgBouncer-backed pooled endpoint
+  DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
   ```
 
 **API Endpoints Using This:**
@@ -180,14 +179,13 @@ This document provides a comprehensive inventory of all services in the RoadWatc
   - **Generate reports** (daily at 1 AM)
     - Compiles daily summary statistics
     - Stores in `daily_reports` table
-- **Dependencies:** Cassandra (health check)
+- **Dependencies:** Postgres (health check)
 - **Resource Limits:** 0.5 CPU, 256MB RAM
 - **Health Check:** Process alive (exit code 0)
 - **Environment Variables:**
   ```
-  CASSANDRA_CONTACT_POINTS: cassandra:9042
-  CASSANDRA_KEYSPACE: roadwatch_local
-  CASSANDRA_LOCAL_DC: datacenter1
+  # Point to PgBouncer-backed pooled endpoint
+  DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch_local
   SERVICE_NAME: scheduler
   CRON_SYNC_QUEUE: "*/5 * * * *"
   CRON_KARMA_RECALC: "0 * * * *"
@@ -220,14 +218,13 @@ This document provides a comprehensive inventory of all services in the RoadWatc
   - `complaint.status.changed` → Propagates status, notifies users
   - `notification.send` → Marks notification as sent
   - `authority.action` → Logs action, notifies citizen
-- **Dependencies:** Cassandra, Kafka (health checks)
+- **Dependencies:** Postgres, Kafka (health checks)
 - **Resource Limits:** 0.5 CPU, 256MB RAM
 - **Health Check:** Process alive
 - **Environment Variables:**
   ```
-  CASSANDRA_CONTACT_POINTS: cassandra:9042
-  CASSANDRA_KEYSPACE: roadwatch_local
-  CASSANDRA_LOCAL_DC: datacenter1
+  # Point to PgBouncer-backed pooled endpoint
+  DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch_local
   KAFKA_BROKERS: kafka:29092
   KAFKA_GROUP_ID: webhook-handler
   KAFKA_CONSUMER_TIMEOUT: 3000
@@ -255,14 +252,13 @@ This document provides a comprehensive inventory of all services in the RoadWatc
   - Handles errors and dead-letter queue
 - **Input Event:** Complaint submitted by citizen
 - **Output Event:** complaint.anchored (with HLF txHash)
-**Dependencies:** Cassandra, Kafka, Fabric network (health checks)
+**Dependencies:** Postgres, Kafka, Fabric network (health checks)
 - **Resource Limits:** 1 CPU, 512MB RAM (largest due to HLF SDK overhead)
 - **Health Check:** Process alive
 - **Environment Variables:**
   ```
-  CASSANDRA_CONTACT_POINTS: cassandra:9042
-  CASSANDRA_KEYSPACE: roadwatch_local
-  CASSANDRA_LOCAL_DC: datacenter1
+  # Point to PgBouncer-backed pooled endpoint
+  DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch_local
   KAFKA_BROKERS: kafka:29092
   FABRIC_PEER_ENDPOINT: peer0.nhai.example.com:7051
   FABRIC_MSP_ID: NHAIMSP

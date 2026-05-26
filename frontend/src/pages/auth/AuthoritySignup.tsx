@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Card, CardBody } from '../../components/UIComponents';
 import { useAuth, type AuthUser } from '../../contexts/AuthContext';
 
 export default function AuthoritySignup() {
@@ -112,25 +111,41 @@ export default function AuthoritySignup() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 16px' }}>
-      <div style={{ width: '100%', maxWidth: 540 }}>
-        <Card>
-          <CardBody>
-            <div style={{ textAlign: 'center', marginBottom: 12 }}>
-              <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 6 }}>RoadWatch</h1>
-              <p style={{ color: 'var(--color-text-secondary)' }}>Create Authority Account</p>
+    <div className="min-h-screen bg-background text-on-background relative overflow-hidden">
+      <main className="relative z-10 flex min-h-screen flex-col items-center px-4 pt-8 pb-24 sm:pt-10 sm:pb-20">
+        <div className="flex flex-col items-center text-center">
+          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-on-surface-variant">
+            <span className="h-1.5 w-1.5 rounded-full bg-on-surface-variant" aria-hidden="true" />
+            <span>CivicGuard</span>
+          </div>
+          <p className="mt-3 max-w-[26rem] text-[11px] leading-4 text-on-surface-variant sm:text-[12px] sm:leading-5">
+            Create Authority Account
+          </p>
+        </div>
+
+        <div className="flex flex-1 items-center justify-center py-10 sm:py-12">
+          <div className="w-full max-w-[372px] rounded-[14px] border border-outline-variant bg-surface-container-lowest px-5 py-5 shadow-[0_1px_0_rgba(0,0,0,0.02)] sm:px-6 sm:py-6 text-center">
+            <div className="rounded-[10px] border border-error/20 bg-error-container px-3 py-3 text-[13px] text-on-error-container">
+              Authority accounts are provisioned by the administrator. There is no open signup path.
             </div>
 
-            <div style={{ marginBottom: 12 }}>
-              <Alert variant="warning">Authority accounts are provisioned by the administrator. There is no open signup path.</Alert>
+            <div className="mt-4 text-[12px]">
+              <a href="/" className="text-secondary transition-colors hover:text-primary hover:underline">Back to dashboard</a>
             </div>
+          </div>
+        </div>
 
-            <div style={{ marginTop: 12, textAlign: 'center', fontSize: 13, color: 'var(--color-text-secondary)' }}>
-              <a href="/">Back to dashboard</a>
-            </div>
-          </CardBody>
-        </Card>
-      </div>
+        <footer className="absolute bottom-0 left-0 right-0 border-t border-outline-variant/60 bg-background/90 px-4 py-3 backdrop-blur-sm sm:px-6">
+          <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-2 text-[11px] text-on-surface-variant sm:flex-row sm:items-center sm:justify-between">
+            <p>© 2024 CivicGuard Institutional Portal. All rights reserved.</p>
+            <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 sm:justify-end">
+              <a className="transition-colors hover:text-primary" href="#">Help Center</a>
+              <a className="transition-colors hover:text-primary" href="#">Privacy Policy</a>
+              <a className="transition-colors hover:text-primary" href="#">Legal Disclosure</a>
+            </nav>
+          </div>
+        </footer>
+      </main>
     </div>
   );
 }

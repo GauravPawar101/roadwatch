@@ -2,16 +2,17 @@ import 'dotenv/config';
 
 import * as grpc from '@grpc/grpc-js';
 import { connect, signers, type Contract, type Gateway } from '@hyperledger/fabric-gateway';
-import { Client as CassandraClient } from 'cassandra-driver';
 import crypto from 'crypto';
 import { promises as fs } from 'fs';
 import { Kafka as KafkaJS } from 'kafkajs';
+import { Pool } from 'pg';
 
+import { registerServiceWithGateway } from '../../apps/gateway-api/src/services/discovery.js';
 import { getLocalKafkaBrokers } from '../../providers/kafka/index.js';
 import { KafkaProducer } from '../../providers/kafka/KafkaProducer.js';
 import { KafkaTopics, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '../../providers/kafka/topics.js';
 
-type DbClient = CassandraClient;
+type DbClient = Pool;
 
 type Direction = 'left' | 'right';
 type ProofStep = { direction: Direction; hash: string };
@@ -73,8 +74,6 @@ class LocalKafkaPollConsumer implements PollConsumer {
     if (this.runStarted) return;
     this.runStarted = true;
 
-    // Start the background fetch loop once.
-    // Note: this will buffer messages even while we're processing; we commit explicitly.
     void this.consumer.run({
       autoCommit: false,
       eachMessage: async ({ topic, partition, message }) => {
@@ -245,115 +244,110 @@ async function connectFabric(env: Env = process.env): Promise<{ gateway: Gateway
   return { gateway, contract };
 }
 
-async function connectCassandra(env: Env = process.env): Promise<DbClient> {
-  const contactPoints = requireEnv(env.CASSANDRA_CONTACT_POINTS, 'CASSANDRA_CONTACT_POINTS').split(',');
-  const keyspace = requireEnv(env.CASSANDRA_KEYSPACE, 'CASSANDRA_KEYSPACE');
-  const localDataCenter = env.CASSANDRA_LOCAL_DC ?? 'datacenter1';
+async function connectPostgres(env: Env = process.env): Promise<DbClient> {
+  const connectionString = env.DATABASE_URL || 'postgres://localhost:6432/roadwatch';
 
-  const client = new CassandraClient({
-    contactPoints,
-    localDataCenter,
-    keyspace,
-    credentials: env.CASSANDRA_USERNAME && env.CASSANDRA_PASSWORD
-      ? { username: env.CASSANDRA_USERNAME, password: env.CASSANDRA_PASSWORD }
-      : undefined
+  const pool = new Pool({
+    connectionString,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000
   });
 
-  await client.connect();
-  return client;
+  pool.on('error', (err) => {
+    console.error('Unexpected error on idle client', err);
+  });
+
+  // Test connection
+  const client = await pool.connect();
+  try {
+    await client.query('SELECT NOW()');
+  } finally {
+    client.release();
+  }
+
+  return pool;
 }
 
 async function ensureTables(db: DbClient): Promise<void> {
-  // Create keyspace if needed (optional, may be pre-created)
-  const keyspace = requireEnv(process.env.CASSANDRA_KEYSPACE, 'CASSANDRA_KEYSPACE');
-
   // Processed events table: track which idempotency keys have been processed
-  // Partition key: (consumer_id, key) for efficient lookups per consumer
-  await db.execute(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS processed_events (
-      consumer_id text,
-      key text,
-      processed_at timestamp,
+      consumer_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      processed_at TIMESTAMP DEFAULT NOW(),
       PRIMARY KEY (consumer_id, key)
-    ) WITH CLUSTERING ORDER BY (key ASC)
-      AND default_time_to_live = 2592000;
+    )
   `);
 
   // Event failures table: track retry count and last error
-  // Partition key: (consumer_id, key) for efficient failure lookups
-  await db.execute(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS event_failures (
-      consumer_id text,
-      key text,
-      failure_count int,
-      last_error text,
-      updated_at timestamp,
+      consumer_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      failure_count INT DEFAULT 0,
+      last_error TEXT,
+      updated_at TIMESTAMP DEFAULT NOW(),
       PRIMARY KEY (consumer_id, key)
-    ) WITH CLUSTERING ORDER BY (key ASC)
-      AND default_time_to_live = 2592000;
+    )
   `);
 
   // Complaint merkle proofs table: denormalized for fast lookups
-  // Primary partition: complaint_id for direct lookup
-  // Clustering: anchored_at DESC for time-based queries
-  await db.execute(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS complaint_merkle_proofs (
-      complaint_id text PRIMARY KEY,
-      merkle_root text,
-      merkle_proof text,
-      fabric_txid text,
-      batch_id text,
-      anchored_at timestamp
-    );
+      complaint_id TEXT PRIMARY KEY,
+      merkle_root TEXT,
+      merkle_proof TEXT,
+      fabric_txid TEXT,
+      batch_id TEXT,
+      anchored_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   // Secondary index on batch_id for batch-based queries
-  await db.execute(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS complaint_merkle_proofs_by_batch (
-      batch_id text,
-      complaint_id text,
-      merkle_root text,
-      merkle_proof text,
-      fabric_txid text,
-      anchored_at timestamp,
+      batch_id TEXT NOT NULL,
+      complaint_id TEXT NOT NULL,
+      merkle_root TEXT,
+      merkle_proof TEXT,
+      fabric_txid TEXT,
+      anchored_at TIMESTAMP DEFAULT NOW(),
       PRIMARY KEY (batch_id, complaint_id)
-    ) WITH CLUSTERING ORDER BY (complaint_id ASC);
+    )
   `);
 }
 
 async function isProcessed(db: DbClient, consumerId: string, key: string): Promise<boolean> {
-  const query = 'SELECT 1 FROM processed_events WHERE consumer_id = ? AND key = ? LIMIT 1';
-  const result = await db.execute(query, [consumerId, key], { prepare: true });
-  return result.rowLength > 0;
+  const result = await db.query(
+    'SELECT 1 FROM processed_events WHERE consumer_id = $1 AND key = $2 LIMIT 1',
+    [consumerId, key]
+  );
+  return result.rows.length > 0;
 }
 
 async function markProcessed(db: DbClient, consumerId: string, key: string): Promise<void> {
-  const query = `
-    INSERT INTO processed_events (consumer_id, key, processed_at)
-    VALUES (?, ?, ?)
-  `;
-  await db.execute(query, [consumerId, key, new Date()], { prepare: true });
+  await db.query(
+    `INSERT INTO processed_events (consumer_id, key, processed_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (consumer_id, key) DO NOTHING`,
+    [consumerId, key]
+  );
 }
 
 async function recordFailure(db: DbClient, consumerId: string, key: string, error: string): Promise<number> {
-  // First, check current failure count
-  const selectQuery = 'SELECT failure_count FROM event_failures WHERE consumer_id = ? AND key = ? LIMIT 1';
-  const selectResult = await db.execute(selectQuery, [consumerId, key], { prepare: true });
-  
-  const currentCount = selectResult.rowLength > 0 
-    ? (selectResult.rows[0] as { failure_count?: number }).failure_count ?? 0
-    : 0;
-  
-  const newCount = currentCount + 1;
-  const now = new Date();
+  const result = await db.query(
+    `INSERT INTO event_failures (consumer_id, key, failure_count, last_error, updated_at)
+     VALUES ($1, $2, 1, $3, NOW())
+     ON CONFLICT (consumer_id, key) DO UPDATE SET
+       failure_count = event_failures.failure_count + 1,
+       last_error = $3,
+       updated_at = NOW()
+     RETURNING failure_count`,
+    [consumerId, key, error]
+  );
 
-  const insertQuery = `
-    INSERT INTO event_failures (consumer_id, key, failure_count, last_error, updated_at)
-    VALUES (?, ?, ?, ?, ?)
-  `;
-  await db.execute(insertQuery, [consumerId, key, newCount, error, now], { prepare: true });
-
-  return newCount;
+  return result.rows[0]?.failure_count ?? 0;
 }
 
 function nowIso(): string {
@@ -364,7 +358,19 @@ async function main(): Promise<void> {
   const consumerId = 'fabric-anchor-consumer';
   const env: Env = process.env;
 
-  const db = await connectCassandra(env);
+  void registerServiceWithGateway({
+    gatewayUrl: env.GATEWAY_URL ?? 'http://127.0.0.1:3100',
+    service: {
+      name: env.SERVICE_NAME ?? consumerId,
+      address: env.SERVICE_URL ?? `service://${env.SERVICE_NAME ?? consumerId}`,
+      description: 'RoadWatch Fabric anchor consumer'
+    },
+    registrySecret: env.SERVICE_REGISTRY_SECRET
+  }).catch(error => {
+    console.warn(`[${consumerId}] service registration failed:`, error instanceof Error ? error.message : String(error));
+  });
+
+  const db = await connectPostgres(env);
   await ensureTables(db);
 
   const { contract } = await connectFabric(env);
@@ -466,25 +472,23 @@ async function main(): Promise<void> {
         const now = new Date();
 
         // Insert into primary table
-        const insertQuery = `
-          INSERT INTO complaint_merkle_proofs 
-            (complaint_id, merkle_root, merkle_proof, fabric_txid, batch_id, anchored_at)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `;
-        await db.execute(insertQuery, 
-          [event.complaintId, root, JSON.stringify(proof), fabricTxId, batchId, now],
-          { prepare: true }
+        await db.query(
+          `INSERT INTO complaint_merkle_proofs 
+             (complaint_id, merkle_root, merkle_proof, fabric_txid, batch_id, anchored_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (complaint_id) DO UPDATE SET
+             merkle_root = $2, merkle_proof = $3, fabric_txid = $4, batch_id = $5, anchored_at = $6`,
+          [event.complaintId, root, JSON.stringify(proof), fabricTxId, batchId, now]
         );
 
         // Insert into batch index table
-        const insertBatchQuery = `
-          INSERT INTO complaint_merkle_proofs_by_batch 
-            (batch_id, complaint_id, merkle_root, merkle_proof, fabric_txid, anchored_at)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `;
-        await db.execute(insertBatchQuery,
-          [batchId, event.complaintId, root, JSON.stringify(proof), fabricTxId, now],
-          { prepare: true }
+        await db.query(
+          `INSERT INTO complaint_merkle_proofs_by_batch 
+             (batch_id, complaint_id, merkle_root, merkle_proof, fabric_txid, anchored_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (batch_id, complaint_id) DO UPDATE SET
+             merkle_root = $3, merkle_proof = $4, fabric_txid = $5, anchored_at = $6`,
+          [batchId, event.complaintId, root, JSON.stringify(proof), fabricTxId, now]
         );
 
         await markProcessed(db, consumerId, event.idempotencyKey);
@@ -596,8 +600,6 @@ async function main(): Promise<void> {
       }
     }
 
-    // If we only saw malformed/poison messages in this poll, DLQ'd them, and
-    // didn't add anything to the batch, commit offsets now to prevent redelivery.
     if (malformedOnly && addedToBatch === 0) {
       await consumer.commit({ consumerGroupId, instanceId });
     }
@@ -610,7 +612,7 @@ async function main(): Promise<void> {
   clearInterval(timer);
   await flush('timer');
   await consumer.disconnect?.();
-  await db.shutdown();
+  await db.end();
 }
 
 main().catch(err => {

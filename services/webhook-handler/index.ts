@@ -1,7 +1,21 @@
 import 'dotenv/config';
 
 import { Kafka } from 'kafkajs';
-import { client, cassandraTypes as types } from '../../apps/gateway-api/src/cassandra.js';
+import pg from 'pg';
+import { registerServiceWithGateway } from '../../apps/gateway-api/src/services/discovery.js';
+
+const { Pool } = pg;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgres://localhost:6432/roadwatch',
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+pool.on('error', (err) => {
+  console.error('[postgres] Unexpected error on idle client:', err instanceof Error ? err.message : String(err));
+});
+
 
 interface Config {
   kafkaBrokers: string[];
@@ -23,7 +37,7 @@ function getConfig(): Config {
 }
 
 const config = getConfig();
-// Uses shared Cassandra client from apps/gateway-api/src/cassandra.js
+// Uses shared PostgreSQL pool from apps/gateway-api/src/postgres.js
 const kafka = new Kafka({
   clientId: 'roadwatch-webhook-handler',
   brokers: config.kafkaBrokers,
@@ -51,22 +65,19 @@ async function handleComplaintSubmitted(message: KafkaMessage): Promise<void> {
     const event = JSON.parse(message.value || '{}');
     console.log('[webhook] Processing complaint.submitted:', event.complaintId);
 
-    // Read existing metadata and set event_status
-    const sel = await client.execute('SELECT metadata FROM complaints WHERE id = ?', [event.complaintId], { prepare: true });
-    let metadataObj: any = {};
-    if (sel.rowLength && sel.rows[0].metadata) {
-      try {
-        metadataObj = JSON.parse(sel.rows[0].metadata);
-      } catch {}
-    }
-    metadataObj.event_status = 'submitted_to_fabric';
-    await client.execute('UPDATE complaints SET metadata = ?, updated_at = ? WHERE id = ?', [JSON.stringify(metadataObj), new Date(), event.complaintId], { prepare: true });
+    // Update complaint with event status
+    await pool.query(
+      `UPDATE complaints 
+       SET event_status = $1, updated_at = NOW()
+       WHERE id = $2`,
+      ['submitted_to_fabric', event.complaintId]
+    );
 
     // Log event (append-only)
-    await client.execute(
-      'INSERT INTO event_logs (id, event_type, entity_id, entity_type, event_data, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [types.TimeUuid.now(), 'complaint.submitted', event.complaintId, 'complaint', JSON.stringify(event), new Date()],
-      { prepare: true }
+    await pool.query(
+      `INSERT INTO event_logs (event_type, entity_id, entity_type, event_data, created_at)
+       VALUES ($1, $2, $3, $4, NOW())`,
+      ['complaint.submitted', event.complaintId, 'complaint', JSON.stringify(event)]
     );
 
     console.log('[webhook] ✓ Processed complaint.submitted:', event.complaintId);
@@ -84,23 +95,25 @@ async function handleComplaintAnchored(message: KafkaMessage): Promise<void> {
     const event = JSON.parse(message.value || '{}');
     console.log('[webhook] Processing complaint.anchored:', event.complaintId);
 
-    // Update complaint with anchoring details (simple set)
-    const sel = await client.execute('SELECT metadata FROM complaints WHERE id = ?', [event.complaintId], { prepare: true });
-    let metadataObj: any = {};
-    if (sel.rowLength && sel.rows[0].metadata) {
-      try { metadataObj = JSON.parse(sel.rows[0].metadata); } catch {}
-    }
-    metadataObj.blockchain_hash = event.txHash;
-    // Do NOT overwrite logical complaint status with an anchoring marker.
-    // Store anchor details separately so status remains meaningful (FILED/IN_PROGRESS/RESOLVED/etc.).
-    await client.execute('UPDATE complaints SET anchored_at = ?, anchored_tx_hash = ?, metadata = ?, updated_at = ? WHERE id = ?', [new Date(), event.txHash, JSON.stringify(metadataObj), new Date(), event.complaintId], { prepare: true });
+    // Update complaint with anchoring details
+    await pool.query(
+      `UPDATE complaints 
+       SET anchored_at = NOW(), anchored_tx_hash = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [event.txHash, event.complaintId]
+    );
 
-    // Send notification to authority
-    // For PoC: create simple notifications for authorities (this avoids JOINs). In a full migration we'll maintain denormalized tables for recipients.
-    await client.execute(
-      'INSERT INTO notifications (id, user_id, type, title, body, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [types.TimeUuid.now(), 'ALL_AUTHORITIES', 'complaint_anchored', 'Complaint Anchored to Blockchain', `Complaint #${event.complaintId} has been anchored to blockchain`, JSON.stringify({ complaintId: event.complaintId, txHash: event.txHash }), new Date()],
-      { prepare: true }
+    // Send notification to authorities
+    await pool.query(
+      `INSERT INTO notifications (user_id, type, title, body, data, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [
+        'ALL_AUTHORITIES',
+        'complaint_anchored',
+        'Complaint Anchored to Blockchain',
+        `Complaint #${event.complaintId} has been anchored to blockchain`,
+        JSON.stringify({ complaintId: event.complaintId, txHash: event.txHash })
+      ]
     );
 
     console.log('[webhook] ✓ Processed complaint.anchored:', event.complaintId, 'TX:', event.txHash);
@@ -119,15 +132,14 @@ async function handleComplaintStatusChanged(message: KafkaMessage): Promise<void
     console.log('[webhook] Processing complaint.status.changed:', event.complaintId, 'to', event.newStatus);
 
     // Update complaint status
-    const sel = await client.execute('SELECT metadata FROM complaints WHERE id = ?', [event.complaintId], { prepare: true });
-    let metadataObj: any = {};
-    if (sel.rowLength && sel.rows[0].metadata) {
-      try { metadataObj = JSON.parse(sel.rows[0].metadata); } catch {}
-    }
-    metadataObj.last_status = event.previousStatus;
-    await client.execute('UPDATE complaints SET status = ?, updated_at = ?, metadata = ? WHERE id = ?', [event.newStatus, new Date(), JSON.stringify(metadataObj), event.complaintId], { prepare: true });
+    await pool.query(
+      `UPDATE complaints 
+       SET status = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [event.newStatus, event.complaintId]
+    );
 
-    // Notify relevant users
+    // Notify relevant users based on status
     const roleMap: Record<string, string> = {
       submitted: 'contractor',
       assigned: 'contractor',
@@ -138,8 +150,18 @@ async function handleComplaintStatusChanged(message: KafkaMessage): Promise<void
 
     const notifyRole = roleMap[event.newStatus] || 'authority';
 
-    // PoC notification - denormalized recipient
-    await client.execute('INSERT INTO notifications (id, user_id, type, title, body, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [types.TimeUuid.now(), notifyRole, 'complaint_status_changed', 'Complaint Status Updated', `Complaint #${event.complaintId} status is now: ${event.newStatus}`, JSON.stringify({ complaintId: event.complaintId, status: event.newStatus }), new Date()], { prepare: true });
+    // Create notification for the appropriate role
+    await pool.query(
+      `INSERT INTO notifications (user_id, type, title, body, data, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [
+        notifyRole,
+        'complaint_status_changed',
+        'Complaint Status Updated',
+        `Complaint #${event.complaintId} status is now: ${event.newStatus}`,
+        JSON.stringify({ complaintId: event.complaintId, status: event.newStatus })
+      ]
+    );
 
     console.log('[webhook] ✓ Processed complaint.status.changed:', event.complaintId);
   } catch (error) {
@@ -156,11 +178,12 @@ async function handleNotificationSend(message: KafkaMessage): Promise<void> {
     const event = JSON.parse(message.value || '{}');
     console.log('[webhook] Processing notification.send:', event.notificationId);
 
-    // Update notification delivery status - PoC: write delivery log
-    await client.execute('INSERT INTO notification_delivery_logs (id, notification_id, channel, status, created_at) VALUES (?, ?, ?, ?, ?)', [types.TimeUuid.now(), event.notificationId || 'unknown', event.channel || 'push', 'sent', new Date()], { prepare: true });
-
-    // Log delivery
-    // (already logged above)
+    // Log notification delivery
+    await pool.query(
+      `INSERT INTO notification_delivery_logs (notification_id, channel, status, created_at)
+       VALUES ($1, $2, $3, NOW())`,
+      [event.notificationId || 'unknown', event.channel || 'push', 'sent']
+    );
 
     console.log('[webhook] ✓ Processed notification.send:', event.notificationId);
   } catch (error) {
@@ -178,44 +201,39 @@ async function handleAuthorityAction(message: KafkaMessage): Promise<void> {
     console.log('[webhook] Processing authority.action:', event.actionType, 'on', event.complaintId);
 
     // Log the authority action
-    await client.execute('INSERT INTO authority_action_logs (id, complaint_id, authority_id, action_type, action_data, created_at) VALUES (?, ?, ?, ?, ?, ?)', [types.TimeUuid.now(), event.complaintId, event.authorityId, event.actionType, JSON.stringify(event), new Date()], { prepare: true });
-
-    // Update complaint metadata: select → merge → update
-    const sel = await client.execute(
-      'SELECT metadata FROM complaints WHERE id = ?',
-      [event.complaintId],
-      { prepare: true }
-    );
-    let metadataObj: any = {};
-    if (sel.rowLength && sel.rows[0].metadata) {
-      try { metadataObj = JSON.parse(sel.rows[0].metadata); } catch {}
-    }
-    metadataObj.last_authority_action = event.actionType;
-    await client.execute(
-      'UPDATE complaints SET metadata = ?, updated_at = ? WHERE id = ?',
-      [JSON.stringify(metadataObj), new Date(), event.complaintId],
-      { prepare: true }
+    await pool.query(
+      `INSERT INTO authority_action_logs (complaint_id, authority_id, action_type, action_data, created_at)
+       VALUES ($1, $2, $3, $4, NOW())`,
+      [event.complaintId, event.authorityId, event.actionType, JSON.stringify(event)]
     );
 
-    // Notify citizen about action — PoC: look up user_id from complaint then insert notification
-    const complaintRow = await client.execute(
-      'SELECT user_id FROM complaints WHERE id = ?',
-      [event.complaintId],
-      { prepare: true }
+    // Update complaint with last action
+    await pool.query(
+      `UPDATE complaints 
+       SET last_authority_action = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [event.actionType, event.complaintId]
     );
-    const citizenId: string = complaintRow.rowLength ? complaintRow.rows[0].user_id ?? 'unknown' : 'unknown';
-    await client.execute(
-      'INSERT INTO notifications (id, user_id, type, title, body, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+
+    // Get the citizen ID for this complaint
+    const result = await pool.query(
+      'SELECT user_id FROM complaints WHERE id = $1',
+      [event.complaintId]
+    );
+
+    const citizenId = result.rows.length > 0 ? result.rows[0].user_id : 'unknown';
+
+    // Notify citizen about the action
+    await pool.query(
+      `INSERT INTO notifications (user_id, type, title, body, data, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
       [
-        types.TimeUuid.now(),
         citizenId,
         'authority_action',
         'Authority Action on Your Complaint',
         `Authority action: ${event.actionType} on complaint #${event.complaintId}`,
-        JSON.stringify({ complaintId: event.complaintId, actionType: event.actionType }),
-        new Date()
-      ],
-      { prepare: true }
+        JSON.stringify({ complaintId: event.complaintId, actionType: event.actionType })
+      ]
     );
 
     console.log('[webhook] ✓ Processed authority.action:', event.actionType);
@@ -260,10 +278,9 @@ async function initializeWebhookHandler(): Promise<void> {
   console.log(`[${config.serviceName}] Starting webhook handler...`);
 
   try {
-    // Test Cassandra connection
-    await client.connect();
-    const ver = await client.execute('SELECT release_version FROM system.local');
-    console.log(`[${config.serviceName}] Cassandra connected. version:`, ver.rows[0]?.release_version);
+    // Test PostgreSQL connection
+    const result = await pool.query('SELECT version()');
+    console.log(`[${config.serviceName}] PostgreSQL connected. version:`, result.rows[0]?.version);
   } catch (error) {
     console.error(`[${config.serviceName}] Failed to connect to database:`, error);
     process.exit(1);
@@ -310,6 +327,17 @@ async function initializeWebhookHandler(): Promise<void> {
     });
 
     console.log(`[${config.serviceName}] Webhook handler initialized and running...`);
+    void registerServiceWithGateway({
+      gatewayUrl: process.env.GATEWAY_URL ?? 'http://127.0.0.1:3100',
+      service: {
+        name: config.serviceName,
+        address: process.env.SERVICE_URL ?? `service://${config.serviceName}`,
+        description: 'RoadWatch Kafka webhook handler'
+      },
+      registrySecret: process.env.SERVICE_REGISTRY_SECRET
+    }).catch(error => {
+      console.warn(`[${config.serviceName}] service registration failed:`, error instanceof Error ? error.message : String(error));
+    });
   } catch (error) {
     console.error(`[${config.serviceName}] Failed to initialize Kafka:`, error);
     process.exit(1);
@@ -319,14 +347,14 @@ async function initializeWebhookHandler(): Promise<void> {
   process.on('SIGTERM', async () => {
     console.log(`[${config.serviceName}] Received SIGTERM, shutting down gracefully...`);
     await consumer.disconnect();
-    await client.shutdown();
+    await pool.end();
     process.exit(0);
   });
 
   process.on('SIGINT', async () => {
     console.log(`[${config.serviceName}] Received SIGINT, shutting down gracefully...`);
     await consumer.disconnect();
-    await client.shutdown();
+    await pool.end();
     process.exit(0);
   });
 }

@@ -1,10 +1,10 @@
-import { client as cassandraClient } from './cassandra.js';
+import { pool } from './postgres.js';
 
 type ServiceStatus = 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
 
 type ServiceHealthMap = {
   'gateway-api': ServiceHealthStatus;
-  cassandra: ServiceHealthStatus;
+  postgres: ServiceHealthStatus;
   kafka: ServiceHealthStatus;
   zookeeper: ServiceHealthStatus;
   scheduler: ServiceHealthStatus;
@@ -35,10 +35,10 @@ const serviceHealth: ServiceHealthMap = {
     status: 'healthy',
     lastCheck: new Date(),
     message: 'Running',
-    dependencies: ['cassandra', 'kafka']
+    dependencies: ['postgres', 'kafka']
   },
-  cassandra: {
-    name: 'cassandra',
+  postgres: {
+    name: 'postgres',
     status: 'unknown',
     lastCheck: new Date(),
     message: 'Not checked yet',
@@ -63,21 +63,21 @@ const serviceHealth: ServiceHealthMap = {
     status: 'unknown',
     lastCheck: new Date(),
     message: 'Not checked yet',
-    dependencies: ['cassandra']
+    dependencies: ['postgres']
   },
   'webhook-handler': {
     name: 'webhook-handler',
     status: 'unknown',
     lastCheck: new Date(),
     message: 'Not checked yet',
-    dependencies: ['cassandra', 'kafka']
+    dependencies: ['postgres', 'kafka']
   },
   'fabric-anchor-consumer': {
     name: 'fabric-anchor-consumer',
     status: 'unknown',
     lastCheck: new Date(),
     message: 'Not checked yet',
-    dependencies: ['cassandra', 'kafka', 'fabric']
+    dependencies: ['postgres', 'kafka', 'fabric']
   },
   fabric: {
     name: 'fabric',
@@ -89,37 +89,34 @@ const serviceHealth: ServiceHealthMap = {
 };
 
 /**
- * Check Cassandra cluster health using lightweight system query
- * Uses system.local table which is always available and fast
+ * Check PostgreSQL database health
  */
-async function checkCassandra(): Promise<void> {
+async function checkPostgres(): Promise<void> {
   try {
-    const result = await cassandraClient.execute('SELECT release_version, cluster_name FROM system.local');
+    const result = await pool.query('SELECT version()');
 
-    if (result.rowLength > 0) {
-      const row = result.rows[0] as { release_version?: string; cluster_name?: string };
-      const version = row.release_version || 'unknown';
-      const clusterName = row.cluster_name || 'default';
+    if (result.rows.length > 0) {
+      const version = result.rows[0].version as string;
 
-      serviceHealth.cassandra = {
-        name: 'cassandra',
+      serviceHealth.postgres = {
+        name: 'postgres',
         status: 'healthy',
         lastCheck: new Date(),
-        message: `Connected to cluster "${clusterName}" (v${version})`,
+        message: `Connected to PostgreSQL: ${version}`,
         dependencies: []
       };
     } else {
-      serviceHealth.cassandra = {
-        name: 'cassandra',
+      serviceHealth.postgres = {
+        name: 'postgres',
         status: 'unhealthy',
         lastCheck: new Date(),
-        message: 'No cluster information available',
+        message: 'No version information available',
         dependencies: []
       };
     }
   } catch (error) {
-    serviceHealth.cassandra = {
-      name: 'cassandra',
+    serviceHealth.postgres = {
+      name: 'postgres',
       status: 'unhealthy',
       lastCheck: new Date(),
       message: `Connection failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -153,27 +150,23 @@ async function checkKafka(): Promise<void> {
 async function checkScheduler(): Promise<void> {
   try {
     // Check if scheduler has been active in the last 5 minutes
-    // Using Cassandra lightweight query instead of PostgreSQL
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
-    const result = await cassandraClient.execute(
-      'SELECT COUNT(*) as recent_jobs FROM jobs_logs WHERE created_at > ?',
-      [fiveMinutesAgo],
-      { prepare: true }
+    const result = await pool.query(
+      'SELECT COUNT(*) as recent_jobs FROM jobs_logs WHERE created_at > $1',
+      [fiveMinutesAgo]
     );
 
-    // If cassandra is healthy, assume scheduler is running
-    if (serviceHealth.cassandra.status === 'healthy') {
-      const count = result.rowLength > 0
-        ? (result.rows[0] as { recent_jobs?: number }).recent_jobs ?? 0
-        : 0;
+    // If postgres is healthy, assume scheduler is running
+    if (serviceHealth.postgres.status === 'healthy') {
+      const count = result.rows.length > 0 ? parseInt(result.rows[0].recent_jobs, 10) : 0;
 
       serviceHealth.scheduler = {
         name: 'scheduler',
         status: 'healthy',
         lastCheck: new Date(),
         message: `Cron jobs running (${count} recent)`,
-        dependencies: ['cassandra']
+        dependencies: ['postgres']
       };
     }
   } catch (error) {
@@ -182,7 +175,7 @@ async function checkScheduler(): Promise<void> {
       status: 'degraded',
       lastCheck: new Date(),
       message: `Cannot verify: ${error instanceof Error ? error.message : String(error)}`,
-      dependencies: ['cassandra']
+      dependencies: ['postgres']
     };
   }
 }
@@ -192,23 +185,20 @@ async function checkWebhookHandler(): Promise<void> {
     // Check if webhook handler has processed events recently
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
-    const result = await cassandraClient.execute(
-      'SELECT COUNT(*) as recent_events FROM event_logs WHERE created_at > ?',
-      [fiveMinutesAgo],
-      { prepare: true }
+    const result = await pool.query(
+      'SELECT COUNT(*) as recent_events FROM event_logs WHERE created_at > $1',
+      [fiveMinutesAgo]
     );
 
-    if (serviceHealth.kafka.status === 'healthy' && serviceHealth.cassandra.status === 'healthy') {
-      const count = result.rowLength > 0
-        ? (result.rows[0] as { recent_events?: number }).recent_events ?? 0
-        : 0;
+    if (serviceHealth.kafka.status === 'healthy' && serviceHealth.postgres.status === 'healthy') {
+      const count = result.rows.length > 0 ? parseInt(result.rows[0].recent_events, 10) : 0;
 
       serviceHealth['webhook-handler'] = {
         name: 'webhook-handler',
         status: 'healthy',
         lastCheck: new Date(),
         message: `Processing events: ${count}`,
-        dependencies: ['cassandra', 'kafka']
+        dependencies: ['postgres', 'kafka']
       };
     }
   } catch (error) {
@@ -217,7 +207,7 @@ async function checkWebhookHandler(): Promise<void> {
       status: 'degraded',
       lastCheck: new Date(),
       message: `Cannot verify: ${error instanceof Error ? error.message : String(error)}`,
-      dependencies: ['cassandra', 'kafka']
+      dependencies: ['postgres', 'kafka']
     };
   }
 }
@@ -225,29 +215,25 @@ async function checkWebhookHandler(): Promise<void> {
 async function checkFabricAnchorConsumer(): Promise<void> {
   try {
     // Check if fabric-anchor-consumer has anchored complaints recently
-    // Using Cassandra query instead of PostgreSQL
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
 
-    const result = await cassandraClient.execute(
-      'SELECT COUNT(*) as recent_anchors FROM complaint_merkle_proofs WHERE anchored_at > ?',
-      [tenMinutesAgo],
-      { prepare: true }
+    const result = await pool.query(
+      'SELECT COUNT(*) as recent_anchors FROM complaint_merkle_proofs WHERE anchored_at > $1',
+      [tenMinutesAgo]
     );
 
     if (
       serviceHealth.kafka.status === 'healthy' &&
-      serviceHealth.cassandra.status === 'healthy'
+      serviceHealth.postgres.status === 'healthy'
     ) {
-      const count = result.rowLength > 0
-        ? (result.rows[0] as { recent_anchors?: number }).recent_anchors ?? 0
-        : 0;
+      const count = result.rows.length > 0 ? parseInt(result.rows[0].recent_anchors, 10) : 0;
 
       serviceHealth['fabric-anchor-consumer'] = {
         name: 'fabric-anchor-consumer',
         status: 'healthy',
         lastCheck: new Date(),
         message: `Recent anchors: ${count}`,
-        dependencies: ['cassandra', 'kafka', 'fabric']
+        dependencies: ['postgres', 'kafka', 'fabric']
       };
     }
   } catch (error) {
@@ -256,14 +242,14 @@ async function checkFabricAnchorConsumer(): Promise<void> {
       status: 'degraded',
       lastCheck: new Date(),
       message: `Cannot verify: ${error instanceof Error ? error.message : String(error)}`,
-      dependencies: ['cassandra', 'kafka', 'fabric']
+      dependencies: ['postgres', 'kafka', 'fabric']
     };
   }
 }
 
 export async function getSystemHealth(): Promise<SystemHealthReport> {
   // Check all critical services
-  await checkCassandra();
+  await checkPostgres();
   await checkKafka();
   await checkScheduler();
   await checkWebhookHandler();

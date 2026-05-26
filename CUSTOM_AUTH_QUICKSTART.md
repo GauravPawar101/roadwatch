@@ -210,12 +210,8 @@ VITE_CLERK_PUBLISHABLE_KEY  ← DELETE THIS
 
 **Backend still needs**:
 ```
-# Cassandra (recommended):
-CASSANDRA_CONTACT_POINTS=cassandra:9042
-CASSANDRA_KEYSPACE=roadwatch
-CASSANDRA_LOCAL_DC=datacenter1
-# Legacy Postgres (optional):
-# DATABASE_URL=postgresql://...
+# PostgreSQL (PgBouncer-backed endpoint recommended):
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:6432/roadwatch
 NODE_ENV=production
 OTP_TTL_SECONDS=300
 ALLOW_DEV_OTP_ECHO=true (dev only)

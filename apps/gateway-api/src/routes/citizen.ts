@@ -6,9 +6,10 @@ import multer from 'multer';
 import path from 'path';
 import { z } from 'zod';
 import { trackAnalyticsEvent } from '../analytics/service.js';
-import { execute } from '../cassandra.js';
-import { publishKafkaEvent } from '../kafka/publish.js';
+import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
+import { enqueueKafkaEvent } from '../kafka/outbox.js';
 import { createAndFanoutNotification } from '../notifications/service.js';
+import { pool, sql } from '../postgres.js';
 import { requireAuth, requireRole, type AuthedRequest } from '../rbac.js';
 import { broadcastComplaintEvent } from '../realtime/sse.js';
 import { uploadFileToPinata } from '../services/pinata.js';
@@ -68,7 +69,6 @@ function distancePointToSegmentMeters(point: { lat: number; lng: number }, segme
 
     let t = 0;
     if (len2 > 0) {
-      // projection of origin onto the segment in param space
       t = (-(a.x * vx + a.y * vy)) / len2;
       if (t < 0) t = 0;
       if (t > 1) t = 1;
@@ -139,13 +139,22 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
   }
 
   if (body.capturedLat != null && body.capturedLng != null) {
-    const captureDistance = distanceMeters({ lat: body.lat, lng: body.lng }, { lat: body.capturedLat, lng: body.capturedLng });
+    const captureDistance = distanceMeters(
+      { lat: body.lat, lng: body.lng },
+      { lat: body.capturedLat, lng: body.capturedLng }
+    );
     if (captureDistance > 80) {
-      return res.status(400).json({ error: 'Capture location must match live location', captureDistanceM: Math.round(captureDistance) });
+      return res.status(400).json({
+        error: 'Capture location must match live location',
+        captureDistanceM: Math.round(captureDistance)
+      });
     }
   }
 
-  const roadRes = await execute('SELECT id, authority_id, geometry, district_id FROM roads_catalog WHERE id = ? LIMIT 1', [body.roadId], { prepare: true });
+  const roadRes = await pool.query(
+    `SELECT id, authority_id, geometry, district_id FROM roads_catalog WHERE id = $1 LIMIT 1`,
+    [body.roadId]
+  );
   const roadRow = roadRes.rows[0];
   if (!roadRow) return res.status(404).json({ error: 'Road not found' });
   if (!roadRow.geometry) return res.status(400).json({ error: 'Road geometry not available for this road' });
@@ -153,17 +162,50 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
   const distanceM = minDistanceToGeometryMeters({ lat: body.lat, lng: body.lng }, roadRow.geometry);
   if (!Number.isFinite(distanceM)) return res.status(400).json({ error: 'Invalid road geometry' });
   if (distanceM > 100) {
-    return res.status(400).json({ error: 'You must be within 100m of the selected road', distanceM: Math.round(distanceM) });
+    return res.status(400).json({
+      error: 'You must be within 100m of the selected road',
+      distanceM: Math.round(distanceM)
+    });
+  }
+
+  const file = (req as any).file as Express.Multer.File | undefined;
+  const idempotencyPayload = {
+    actor: user.sub,
+    roadId: body.roadId,
+    description: body.description,
+    lat: body.lat,
+    lng: body.lng,
+    capturedLat: body.capturedLat ?? null,
+    capturedLng: body.capturedLng ?? null,
+    capturedAt: body.capturedAt ?? null,
+    imageCid: body.imageCid ?? null,
+    imageSha256: body.imageSha256 ?? null,
+    file: file
+      ? {
+          originalName: file.originalname,
+          mime: file.mimetype,
+          size: file.size
+        }
+      : null
+  };
+
+  const idempotencyKey = deriveIdempotencyKey(req, 'citizen:complaints:create');
+  const requestHash = buildRequestHash(idempotencyPayload);
+  const claimed = await claimIdempotency('citizen:complaints:create', idempotencyKey, requestHash);
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
   }
 
   let districtCode = 'UNK';
   if (roadRow.district_id) {
-    const dRes = await execute('SELECT code FROM districts WHERE id = ? LIMIT 1', [roadRow.district_id], { prepare: true });
+    const dRes = await pool.query(
+      `SELECT code FROM districts WHERE id = $1 LIMIT 1`,
+      [roadRow.district_id]
+    );
     districtCode = String(dRes.rows[0]?.code ?? 'UNK').toUpperCase();
   }
   const authorityId = String(roadRow.authority_id ?? 'UNKNOWN');
 
-  const file = (req as any).file as Express.Multer.File | undefined;
   let attachmentCid = body.imageCid ?? null;
   let attachmentSha = body.imageSha256 ?? null;
   let attachmentProvider: 'pinata' | 'local-fallback' | 'client' = body.imageCid ? 'client' : 'local-fallback';
@@ -175,72 +217,125 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
     attachmentProvider = uploaded.provider;
   }
 
-  // Cassandra: read latest open complaint for this road (if any), then upsert in app logic.
-  let complaintId: string;
+  // Use a transaction + SELECT FOR UPDATE to safely merge or create the complaint atomically.
+  let complaintId = '';
   let reportCount = 1;
   let merged = false;
+  const complaintStatus = 'Open';
 
-  // Find latest open complaint for this road (PoC uses ALLOW FILTERING)
-  const existingOpen = await execute('SELECT id, report_count FROM complaints WHERE road_id = ? AND status <> ? LIMIT 1 ALLOW FILTERING', [body.roadId, 'RESOLVED'], { prepare: true });
-  if (existingOpen.rows && existingOpen.rows[0]) {
-    complaintId = existingOpen.rows[0].id;
-    merged = true;
-    await execute('UPDATE complaints SET report_count = report_count + 1, updated_at = ? WHERE id = ?', [new Date(), complaintId], { prepare: true });
-    const after = await execute('SELECT report_count FROM complaints WHERE id = ? LIMIT 1', [complaintId], { prepare: true });
-    reportCount = Number(after.rows[0]?.report_count ?? (existingOpen.rows[0].report_count ?? 1) + 1);
-  } else {
-    complaintId = `RW-${districtCode.slice(0, 3)}-${Date.now()}`;
-    await execute('INSERT INTO complaints (id, district, zone, status, description, lat, lng, road_id, authority_id, report_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-      complaintId,
-      districtCode,
-      authorityId,
-      'FILED',
-      body.description,
-      body.lat,
-      body.lng,
-      body.roadId,
-      authorityId,
-      1,
-      new Date(),
-      new Date()
-    ], { prepare: true });
-    reportCount = 1;
-  }
+  await sql.begin(async (tx: any) => {
+    const existingOpen = await tx`
+      SELECT id, report_count
+      FROM complaints
+      WHERE road_id = ${body.roadId}
+        AND UPPER(status) <> 'RESOLVED'
+      ORDER BY created_at DESC
+      LIMIT 1
+      FOR UPDATE
+    `;
+
+    if (existingOpen[0]) {
+      complaintId = String(existingOpen[0].id);
+      merged = true;
+      const updated = await tx`
+        UPDATE complaints
+        SET report_count = report_count + 1,
+            updated_at   = NOW()
+        WHERE id = ${complaintId}
+        RETURNING report_count
+      `;
+      reportCount = Number(updated[0]?.report_count ?? 2);
+    } else {
+      complaintId = `RW-${districtCode.slice(0, 3)}-${Date.now()}`;
+      await tx`
+        INSERT INTO complaints
+           (id, district, zone, status, description, lat, lng, road_id, authority_id, report_count, created_at, updated_at)
+         VALUES (${complaintId}, ${districtCode}, ${authorityId}, 'FILED', ${body.description}, ${body.lat}, ${body.lng}, ${body.roadId}, ${authorityId}, 1, NOW(), NOW())
+      `;
+      reportCount = 1;
+    }
+
+    if (!merged) {
+      const event: ComplaintSubmittedEvent = {
+        type: 'complaint.submitted',
+        idempotencyKey: `complaint:${complaintId}:submitted`,
+        occurredAt: new Date().toISOString(),
+        version: 1,
+        complaintId,
+        district: districtCode,
+        zone: authorityId,
+        lat: body.lat ?? undefined,
+        lng: body.lng ?? undefined,
+        description: body.description
+      };
+
+      await enqueueKafkaEvent(tx, KafkaTopics.complaintSubmitted, event, {
+        key: complaintId,
+        idempotencyKey: event.idempotencyKey
+      });
+    }
+  });
 
   if (attachmentCid && attachmentSha) {
-    await execute('INSERT INTO complaint_attachments (complaint_id, kind, file_path, file_mime, file_sha256, note) VALUES (?, ?, ?, ?, ?, ?)', [
-      complaintId,
-      'PHOTO',
-      `ipfs://${attachmentCid}`,
-      file?.mimetype ?? null,
-      attachmentSha,
-      JSON.stringify({ cid: attachmentCid, provider: attachmentProvider, capturedAt: body.capturedAt ?? null, capturedLat: body.capturedLat ?? null, capturedLng: body.capturedLng ?? null })
-    ], { prepare: true });
+    await pool.query(
+      `INSERT INTO complaint_attachments
+         (complaint_id, kind, file_path, file_mime, file_sha256, note)
+       VALUES ($1, 'PHOTO', $2, $3, $4, $5)`,
+      [
+        complaintId,
+        `ipfs://${attachmentCid}`,
+        file?.mimetype ?? null,
+        attachmentSha,
+        {
+          cid: attachmentCid,
+          provider: attachmentProvider,
+          capturedAt: body.capturedAt ?? null,
+          capturedLat: body.capturedLat ?? null,
+          capturedLng: body.capturedLng ?? null
+        }
+      ]
+    );
 
-    await execute('INSERT INTO audit_log (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-      require('crypto').randomUUID(),
+    await pool.query(
+      `INSERT INTO audit_log
+         (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, 'complaint', $5, $6, NOW())`,
+      [
+        user.sub,
+        user.phoneHash,
+        user.phone,
+        merged ? 'COMPLAINT_MERGED_MEDIA' : 'MEDIA_PINNED',
+        complaintId,
+        {
+          cid: attachmentCid,
+          sha256: attachmentSha,
+          provider: attachmentProvider,
+          reportCount
+        }
+      ]
+    );
+  }
+
+  await pool.query(
+    `INSERT INTO audit_log
+       (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, 'complaint', $5, $6, NOW())`,
+    [
       user.sub,
       user.phoneHash,
       user.phone,
-      merged ? 'COMPLAINT_MERGED_MEDIA' : 'MEDIA_PINNED',
-      'complaint',
+      merged ? 'COMPLAINT_MERGED' : 'COMPLAINT_CREATED',
       complaintId,
-      JSON.stringify({ cid: attachmentCid, sha256: attachmentSha, provider: attachmentProvider, reportCount }),
-      new Date()
-    ], { prepare: true });
-  }
-
-  await execute('INSERT INTO audit_log (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-    require('crypto').randomUUID(),
-    user.sub,
-    user.phoneHash,
-    user.phone,
-    merged ? 'COMPLAINT_MERGED' : 'COMPLAINT_CREATED',
-    'complaint',
-    complaintId,
-    JSON.stringify({ district: districtCode, zone: authorityId, roadId: body.roadId, distanceM, merged, reportCount }),
-    new Date()
-  ], { prepare: true });
+      {
+        district: districtCode,
+        zone: authorityId,
+        roadId: body.roadId,
+        distanceM,
+        merged,
+        reportCount
+      }
+    ]
+  );
 
   await trackAnalyticsEvent({
     type: 'COMPLAINT_CREATED',
@@ -250,7 +345,7 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
     zone: authorityId,
     lat: body.lat,
     lng: body.lng,
-    properties: { status: 'FILED', roadId: body.roadId, distanceM, merged, reportCount }
+    properties: { status: complaintStatus, roadId: body.roadId, distanceM, merged, reportCount }
   });
 
   broadcastComplaintEvent({
@@ -259,7 +354,7 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
       id: complaintId,
       district: districtCode,
       zone: authorityId,
-      status: 'FILED',
+      status: complaintStatus,
       description: body.description,
       lat: body.lat,
       lng: body.lng,
@@ -271,38 +366,23 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
     message: {
       type: 'new_complaint',
       title: merged ? `Complaint merged into ${complaintId}` : `New complaint ${complaintId}`,
-      body: merged ? `Another report on ${body.roadId} was merged into complaint ${complaintId}.` : `New complaint filed in ${districtCode} / ${authorityId}.`,
+      body: merged
+        ? `Another report on ${body.roadId} was merged into complaint ${complaintId}.`
+        : `New complaint filed in ${districtCode} / ${authorityId}.`,
       data: { complaintId, district: districtCode, zone: authorityId, roadId: body.roadId, merged, reportCount },
       audience: { kind: 'jurisdiction', district: districtCode, zone: authorityId },
       critical: false
     }
   });
 
-  if (!merged) {
-    try {
-      const event: ComplaintSubmittedEvent = {
-        type: 'complaint.submitted',
-        idempotencyKey: `complaint:${complaintId}:submitted`,
-        occurredAt: new Date().toISOString(),
-        version: 1,
-        complaintId,
-        district: districtCode,
-        zone: authorityId,
-        lat: body.lat,
-        lng: body.lng,
-        description: body.description
-      };
+  const responseBody = {
+    ok: true,
+    merged,
+    complaint: { id: complaintId, status: complaintStatus, cid: attachmentCid, sha256: attachmentSha, reportCount }
+  };
 
-      await publishKafkaEvent(KafkaTopics.complaintSubmitted, event, {
-        key: complaintId,
-        idempotencyKey: event.idempotencyKey
-      });
-    } catch (e) {
-      console.error('[kafka] complaint.submitted publish failed', e);
-    }
-  }
-
-  res.json({ ok: true, merged, complaint: { id: complaintId, cid: attachmentCid, sha256: attachmentSha, reportCount } });
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  res.json(responseBody);
 });
 
 router.post('/media/pinata', requireAuth, requireRole(['CITIZEN']), upload.single('image'), async (req, res) => {

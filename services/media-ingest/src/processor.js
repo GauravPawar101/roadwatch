@@ -1,5 +1,5 @@
 const fetch = require('node-fetch')
-const { client } = require('./db')
+const { pool } = require('./db.js')
 
 const HF_API_KEYS = (process.env.HF_API_KEYS || '').split(',').map(s => s.trim()).filter(Boolean)
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY
@@ -43,10 +43,24 @@ async function upsertToVectorDB(uploadId, vector) {
   }
   // store vector in Postgres pgvector extension (free alternative to Pinecone)
   try {
-    await client.execute(`INSERT INTO ${client.keyspace}.embeddings (upload_id, embedding, created_at) VALUES (?, ?, ?)`, [uploadId, JSON.stringify(vector), new Date()], { prepare: true })
-  } catch (e) {
-    console.warn('Failed to upsert embedding:', e.message)
+    const vectorString = `[${vector.join(',')}]`
+
+    await pool.query(
+      `INSERT INTO embeddings (upload_id, embedding, created_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (upload_id) DO UPDATE 
+         SET embedding = EXCLUDED.embedding,
+             created_at = NOW()`,
+      [uploadId, vectorString]
+    )
+    console.log(`Successfully stored vector embedding for upload_id: ${uploadId} in PostgreSQL`)
+  } catch (err) {
+    console.error('Failed storing vector in PostgreSQL:', err)
+    throw err
   }
 }
 
-module.exports = { callHuggingFaceImageEmbedding, upsertToVectorDB }
+module.exports = {
+  callHuggingFaceImageEmbedding,
+  upsertToVectorDB
+}

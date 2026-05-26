@@ -1,15 +1,19 @@
 import express from 'express';
 import { z } from 'zod';
-import { execute } from '../../../apps/gateway-api/src/cassandra.js';
-import { validateJWT } from '../middleware/jwt';
+import { pool } from '../../../apps/gateway-api/src/postgres.js';
+import { ensureAuthenticated } from '../middleware/auth';
+import { requireAuthority, requireAdmin } from '../middleware/rbac';
 import { rateLimiter } from '../middleware/rateLimiter';
 import { emitComplaintEvent } from '../services/kafka.js';
+import { enqueueComplaintSubmittedEvent } from '../services/complaintOutbox.js';
 
 const router = express.Router();
 
 const complaintSchema = z.object({
   roadId: z.string().min(1),
   description: z.string().min(5),
+  damageType: z.string().min(1),
+  severity: z.coerce.number().int().min(1).max(5),
   lat: z.coerce.number(),
   lng: z.coerce.number(),
   capturedLat: z.coerce.number().optional(),
@@ -127,8 +131,32 @@ function getActorId(req: express.Request): string | null {
   return userId && userId.trim() ? userId : null;
 }
 
-// POST /complaints - File a new complaint or merge into an existing open complaint on the same road
-router.post('/', validateJWT, rateLimiter, async (req, res) => {
+type ComplaintMergeCandidate = {
+  id: string;
+  status: string;
+  report_count: number;
+  created_at: Date | string;
+  updated_at: Date | string;
+  metadata: Record<string, unknown> | null;
+};
+
+function getComplaintSeverity(metadata: Record<string, unknown> | null, fallback: number): number {
+  const raw = metadata?.severity;
+  const value = typeof raw === 'number' ? raw : Number(raw ?? fallback);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function toComplaintMetadata(metadata: Record<string, unknown> | null, updates: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...(metadata ?? {}),
+    ...updates
+  };
+}
+
+const MERGE_ESCALATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// POST /complaints - File a new complaint or merge into an existing same-road/same-type complaint
+router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
   try {
     const actorId = getActorId(req);
     if (!actorId) {
@@ -145,13 +173,25 @@ router.post('/', validateJWT, rateLimiter, async (req, res) => {
     }
 
     if (body.capturedLat != null && body.capturedLng != null) {
-      const captureDistance = distanceMeters({ lat: body.lat, lng: body.lng }, { lat: body.capturedLat, lng: body.capturedLng });
+      const captureDistance = distanceMeters(
+        { lat: body.lat, lng: body.lng },
+        { lat: body.capturedLat, lng: body.capturedLng }
+      );
       if (captureDistance > 80) {
-        return res.status(400).json({ error: 'Capture location must match live location', captureDistanceM: Math.round(captureDistance) });
+        return res.status(400).json({
+          error: 'Capture location must match live location',
+          captureDistanceM: Math.round(captureDistance)
+        });
       }
     }
 
-    const roadRes = await execute('SELECT id, authority_id, geometry, district_id, name, metadata FROM roads_catalog WHERE id = ?', [body.roadId], { prepare: true });
+    const roadRes = await pool.query(
+      `SELECT id, authority_id, geometry, district_id, name, metadata
+       FROM roads_catalog
+       WHERE id = $1
+       LIMIT 1`,
+      [body.roadId]
+    );
     const roadRow = roadRes.rows[0];
     if (!roadRow) {
       return res.status(404).json({ error: 'Road not found' });
@@ -165,79 +205,297 @@ router.post('/', validateJWT, rateLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Invalid road geometry' });
     }
     if (distanceM > 100) {
-      return res.status(400).json({ error: 'You must be within 100m of the selected road', distanceM: Math.round(distanceM) });
+      return res.status(400).json({
+        error: 'You must be within 100m of the selected road',
+        distanceM: Math.round(distanceM)
+      });
     }
 
-    // district/authority mapping in Cassandra: roads_catalog stores district_id and authority_id in metadata or columns
-    const districtCode = String((roadRow.district_id ?? 'UNK')).toUpperCase();
+    const districtCode = String(roadRow.district_id ?? 'UNK').toUpperCase();
     const authorityId = String(roadRow.authority_id ?? 'UNKNOWN');
 
     const attachmentCid = body.imageCid ?? null;
     const attachmentSha = body.imageSha256 ?? null;
     const attachmentMime = body.imageMime ?? null;
     const shouldAttach = Boolean(attachmentCid && attachmentSha);
+    const damageType = body.damageType ?? 'General';
+    const severity = body.severity ?? 3;
 
-    // Cassandra-based flow (no transactions). Find any open complaint on this road.
     let complaintId = '';
     let merged = false;
+    let escalated = false;
+    let reassigned = false;
     let reportCount = 1;
+    let finalStatus = 'FILED';
+    let finalSeverity = severity;
+    let mergeReason: string | null = null;
 
-    const existingRes = await execute('SELECT id, report_count, status, updated_at, created_at FROM complaints WHERE road_id = ? ALLOW FILTERING', [body.roadId], { prepare: true });
-    // Pick latest non-resolved complaint if any
-    const open = (existingRes.rows || []).filter((r: any) => r.status !== 'RESOLVED').sort((a: any, b: any) => {
-      const ta = new Date(a.updated_at || a.created_at || 0).getTime();
-      const tb = new Date(b.updated_at || b.created_at || 0).getTime();
-      return tb - ta;
-    })[0];
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    if (open) {
-      complaintId = open.id;
-      merged = true;
-      reportCount = Number((open.report_count ?? 0) + 1);
-      await execute('UPDATE complaints SET report_count = ?, updated_at = ? WHERE id = ?', [reportCount, new Date(), complaintId], { prepare: true });
+      const activeRes = await client.query(
+        `SELECT id, status, report_count, created_at, updated_at, metadata
+         FROM complaints
+         WHERE road_id = $1
+           AND metadata->>'damageType' = $2
+           AND status IN ('FILED', 'IN_PROGRESS', 'ESCALATED')
+         ORDER BY updated_at DESC, created_at DESC
+         LIMIT 1
+         FOR UPDATE`,
+        [body.roadId, damageType]
+      );
+
+      let existing: ComplaintMergeCandidate | undefined = activeRes.rows[0];
+
+      if (!existing) {
+        const resolvedRes = await client.query(
+          `SELECT id, status, report_count, created_at, updated_at, metadata
+           FROM complaints
+           WHERE road_id = $1
+             AND metadata->>'damageType' = $2
+             AND status = 'RESOLVED'
+             AND updated_at >= NOW() - INTERVAL '24 hours'
+           ORDER BY updated_at DESC, created_at DESC
+           LIMIT 1
+           FOR UPDATE`,
+          [body.roadId, damageType]
+        );
+        existing = resolvedRes.rows[0];
+      }
+
+      if (existing) {
+        complaintId = String(existing.id);
+        merged = true;
+        reportCount = Number(existing.report_count ?? 1) + 1;
+
+        const isResolvedRecurrence = existing.status === 'RESOLVED';
+        const ageMs = isResolvedRecurrence
+          ? Date.now() - new Date(existing.updated_at).getTime()
+          : Date.now() - new Date(existing.created_at).getTime();
+        const shouldEscalate = isResolvedRecurrence
+          ? ageMs <= MERGE_ESCALATION_WINDOW_MS
+          : ageMs >= MERGE_ESCALATION_WINDOW_MS;
+
+        finalSeverity = getComplaintSeverity(existing.metadata, severity);
+        if (shouldEscalate) {
+          escalated = true;
+          finalSeverity = Math.min(finalSeverity + (isResolvedRecurrence ? 2 : 1), 5);
+          finalStatus = 'ESCALATED';
+          mergeReason = isResolvedRecurrence ? 'resolved-within-24h' : 'active-over-24h';
+        } else {
+          finalStatus = existing.status;
+          mergeReason = 'same-road-same-type-merge';
+        }
+
+        const updatedMetadata = toComplaintMetadata(existing.metadata, {
+          damageType,
+          severity: finalSeverity,
+          mergedAt: new Date().toISOString(),
+          escalationReason: mergeReason,
+          escalationLevel: escalated ? (isResolvedRecurrence ? 2 : 1) : Number(existing.metadata?.escalationLevel ?? 0),
+          escalatedAt: escalated ? new Date().toISOString() : existing.metadata?.escalatedAt ?? null
+        });
+
+        const updated = await client.query(
+          `UPDATE complaints
+           SET report_count = report_count + 1,
+               status       = $2,
+               updated_at   = NOW()
+               , metadata    = $3
+           WHERE id = $1
+           RETURNING report_count`,
+          [complaintId, finalStatus, updatedMetadata]
+        );
+        reportCount = Number(updated.rows[0]?.report_count ?? 2);
+
+        if (escalated) {
+          const roadAssignmentRes = await client.query(
+            `SELECT contractor_id, engineer_user_id
+             FROM road_assignments
+             WHERE road_id = $1
+             ORDER BY assigned_at DESC
+             LIMIT 1`,
+            [body.roadId]
+          );
+          const roadAssignment = roadAssignmentRes.rows[0] as { contractor_id?: string | null; engineer_user_id?: string | null } | undefined;
+
+          if (roadAssignment?.contractor_id) {
+            await client.query(
+              `INSERT INTO complaint_assignments
+                 (complaint_id, contractor_id, expected_resolution_days, assigned_by_user_id, assigned_at, notes)
+               VALUES ($1, $2, $3, $4, NOW(), $5)
+               ON CONFLICT (complaint_id) DO UPDATE
+                 SET contractor_id = EXCLUDED.contractor_id,
+                     expected_resolution_days = EXCLUDED.expected_resolution_days,
+                     assigned_by_user_id = EXCLUDED.assigned_by_user_id,
+                     assigned_at = NOW(),
+                     notes = EXCLUDED.notes`,
+              [complaintId, roadAssignment.contractor_id, 1, null, 'auto-reassigned after recurrence escalation']
+            );
+            reassigned = true;
+          }
+
+          if (roadAssignment?.engineer_user_id) {
+            await client.query(
+              `INSERT INTO audit_log
+                 (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
+               VALUES (gen_random_uuid(), $1, NULL, NULL, $2, 'complaint', $3, $4, NOW())`,
+              [
+                roadAssignment.engineer_user_id,
+                'SLA_WARNING',
+                complaintId,
+                {
+                  roadId: body.roadId,
+                  damageType,
+                  escalationReason: mergeReason,
+                  severity: finalSeverity
+                }
+              ]
+            );
+          }
+        }
       } else {
-      complaintId = `RW-${String(districtCode).slice(0, 3)}-${Date.now()}`;
-      reportCount = 1;
-      await execute('INSERT INTO complaints (id, district, zone, status, description, lat, lng, road_id, authority_id, report_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [complaintId, districtCode, authorityId, 'FILED', body.description, body.lat, body.lng, body.roadId, authorityId, reportCount, new Date(), new Date()], { prepare: true });
+        complaintId = `RW-${String(districtCode).slice(0, 3)}-${Date.now()}`;
+        reportCount = 1;
+        finalStatus = 'FILED';
+        finalSeverity = severity;
+        await client.query(
+          `INSERT INTO complaints
+             (id, district, zone, status, description, lat, lng, road_id, authority_id, report_count, metadata, created_at, updated_at)
+           VALUES ($1, $2, $3, 'FILED', $4, $5, $6, $7, $8, 1, $9, NOW(), NOW())`,
+          [
+            complaintId,
+            districtCode,
+            authorityId,
+            body.description,
+            body.lat,
+            body.lng,
+            body.roadId,
+            authorityId,
+            {
+              roadId: body.roadId,
+              damageType,
+              severity,
+              authorId: actorId,
+              capturedLat: body.capturedLat ?? null,
+              capturedLng: body.capturedLng ?? null,
+              capturedAt: body.capturedAt ?? null,
+              public: true
+            }
+          ]
+        );
+      }
+
+      if (escalated) {
+        await emitComplaintEvent(
+          {
+            type: 'complaint.status.changed',
+            idempotencyKey: `complaint:${complaintId}:status:${finalStatus}`,
+            occurredAt: new Date().toISOString(),
+            version: 1,
+            complaintId,
+            previousStatus: existing ? existing.status : 'FILED',
+            newStatus: finalStatus,
+            district: districtCode,
+            zone: authorityId,
+            metadata: {
+              roadId: body.roadId,
+              damageType,
+              severity: finalSeverity,
+              mergeReason,
+              reassigned
+            }
+          },
+          'complaint.status.changed',
+          { key: complaintId }
+        );
+      }
+
+      if (!merged) {
+        await enqueueComplaintSubmittedEvent(client, {
+          type: 'complaint.submitted',
+          idempotencyKey: `complaint:${complaintId}:submitted`,
+          occurredAt: new Date().toISOString(),
+          version: 1,
+          complaintId,
+          district: districtCode,
+          zone: authorityId,
+          lat: body.lat,
+          lng: body.lng,
+          description: body.description
+        });
+      }
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
 
     if (shouldAttach) {
-      await execute('INSERT INTO complaint_attachments (complaint_id, kind, file_path, file_mime, file_sha256, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [complaintId, 'PHOTO', `ipfs://${attachmentCid}`, attachmentMime, attachmentSha, JSON.stringify({ cid: attachmentCid, mime: attachmentMime, capturedAt: body.capturedAt ?? null, capturedLat: body.capturedLat ?? null, capturedLng: body.capturedLng ?? null }), new Date()], { prepare: true });
+      await pool.query(
+        `INSERT INTO complaint_attachments
+           (complaint_id, kind, file_path, file_mime, file_sha256, note, created_at)
+         VALUES ($1, 'PHOTO', $2, $3, $4, $5, NOW())`,
+        [
+          complaintId,
+          `ipfs://${attachmentCid}`,
+          attachmentMime,
+          attachmentSha,
+          {
+            cid: attachmentCid,
+            mime: attachmentMime,
+            capturedAt: body.capturedAt ?? null,
+            capturedLat: body.capturedLat ?? null,
+            capturedLng: body.capturedLng ?? null
+          }
+        ]
+      );
     }
 
-    await execute('INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [isUuidLike(actorId) ? actorId : null, null, null, merged ? 'COMPLAINT_MERGED' : 'COMPLAINT_CREATED', 'complaint', complaintId, JSON.stringify({ district: districtCode, zone: authorityId, roadId: body.roadId, distanceM, merged, reportCount, attachmentCid, attachmentSha }), new Date()], { prepare: true });
-
-    if (!merged) {
-      const event = {
-        type: 'complaint.submitted',
-        idempotencyKey: `complaint:${complaintId}:submitted`,
-        occurredAt: new Date().toISOString(),
-        version: 1,
+    await pool.query(
+      `INSERT INTO audit_log
+         (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
+       VALUES (gen_random_uuid(), $1, NULL, NULL, $2, 'complaint', $3, $4, NOW())`,
+      [
+        isUuidLike(actorId) ? actorId : null,
+        escalated ? 'COMPLAINT_ESCALATED' : merged ? 'COMPLAINT_MERGED' : 'COMPLAINT_CREATED',
         complaintId,
-        district: districtCode,
-        zone: authorityId,
-        lat: body.lat,
-        lng: body.lng,
-        description: body.description
-      };
-
-      try {
-        await emitComplaintEvent(event, 'complaint.submitted');
-      } catch (error) {
-        console.error('[kafka] complaint.submitted publish failed', error);
-      }
-    }
+        {
+          district: districtCode,
+          zone: authorityId,
+          roadId: body.roadId,
+          damageType,
+          distanceM,
+          merged,
+          escalated,
+          reassigned,
+          mergeReason,
+          reportCount,
+          severity: finalSeverity,
+          attachmentCid,
+          attachmentSha
+        }
+      ]
+    );
 
     return res.status(201).json({
       ok: true,
       merged,
+      escalated,
+      reassigned,
       complaint: {
         id: complaintId,
         district: districtCode,
         zone: authorityId,
         roadId: body.roadId,
         reportCount,
-        status: 'FILED',
+        status: finalStatus,
+        severity: finalSeverity,
+        damageType,
         description: body.description,
         lat: body.lat,
         lng: body.lng,
@@ -245,7 +503,7 @@ router.post('/', validateJWT, rateLimiter, async (req, res) => {
         attachmentSha,
         distanceM: Math.round(distanceM)
       }
-    })
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Invalid complaint payload', details: error.flatten() });
@@ -257,20 +515,56 @@ router.post('/', validateJWT, rateLimiter, async (req, res) => {
 });
 
 // GET /complaints/:id - Get complaint by ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', ensureAuthenticated, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const complaintRes = await execute('SELECT id, district, zone, status, description, lat, lng, road_id, authority_id, report_count, created_at, updated_at, fabric_txid, anchored_at, anchored_tx_hash FROM complaints WHERE id = ? LIMIT 1', [id], { prepare: true });
+    const complaintRes = await pool.query(
+      `SELECT id, district, zone, status, description, lat, lng, road_id, authority_id,
+              report_count, created_at, updated_at, fabric_txid, anchored_at, anchored_tx_hash
+       FROM complaints
+       WHERE id = $1
+       LIMIT 1`,
+      [id]
+    );
     const complaint = complaintRes.rows[0];
     if (!complaint) return res.status(404).json({ error: 'Complaint not found' });
 
-    const roadRes = await execute('SELECT name, road_type FROM roads_catalog WHERE id = ? LIMIT 1', [complaint.road_id], { prepare: true });
+    const roadRes = await pool.query(
+      `SELECT name, road_type FROM roads_catalog WHERE id = $1 LIMIT 1`,
+      [complaint.road_id]
+    );
 
-    const attachmentsRes = await execute('SELECT id, kind, file_path, file_mime, file_sha256, note, created_at FROM complaint_attachments WHERE complaint_id = ? ALLOW FILTERING', [id], { prepare: true });
-    const attachments = (attachmentsRes.rows || []).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const attachmentsRes = await pool.query(
+      `SELECT id, kind, file_path, file_mime, file_sha256, note, created_at
+       FROM complaint_attachments
+       WHERE complaint_id = $1
+       ORDER BY created_at DESC`,
+      [id]
+    );
 
-    return res.json({ complaint: { ...complaint, road_name: roadRes.rows[0]?.name ?? null, road_type: roadRes.rows[0]?.road_type ?? null, attachments } });
+    // Determine requester privileges: authority/admin can see full attachments
+    const requesterId = (req as any).userId || null;
+    const requesterRoles: string[] = (req as any).user?.roles ?? [];
+    const isPrivileged = requesterRoles.includes('admin') || requesterRoles.includes('authority');
+
+    let attachments = attachmentsRes.rows;
+    if (!isPrivileged) {
+      // If not privileged, only allow attachment visibility if requester is the author recorded in metadata
+      const authorId = complaint.metadata?.authorId ?? complaint.metadata?.author_id ?? null;
+      if (!authorId || String(authorId) !== String(requesterId)) {
+        attachments = [];
+      }
+    }
+
+    return res.json({
+      complaint: {
+        ...complaint,
+        road_name: roadRes.rows[0]?.name ?? null,
+        road_type: roadRes.rows[0]?.road_type ?? null,
+        attachments
+      }
+    });
   } catch (error) {
     console.error('Error fetching complaint:', error);
     return res.status(500).json({ error: 'Internal server error' });

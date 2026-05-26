@@ -1,4 +1,4 @@
-Postgres -> Cassandra Migration Tool
+Postgres -> Cassandra Migration Tool (legacy)
 
 This small tool migrates rows from Postgres tables into Cassandra using
 per-table mappings.

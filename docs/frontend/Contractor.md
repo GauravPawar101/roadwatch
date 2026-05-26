@@ -15,6 +15,8 @@ Pages (frontend files)
 
 Notes
 - Contractor flows focus on proof submission, progress updates, and SLA compliance. Key pages are the contractor dashboard and progress upload flows.
+- The routed contractor dashboard now includes a regional project map and a delivery trend chart so delivery scope can be reviewed alongside KPI cards.
+- Use the dashboard map and profile access to review work regions before opening project proof or work queues.
 
 Suggested contractor hierarchy and visibility
 - Regional managers: oversee multiple projects and compare progress across contractor teams.

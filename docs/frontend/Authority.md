@@ -17,12 +17,15 @@ Pages (frontend files)
 
 Notes
 - Authority workflows center on assignment, verification, escalation, and reporting. The authority dashboard aggregates SLA, fraud risk, and queue health for the jurisdiction.
+- The routed authority dashboard now includes a live jurisdiction map, a jurisdiction comparison chart, and direct report actions so reportable work stays on the same page.
+- Higher-level authority users should expect map-driven regional summaries rather than only list-based queue views.
 
 Authority hierarchy and scope
 - Municipal: local ward or municipality operations with the narrowest view of complaints and field staff.
 - City/town/village: multi-ward oversight with visibility into nearby municipal teams and contractor activity.
 - District: cross-city or district-wide coordination, escalation control, and progress benchmarking.
 - State: aggregate oversight, policy review, and comparative analytics across all districts and lower tiers.
+- The dashboard's map view should switch into aggregated heat-style analysis as scope grows beyond a local ward view.
 
 Visibility requirements for higher-level authority users
 - Each authority user should be able to see all juniors below them in the hierarchy.

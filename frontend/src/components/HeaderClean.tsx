@@ -1,7 +1,8 @@
+import { ChevronDown, History, LayoutDashboard, LogOut, Menu, Search, ShieldAlert, User, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, ChevronDown, User, LogOut, LayoutDashboard, Map, History, ShieldAlert, Menu, X } from 'lucide-react';
+import NotificationCenter from './NotificationCenter';
 
 export default function HeaderClean() {
   const { isAuthenticated, user, logout } = useAuth();
@@ -33,16 +34,16 @@ export default function HeaderClean() {
   };
 
   return (
-    <header className="bg-surface-container-lowest border-b border-outline-variant sticky top-0 z-[100] shadow-sm select-none">
-      <div className="flex justify-between items-center px-4 sm:px-8 lg:px-16 py-4 max-w-[1280px] mx-auto w-full gap-4">
+    <header className="sticky top-0 z-[100] border-b border-outline-variant bg-surface-container-lowest/96 backdrop-blur-md shadow-sm select-none">
+      <div className="flex w-full max-w-[1440px] items-center justify-between gap-4 px-4 py-3.5 sm:px-8 lg:px-10 mx-auto">
         {/* Brand */}
-        <Link to="/" className="text-base sm:text-headline-sm font-bold text-primary tracking-tight flex items-center gap-2 select-none hover:opacity-90 transition-opacity whitespace-nowrap min-w-0">
-          <span className="material-symbols-outlined text-secondary text-xl sm:text-2xl font-bold shrink-0">account_balance</span>
-          <span className="truncate">Infrastructure Grievance Platform</span>
+        <Link to="/" className="flex min-w-0 items-center gap-2 whitespace-nowrap text-base font-bold tracking-tight text-primary transition-opacity hover:opacity-90 sm:text-lg">
+          <span className="material-symbols-outlined shrink-0 text-secondary text-xl sm:text-2xl font-bold">account_balance</span>
+          <span className="truncate">CivicGuard</span>
         </Link>
 
         {/* Navigation Tabs (Desktop) */}
-        <nav className="hidden lg:flex items-center gap-4 xl:gap-6 whitespace-nowrap">
+        <nav className="hidden items-center gap-4 whitespace-nowrap lg:flex xl:gap-6">
           <Link
             to="/road/r1/report"
             className={`${
@@ -86,7 +87,7 @@ export default function HeaderClean() {
         </nav>
 
         {/* Actions & Profiles */}
-        <div className="flex items-center gap-3 md:gap-4 ml-auto">
+        <div className="ml-auto flex items-center gap-3 md:gap-4">
           {/* Search bar inside header (Desktop only) */}
           <div className="relative hidden xl:block">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-outline w-[16px] h-[16px]" />
@@ -94,25 +95,28 @@ export default function HeaderClean() {
               type="text"
               placeholder="Search reports..."
               style={{ paddingLeft: '38px' }}
-              className="bg-surface-container-low border border-outline-variant rounded-lg pr-4 py-1.5 text-body-md focus:outline-none focus:ring-1 focus:ring-primary w-48 xl:w-56 text-on-surface transition-all placeholder:text-outline"
+              className="w-48 rounded-md border border-outline-variant bg-surface-container-low px-4 py-1.5 text-body-md text-on-surface transition-all placeholder:text-outline focus:outline-none focus:ring-1 focus:ring-primary xl:w-56"
             />
           </div>
+
+          {/* Notifications (Authenticated users only) */}
+          {isAuthenticated && <NotificationCenter />}
 
           {!isAuthenticated ? (
             <div className="relative hidden lg:block" ref={ref}>
               <button
                 onClick={() => setOpen((s) => !s)}
-                className="bg-primary text-white px-5 py-2 rounded-lg text-label-md font-semibold hover:bg-primary-container transition-all active:scale-95 shadow-sm inline-flex items-center gap-1.5 whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[10px] bg-primary px-5 py-2 text-label-md font-semibold text-white shadow-sm transition-all hover:bg-primary-container active:scale-95"
               >
                 <span>Sign In</span>
                 <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
               </button>
               {open && (
-                <div className="absolute right-0 mt-2 w-48 bg-white border border-outline-variant shadow-lg rounded-xl overflow-hidden z-[100] animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="absolute right-0 z-[100] mt-2 w-48 overflow-hidden rounded-[10px] border border-outline-variant bg-white shadow-lg animate-in fade-in slide-in-from-top-2 duration-150">
                   <Link
                     to={`/auth/citizen/login?next=${encodeURIComponent(location.pathname)}`}
                     onClick={() => setOpen(false)}
-                    className="flex items-center gap-2 px-4 py-3 text-on-surface hover:bg-surface-container-low transition-colors text-body-sm font-semibold border-b border-outline-variant/30"
+                    className="flex items-center gap-2 border-b border-outline-variant/30 px-4 py-3 text-body-sm font-semibold text-on-surface transition-colors hover:bg-surface-container-low"
                   >
                     <User className="w-4 h-4 text-secondary" />
                     <span>Citizen Portal</span>
@@ -120,7 +124,7 @@ export default function HeaderClean() {
                   <Link
                     to={`/auth/contractor/login?next=${encodeURIComponent(location.pathname)}`}
                     onClick={() => setOpen(false)}
-                    className="flex items-center gap-2 px-4 py-3 text-on-surface hover:bg-surface-container-low transition-colors text-body-sm font-semibold border-b border-outline-variant/30"
+                    className="flex items-center gap-2 border-b border-outline-variant/30 px-4 py-3 text-body-sm font-semibold text-on-surface transition-colors hover:bg-surface-container-low"
                   >
                     <User className="w-4 h-4 text-on-tertiary-container" />
                     <span>Contractor Portal</span>
@@ -128,7 +132,7 @@ export default function HeaderClean() {
                   <Link
                     to={`/auth/authority/login?next=${encodeURIComponent(location.pathname)}`}
                     onClick={() => setOpen(false)}
-                    className="flex items-center gap-2 px-4 py-3 text-on-surface hover:bg-surface-container-low transition-colors text-body-sm font-semibold"
+                    className="flex items-center gap-2 px-4 py-3 text-body-sm font-semibold text-on-surface transition-colors hover:bg-surface-container-low"
                   >
                     <ShieldAlert className="w-4 h-4 text-error" />
                     <span>Authority Portal</span>
@@ -140,30 +144,30 @@ export default function HeaderClean() {
             <div className="relative hidden lg:block" ref={ref}>
               <div
                 onClick={() => setOpen((s) => !s)}
-                className="flex items-center gap-2 cursor-pointer p-1 rounded-full hover:bg-surface-container transition-colors"
+                className="flex cursor-pointer items-center gap-2 rounded-full p-1 transition-colors hover:bg-surface-container"
               >
-                <div className="h-8 w-8 rounded-full overflow-hidden border border-outline-variant bg-surface-container-high flex items-center justify-center">
+                <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-outline-variant bg-surface-container-high">
                   <img
                     alt="User Profile"
                     src="https://lh3.googleusercontent.com/aida-public/AB6AXuA2CwPC9Bs3HRoRHw3v_MWBUHd_DbvW93LHvzToDaotRnMrtfxgekCezJpVCEWOnpPWbiEk3-cL2w9OxWjebXZQagbNgu_hlTka88SOTK4U4rRU8zzCgS4Nsn2J7lOvpPefa4w0gPn0SSJYurJw9rQ64HRaWzKmK5_FNiyStf8mbc0kfMnNNxGL6dBzglnWm14bkwKaD6bBda1CE6X90-ldvHKnalWqdqAHKlIwLKKyLazqDcb5vobUUWGWV7IG1VWtC_Dhgd7Ivwg"
                     className="w-full h-full object-cover"
                   />
                 </div>
-                <span className="hidden sm:inline text-body-sm font-bold text-on-surface pr-1 select-none capitalize">
+                <span className="hidden select-none pr-1 text-body-sm font-bold capitalize text-on-surface sm:inline">
                   {user?.role || 'Citizen'}
                 </span>
                 <ChevronDown className="w-4 h-4 text-on-surface-variant" />
               </div>
               {open && (
-                <div className="absolute right-0 mt-2 w-48 bg-white border border-outline-variant shadow-lg rounded-xl overflow-hidden z-[100]">
-                  <div className="px-4 py-3.5 bg-surface-container-low border-b border-outline-variant/30">
+                <div className="absolute right-0 z-[100] mt-2 w-48 overflow-hidden rounded-[10px] border border-outline-variant bg-white shadow-lg">
+                  <div className="border-b border-outline-variant/30 bg-surface-container-low px-4 py-3.5">
                     <p className="text-body-sm font-bold text-on-surface truncate">{user?.username || 'User'}</p>
                     <p className="text-[10px] text-outline font-extrabold uppercase tracking-widest mt-0.5">{user?.role || 'Citizen'}</p>
                   </div>
                   <Link
                     to="/dashboard"
                     onClick={() => setOpen(false)}
-                    className="flex items-center gap-2.5 px-4 py-2.5 text-on-surface hover:bg-surface-container-low transition-colors text-body-sm font-medium"
+                    className="flex items-center gap-2.5 px-4 py-2.5 text-body-sm font-medium text-on-surface transition-colors hover:bg-surface-container-low"
                   >
                     <LayoutDashboard className="w-4 h-4 text-slate-500" />
                     <span>Overview</span>
@@ -171,14 +175,14 @@ export default function HeaderClean() {
                   <Link
                     to="/complaints"
                     onClick={() => setOpen(false)}
-                    className="flex items-center gap-2.5 px-4 py-2.5 text-on-surface hover:bg-surface-container-low transition-colors text-body-sm font-medium"
+                    className="flex items-center gap-2.5 px-4 py-2.5 text-body-sm font-medium text-on-surface transition-colors hover:bg-surface-container-low"
                   >
                     <History className="w-4 h-4 text-slate-500" />
                     <span>My History</span>
                   </Link>
                   <button
                     onClick={() => { setOpen(false); handleLogout(); }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-error hover:bg-error-container/20 transition-colors text-body-sm font-medium border-t border-outline-variant/30 text-left"
+                    className="flex w-full items-center gap-2.5 border-t border-outline-variant/30 px-4 py-2.5 text-left text-body-sm font-medium text-error transition-colors hover:bg-error-container/20"
                   >
                     <LogOut className="w-4 h-4" />
                     <span>Log Out</span>
@@ -191,7 +195,7 @@ export default function HeaderClean() {
           {/* Hamburger Menu Button (Tablet/Mobile) */}
           <button
             onClick={() => setMobileOpen((s) => !s)}
-            className="lg:hidden p-2 rounded-lg hover:bg-surface-container text-on-surface-variant transition-colors"
+            className="rounded-md p-2 text-on-surface-variant transition-colors hover:bg-surface-container lg:hidden"
           >
             {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -200,7 +204,7 @@ export default function HeaderClean() {
 
       {/* Sliding Mobile Drawer Navigation */}
       {mobileOpen && (
-        <div className="lg:hidden border-t border-outline-variant bg-surface-container-lowest shadow-lg animate-in slide-in-from-top duration-200">
+        <div className="animate-in slide-in-from-top border-t border-outline-variant bg-surface-container-lowest shadow-lg lg:hidden duration-200">
           <div className="px-6 py-4 flex flex-col gap-4" ref={mobileRef}>
             {/* Search Input for Mobile */}
             <div className="relative w-full">
@@ -209,7 +213,7 @@ export default function HeaderClean() {
                 type="text"
                 placeholder="Search reports..."
                 style={{ paddingLeft: '34px' }}
-                className="bg-surface-container-low border border-outline-variant rounded-lg pr-4 py-2 text-body-md focus:outline-none focus:ring-1 focus:ring-primary w-full text-on-surface transition-all placeholder:text-outline"
+                className="w-full rounded-md border border-outline-variant bg-surface-container-low px-4 py-2 text-body-md text-on-surface transition-all placeholder:text-outline focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
 
@@ -218,7 +222,7 @@ export default function HeaderClean() {
               <Link
                 to="/road/r1/report"
                 onClick={() => setMobileOpen(false)}
-                className={`px-3 py-2 rounded-lg text-body-md font-semibold ${
+                className={`rounded-md px-3 py-2 text-body-md font-semibold ${
                   isTabActive(['/road/r1/report', '/report'])
                     ? 'bg-primary/10 text-primary'
                     : 'text-on-surface-variant hover:bg-surface-container-low'
@@ -229,7 +233,7 @@ export default function HeaderClean() {
               <Link
                 to="/complaints"
                 onClick={() => setMobileOpen(false)}
-                className={`px-3 py-2 rounded-lg text-body-md font-semibold ${
+                className={`rounded-md px-3 py-2 text-body-md font-semibold ${
                   isTabActive(['/complaints'])
                     ? 'bg-primary/10 text-primary'
                     : 'text-on-surface-variant hover:bg-surface-container-low'
@@ -240,7 +244,7 @@ export default function HeaderClean() {
               <Link
                 to="/map"
                 onClick={() => setMobileOpen(false)}
-                className={`px-3 py-2 rounded-lg text-body-md font-semibold ${
+                className={`rounded-md px-3 py-2 text-body-md font-semibold ${
                   isTabActive(['/map', '/community-map'])
                     ? 'bg-primary/10 text-primary'
                     : 'text-on-surface-variant hover:bg-surface-container-low'
@@ -251,7 +255,7 @@ export default function HeaderClean() {
               <Link
                 to="/settings"
                 onClick={() => setMobileOpen(false)}
-                className={`px-3 py-2 rounded-lg text-body-md font-semibold ${
+                className={`rounded-md px-3 py-2 text-body-md font-semibold ${
                   isTabActive(['/settings'])
                     ? 'bg-primary/10 text-primary'
                     : 'text-on-surface-variant hover:bg-surface-container-low'
