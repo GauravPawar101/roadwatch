@@ -75,7 +75,7 @@ router.put('/preferences', requireAuth, async (req, res) => {
 
 router.get('/topics', requireAuth, async (req, res) => {
   const user = (req as any).user as JwtClaims;
-  const topics = topicsForUser({ userId: user.sub, districts: user.districts, zones: user.zones });
+  const topics = topicsForUser({ userId: user.sub, districts: user.districts || [], zones: user.zones || [] });
   res.json({ topics });
 });
 

@@ -1,5 +1,9 @@
-import { pool } from '../db.js';
 import { getEnv } from '../env.js';
+import { pool } from '../postgres.js';
+
+function isMissingRelationError(error: unknown): boolean {
+  return !!error && typeof error === 'object' && (error as any).code === '42P01';
+}
 
 export function startRetentionJobs(): void {
   const env = getEnv();
@@ -8,51 +12,58 @@ export function startRetentionJobs(): void {
   const enabled = env.NODE_ENV !== 'test';
   if (!enabled) return;
 
+  const runSweepSafely = async () => {
+    try {
+      await runRetentionSweep();
+    } catch (e) {
+      if (isMissingRelationError(e)) {
+        console.warn('[retention] skipped sweep: notification tables are not migrated yet');
+        return;
+      }
+      throw e;
+    }
+  };
+
   // Run once on boot, then daily.
-  void runRetentionSweep().catch((e) => console.error('[retention] initial sweep failed', e));
+  void runSweepSafely().catch((e) => console.error('[retention] initial sweep failed', e));
 
   const dayMs = 24 * 60 * 60 * 1000;
   setInterval(() => {
-    void runRetentionSweep().catch((e) => console.error('[retention] sweep failed', e));
+    void runSweepSafely().catch((e) => console.error('[retention] sweep failed', e));
   }, dayMs);
 }
 
 async function runRetentionSweep(): Promise<void> {
-  // OTP sessions: purge used/expired + anything older than 7 days.
-  await pool.query(
-    `DELETE FROM otp_sessions
-     WHERE used = true
-        OR expires_at < now()
-        OR created_at < now() - interval '7 days';`
-  );
+  // OTP sessions: handled by Redis TTL and explicit removal on consumption.
+  // No DB cleanup required when OTPs are stored in Redis.
 
   // Notification deliveries: keep 90 days.
+  const cutoff90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
   await pool.query(
-    `DELETE FROM notification_deliveries
-     WHERE created_at < now() - interval '90 days';`
+    `DELETE FROM notification_deliveries WHERE created_at < $1`,
+    [cutoff90]
   );
 
   // Notification inbox/history: keep 180 days.
+  const cutoff180 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
   await pool.query(
-    `DELETE FROM notification_inbox
-     WHERE created_at < now() - interval '180 days';`
+    `DELETE FROM notification_inbox WHERE created_at < $1`,
+    [cutoff180]
   );
 
   // Notifications table: keep 180 days if unreferenced.
   await pool.query(
-    `DELETE FROM notifications n
-     WHERE n.created_at < now() - interval '180 days'
-       AND NOT EXISTS (
-         SELECT 1 FROM notification_inbox i WHERE i.notification_id = n.id
-       )
-       AND NOT EXISTS (
-         SELECT 1 FROM notification_deliveries d WHERE d.notification_id = n.id
-       );`
+    `DELETE FROM notifications
+     WHERE created_at < $1
+     AND id NOT IN (SELECT DISTINCT notification_id FROM notification_inbox)
+     AND id NOT IN (SELECT DISTINCT notification_id FROM notification_deliveries)`,
+    [cutoff180]
   );
 
   // Audit log: keep 3 years (adjust per policy).
+  const cutoff3y = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000);
   await pool.query(
-    `DELETE FROM audit_log
-     WHERE created_at < now() - interval '3 years';`
+    `DELETE FROM audit_log WHERE created_at < $1`,
+    [cutoff3y]
   );
 }

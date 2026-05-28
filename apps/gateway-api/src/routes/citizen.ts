@@ -1,3 +1,4 @@
+import { KafkaTopics, type ComplaintSubmittedEvent } from '@roadwatch/kafka';
 import crypto from 'crypto';
 import express from 'express';
 import fs from 'fs/promises';
@@ -5,10 +6,14 @@ import multer from 'multer';
 import path from 'path';
 import { z } from 'zod';
 import { trackAnalyticsEvent } from '../analytics/service.js';
-import { pool } from '../db.js';
+import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
+import { enqueueKafkaEvent } from '../kafka/outbox.js';
 import { createAndFanoutNotification } from '../notifications/service.js';
+import { pool, sql } from '../postgres.js';
 import { requireAuth, requireRole, type AuthedRequest } from '../rbac.js';
 import { broadcastComplaintEvent } from '../realtime/sse.js';
+import { uploadFileToSupabaseStorage } from '../services/supabase-storage.js';
+import { uuidv7 } from '../uuid.js';
 
 const router = express.Router();
 
@@ -16,11 +21,6 @@ const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads', 'complaints');
 
 async function ensureDir(dir: string) {
   await fs.mkdir(dir, { recursive: true });
-}
-
-async function sha256File(filePath: string): Promise<string> {
-  const buf = await fs.readFile(filePath);
-  return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
 // Multer storage: keep files on local disk (dev-friendly). In production, swap for object storage.
@@ -70,7 +70,6 @@ function distancePointToSegmentMeters(point: { lat: number; lng: number }, segme
 
     let t = 0;
     if (len2 > 0) {
-      // projection of origin onto the segment in param space
       t = (-(a.x * vx + a.y * vy)) / len2;
       if (t < 0) t = 0;
       if (t > 1) t = 1;
@@ -83,6 +82,18 @@ function distancePointToSegmentMeters(point: { lat: number; lng: number }, segme
   }
 
   return best;
+}
+
+function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
 function minDistanceToGeometryMeters(point: { lat: number; lng: number }, geometry: any): number {
@@ -112,75 +123,247 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
       roadId: z.string().min(1),
       description: z.string().min(5),
       lat: z.coerce.number(),
-      lng: z.coerce.number()
+      lng: z.coerce.number(),
+      capturedLat: z.coerce.number().optional(),
+      capturedLng: z.coerce.number().optional(),
+      capturedAt: z.string().datetime().optional(),
+      imageCid: z.string().optional(),
+      imageSha256: z.string().optional()
     })
     .parse(req.body);
 
-  const road = await pool.query(
-    `SELECT rc.id, rc.authority_id, rc.geometry, d.code AS district_code
-     FROM roads_catalog rc
-     JOIN districts d ON d.id = rc.district_id
-     WHERE rc.id = $1
-     LIMIT 1;`,
+  if (body.capturedAt) {
+    const ageMs = Date.now() - new Date(body.capturedAt).getTime();
+    if (Number.isFinite(ageMs) && ageMs > 5 * 60 * 1000) {
+      return res.status(400).json({ error: 'Capture timestamp too old. Please take a fresh photo on-site.' });
+    }
+  }
+
+  if (body.capturedLat != null && body.capturedLng != null) {
+    const captureDistance = distanceMeters(
+      { lat: body.lat, lng: body.lng },
+      { lat: body.capturedLat, lng: body.capturedLng }
+    );
+    if (captureDistance > 80) {
+      return res.status(400).json({
+        error: 'Capture location must match live location',
+        captureDistanceM: Math.round(captureDistance)
+      });
+    }
+  }
+
+  const roadRes = await pool.query(
+    `SELECT id, authority_id, geometry, district_id FROM roads_catalog WHERE id = $1 LIMIT 1`,
     [body.roadId]
   );
-
-  const roadRow = road.rows[0];
+  const roadRow = roadRes.rows[0];
   if (!roadRow) return res.status(404).json({ error: 'Road not found' });
   if (!roadRow.geometry) return res.status(400).json({ error: 'Road geometry not available for this road' });
 
   const distanceM = minDistanceToGeometryMeters({ lat: body.lat, lng: body.lng }, roadRow.geometry);
   if (!Number.isFinite(distanceM)) return res.status(400).json({ error: 'Invalid road geometry' });
   if (distanceM > 100) {
-    return res.status(400).json({ error: 'You must be within 100m of the selected road', distanceM: Math.round(distanceM) });
+    return res.status(400).json({
+      error: 'You must be within 100m of the selected road',
+      distanceM: Math.round(distanceM)
+    });
   }
 
-  const districtCode = String(roadRow.district_code ?? 'UNK').toUpperCase();
+  const file = (req as any).file as Express.Multer.File | undefined;
+  const idempotencyPayload = {
+    actor: user.sub,
+    roadId: body.roadId,
+    description: body.description,
+    lat: body.lat,
+    lng: body.lng,
+    capturedLat: body.capturedLat ?? null,
+    capturedLng: body.capturedLng ?? null,
+    capturedAt: body.capturedAt ?? null,
+    imageCid: body.imageCid ?? null,
+    imageSha256: body.imageSha256 ?? null,
+    file: file
+      ? {
+          originalName: file.originalname,
+          mime: file.mimetype,
+          size: file.size
+        }
+      : null
+  };
+
+  const idempotencyKey = deriveIdempotencyKey(req, 'citizen:complaints:create');
+  const requestHash = buildRequestHash(idempotencyPayload);
+  const claimed = await claimIdempotency('citizen:complaints:create', idempotencyKey, requestHash);
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
+  }
+
+  let districtCode = 'UNK';
+  if (roadRow.district_id) {
+    const dRes = await pool.query(
+      `SELECT code FROM districts WHERE id = $1 LIMIT 1`,
+      [roadRow.district_id]
+    );
+    districtCode = String(dRes.rows[0]?.code ?? 'UNK').toUpperCase();
+  }
   const authorityId = String(roadRow.authority_id ?? 'UNKNOWN');
 
-  const id = `RW-${districtCode.slice(0, 3)}-${Date.now()}`;
+  let attachmentCid = body.imageCid ?? null;
+  let attachmentSha = body.imageSha256 ?? null;
+  let attachmentProvider: 'supabase-storage' | 'local-fallback' | 'client' = body.imageCid ? 'client' : 'local-fallback';
 
-  await pool.query(
-    `INSERT INTO complaints (id, district, zone, status, description, lat, lng, road_id, authority_id)
-     VALUES ($1, $2, $3, 'PENDING', $4, $5, $6, $7, $8)
-     ON CONFLICT (id) DO NOTHING;`,
-    [id, districtCode, authorityId, body.description, body.lat, body.lng, body.roadId, authorityId]
-  );
-
-  const file = (req as any).file as Express.Multer.File | undefined;
   if (file?.path) {
-    const sha = await sha256File(file.path);
+    const uploaded = await uploadFileToSupabaseStorage(file.path, file.mimetype ?? 'application/octet-stream');
+    attachmentCid = uploaded.cid;
+    attachmentSha = uploaded.hash;
+    attachmentProvider = uploaded.provider;
+  }
+
+  // Use a transaction + SELECT FOR UPDATE to safely merge or create the complaint atomically.
+  let complaintId = '';
+  let reportCount = 1;
+  let merged = false;
+  const complaintStatus = 'Open';
+
+  await sql.begin(async (tx: any) => {
+    const existingOpen = await tx`
+      SELECT id, report_count
+      FROM complaints
+      WHERE road_id = ${body.roadId}
+        AND UPPER(status) <> 'RESOLVED'
+      ORDER BY created_at DESC
+      LIMIT 1
+      FOR UPDATE
+    `;
+
+    if (existingOpen[0]) {
+      complaintId = String(existingOpen[0].id);
+      merged = true;
+      const updated = await tx`
+        UPDATE complaints
+        SET report_count = report_count + 1,
+            updated_at   = NOW()
+        WHERE id = ${complaintId}
+        RETURNING report_count
+      `;
+      reportCount = Number(updated[0]?.report_count ?? 2);
+    } else {
+      complaintId = uuidv7();
+      await tx`
+        INSERT INTO complaints
+           (id, district, zone, status, description, lat, lng, road_id, authority_id, report_count, created_at, updated_at)
+         VALUES (${complaintId}, ${districtCode}, ${authorityId}, 'FILED', ${body.description}, ${body.lat}, ${body.lng}, ${body.roadId}, ${authorityId}, 1, NOW(), NOW())
+      `;
+      reportCount = 1;
+    }
+
+    if (!merged) {
+      const event: ComplaintSubmittedEvent = {
+        type: 'complaint-submitted',
+        idempotencyKey: `complaint:${complaintId}:submitted`,
+        occurredAt: new Date().toISOString(),
+        version: 1,
+        complaintId,
+        district: districtCode,
+        zone: authorityId,
+        lat: body.lat ?? undefined,
+        lng: body.lng ?? undefined,
+        description: body.description,
+        roadId: body.roadId,
+        authorityOrg: authorityId,
+        citizenId: user.sub,
+        initialIPFSCid: attachmentCid ?? undefined,
+        detailsHash: attachmentSha ?? undefined,
+        location: { lat: body.lat, lng: body.lng, capturedAt: body.capturedAt ?? null },
+        merged,
+        reportCount
+      };
+
+      await enqueueKafkaEvent(tx, KafkaTopics.complaintSubmitted, event, {
+        key: complaintId,
+        idempotencyKey: event.idempotencyKey
+      });
+    }
+  });
+
+  if (attachmentCid && attachmentSha) {
     await pool.query(
-      `INSERT INTO complaint_attachments (complaint_id, kind, file_path, file_mime, file_sha256)
-       VALUES ($1, 'PHOTO', $2, $3, $4);`,
-      [id, file.path, file.mimetype ?? null, sha]
+      `INSERT INTO complaint_attachments
+         (complaint_id, kind, file_path, file_mime, file_sha256, note)
+       VALUES ($1, 'PHOTO', $2, $3, $4, $5)`,
+      [
+        complaintId,
+        `ipfs://${attachmentCid}`,
+        file?.mimetype ?? null,
+        attachmentSha,
+        {
+          cid: attachmentCid,
+          provider: attachmentProvider,
+          capturedAt: body.capturedAt ?? null,
+          capturedLat: body.capturedLat ?? null,
+          capturedLng: body.capturedLng ?? null
+        }
+      ]
+    );
+
+    await pool.query(
+      `INSERT INTO audit_log
+         (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
+      VALUES (${uuidv7()}, $1, $2, $3, $4, 'complaint', $5, $6, NOW())`,
+      [
+        user.sub,
+        user.phoneHash,
+        user.phone,
+        merged ? 'COMPLAINT_MERGED_MEDIA' : 'MEDIA_PINNED',
+        complaintId,
+        {
+          cid: attachmentCid,
+          sha256: attachmentSha,
+          provider: attachmentProvider,
+          reportCount
+        }
+      ]
     );
   }
 
   await pool.query(
-    `INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details)
-     VALUES ($1, $2, $3, 'COMPLAINT_CREATED', 'complaint', $4, $5);`,
-    [user.sub, user.phoneHash, user.phone, id, { district: districtCode, zone: authorityId, roadId: body.roadId, distanceM }]
+    `INSERT INTO audit_log
+       (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
+    VALUES (${uuidv7()}, $1, $2, $3, $4, 'complaint', $5, $6, NOW())`,
+    [
+      user.sub,
+      user.phoneHash,
+      user.phone,
+      merged ? 'COMPLAINT_MERGED' : 'COMPLAINT_CREATED',
+      complaintId,
+      {
+        district: districtCode,
+        zone: authorityId,
+        roadId: body.roadId,
+        distanceM,
+        merged,
+        reportCount
+      }
+    ]
   );
 
   await trackAnalyticsEvent({
     type: 'COMPLAINT_CREATED',
     actorUserId: user.sub,
-    complaintId: id,
+    complaintId,
     district: districtCode,
     zone: authorityId,
     lat: body.lat,
     lng: body.lng,
-    properties: { status: 'PENDING', roadId: body.roadId, distanceM }
+    properties: { status: complaintStatus, roadId: body.roadId, distanceM, merged, reportCount }
   });
 
   broadcastComplaintEvent({
-    type: 'complaint_created',
+    type: merged ? 'complaint_updated' : 'complaint_created',
     complaint: {
-      id,
+      id: complaintId,
       district: districtCode,
       zone: authorityId,
-      status: 'PENDING',
+      status: complaintStatus,
       description: body.description,
       lat: body.lat,
       lng: body.lng,
@@ -191,15 +374,45 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
   await createAndFanoutNotification({
     message: {
       type: 'new_complaint',
-      title: `New complaint ${id}`,
-      body: `New complaint filed in ${districtCode} / ${authorityId}.`,
-      data: { complaintId: id, district: districtCode, zone: authorityId, roadId: body.roadId },
+      title: merged ? `Complaint merged into ${complaintId}` : `New complaint ${complaintId}`,
+      body: merged
+        ? `Another report on ${body.roadId} was merged into complaint ${complaintId}.`
+        : `New complaint filed in ${districtCode} / ${authorityId}.`,
+      data: { complaintId, district: districtCode, zone: authorityId, roadId: body.roadId, merged, reportCount },
       audience: { kind: 'jurisdiction', district: districtCode, zone: authorityId },
       critical: false
     }
   });
 
-  res.json({ ok: true, complaint: { id } });
+  const responseBody = {
+    ok: true,
+    merged,
+    complaint: { id: complaintId, status: complaintStatus, cid: attachmentCid, sha256: attachmentSha, reportCount }
+  };
+
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  res.json(responseBody);
+});
+
+router.post('/media/upload', requireAuth, requireRole(['CITIZEN']), upload.single('image'), async (req, res) => {
+  const body = z
+    .object({
+      capturedLat: z.coerce.number(),
+      capturedLng: z.coerce.number(),
+      capturedAt: z.string().datetime()
+    })
+    .parse(req.body);
+
+  const file = (req as any).file as Express.Multer.File | undefined;
+  if (!file?.path) return res.status(400).json({ error: 'image file is required' });
+
+  const ageMs = Date.now() - new Date(body.capturedAt).getTime();
+  if (Number.isFinite(ageMs) && ageMs > 5 * 60 * 1000) {
+    return res.status(400).json({ error: 'Capture timestamp too old. Please capture again.' });
+  }
+
+  const uploaded = await uploadFileToSupabaseStorage(file.path, file.mimetype ?? 'application/octet-stream');
+  res.json({ ok: true, cid: uploaded.cid, sha256: uploaded.hash, provider: uploaded.provider, url: uploaded.url });
 });
 
 export default router;

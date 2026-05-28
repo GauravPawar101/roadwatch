@@ -7,7 +7,7 @@ This repo supports a **DB-backed region registry** to power:
 
 ## Prereqs
 
-- A Postgres instance reachable via `DATABASE_URL` (same env var used by the gateway API).
+- A PostgreSQL database reachable via `DATABASE_URL` (preferred). Legacy migration helpers may still exist, but they are not part of the primary onboarding flow.
 - Run the gateway once (or run the seed script which creates the minimal schema for region tables).
 
 ## Public endpoints used by mobile
@@ -41,7 +41,7 @@ From repo root:
 
 Notes:
 - The extra `--` is required so pnpm passes args through.
-- This is safe to re-run; it uses `ON CONFLICT ... DO UPDATE`.
+- This is safe to re-run for Postgres seeds; keep any legacy migration tooling separate from the main onboarding flow.
 
 ## Offline tiles
 

@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-surface-variant": "#44474e",
+                        "on-primary": "#ffffff",
+                        "status-resolved": "#003f25",
+                        "on-primary-fixed-variant": "#2e476e",
+                        "outline": "#74777f",
+                        "on-surface": "#0b1c30",
+                        "surface-bright": "#f8f9ff",
+                        "primary-fixed-dim": "#aec7f5",
+                        "on-background": "#0b1c30",
+                        "on-tertiary-fixed-variant": "#005231",
+                        "on-tertiary-fixed": "#002111",
+                        "tertiary-container": "#002614",
+                        "background": "#f8f9ff",
+                        "inverse-primary": "#aec7f5",
+                        "surface-tint": "#465f87",
+                        "primary": "#00091b",
+                        "on-tertiary-container": "#43976a",
+                        "secondary-fixed": "#d3e4ff",
+                        "surface-container-high": "#dce9ff",
+                        "primary-container": "#002045",
+                        "outline-variant": "#c4c6cf",
+                        "tertiary-fixed": "#9ff5c1",
+                        "inverse-on-surface": "#eaf1ff",
+                        "tertiary": "#000b04",
+                        "error": "#ba1a1a",
+                        "status-pending": "#fff7ed",
+                        "surface-dim": "#cbdbf5",
+                        "surface-container-lowest": "#ffffff",
+                        "secondary-fixed-dim": "#a2c9ff",
+                        "on-primary-fixed": "#001b3c",
+                        "on-error": "#ffffff",
+                        "surface-container-low": "#eff4ff",
+                        "primary-fixed": "#d6e3ff",
+                        "surface": "#f8f9ff",
+                        "on-primary-container": "#7089b3",
+                        "surface-variant": "#d3e4fe",
+                        "surface-tint-blue": "#f8f9ff",
+                        "on-error-container": "#93000a",
+                        "secondary-container": "#7db6ff",
+                        "on-secondary-fixed": "#001c38",
+                        "inverse-surface": "#213145",
+                        "surface-container-highest": "#d3e4fe",
+                        "secondary": "#1960a3",
+                        "on-secondary": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed-variant": "#004881",
+                        "status-pending-text": "#7c2d12",
+                        "surface-container": "#e5eeff",
+                        "on-tertiary": "#ffffff",
+                        "on-secondary-container": "#00477f",
+                        "tertiary-fixed-dim": "#83d8a6",
+                        "status-resolved-text": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "margin-desktop": "64px",
+                        "margin-mobile": "16px",
+                        "container-max": "1280px",
+                        "base": "8px",
+                        "gutter": "24px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Inter"],
+                        "label-md": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "display-lg-mobile": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                        "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "headline-lg": ["30px", {"lineHeight": "38px", "fontWeight": "600"}],
+                        "display-lg-mobile": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .shadow-level-1 {
+            box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.05);
+        }
+    </style>
+</head>
+<body class="bg-background font-body-md text-on-background min-h-screen flex flex-col items-center">
+<div class="w-full max-w-container-max px-margin-mobile md:px-margin-desktop flex flex-col items-center py-12">
+<header class="w-full flex flex-col items-center mb-10 text-center">
+<div class="mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-4xl" data-icon="gavel">gavel</span>
+<span class="font-headline-lg text-headline-lg text-on-surface tracking-tight">CivicGuard</span>
+</div>
+<h1 class="font-headline-md text-headline-md text-on-surface mb-2">Authority Registration</h1>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-lg">
+                Establish institutional presence on the Hyperledger Fabric blockchain network. All credentials will be verified against the network's Trust Anchor.
+            </p>
+</header>
+<main class="w-full max-w-3xl">
+<div class="bg-error-container border border-error/20 rounded-xl p-4 mb-8 flex items-start gap-4">
+<span class="material-symbols-outlined text-error" data-icon="warning">warning</span>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-error-container uppercase">Critical Security Notice</span>
+<p class="font-body-sm text-body-sm text-on-error-container mt-1">
+                        Use only official departmental credentials. Fabrication of identity or misuse of cryptographic certificates is subject to administrative audit. Fabric certificates must be in valid PEM format.
+                    </p>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-level-1 p-8 md:p-12">
+<form class="grid grid-cols-1 md:grid-cols-2 gap-x-gutter gap-y-6">
+<div class="flex flex-col gap-2 md:col-span-2">
+<label class="font-label-md text-label-md text-on-surface-variant">Organization Name</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline" data-icon="corporate_fare">corporate_fare</span>
+<input class="w-full pl-12 pr-4 py-3 bg-surface-container-lowest border border-outline rounded-xl focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none" placeholder="e.g., Department of Public Works" type="text"/>
+</div>
+</div>
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant">Username</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline" data-icon="account_circle">account_circle</span>
+<input class="w-full pl-12 pr-4 py-3 bg-surface-container-lowest border border-outline rounded-xl focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none" placeholder="Institutional handle" type="text"/>
+</div>
+</div>
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant">Institutional Email</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline" data-icon="mail">mail</span>
+<input class="w-full pl-12 pr-4 py-3 bg-surface-container-lowest border border-outline rounded-xl focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none" placeholder="name@gov.mail" type="email"/>
+</div>
+</div>
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant">Password</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline" data-icon="lock">lock</span>
+<input class="w-full pl-12 pr-4 py-3 bg-surface-container-lowest border border-outline rounded-xl focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none" placeholder="••••••••" type="password"/>
+</div>
+</div>
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant">Phone Number</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline" data-icon="call">call</span>
+<input class="w-full pl-12 pr-4 py-3 bg-surface-container-lowest border border-outline rounded-xl focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none" placeholder="+1 (555) 000-0000" type="tel"/>
+</div>
+</div>
+<div class="flex flex-col gap-2 md:col-span-2 bg-surface-container-low p-6 rounded-xl border border-outline-variant/50">
+<div class="flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-primary" data-icon="security">security</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Blockchain Technical Credentials</h3>
+</div>
+<div class="grid grid-cols-1 gap-6">
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant">Fabric MSP ID</label>
+<input class="w-full px-4 py-3 bg-surface-container-lowest border border-outline rounded-xl focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none" placeholder="Org1MSP" type="text"/>
+</div>
+<div class="flex flex-col gap-2">
+<label class="font-label-md text-label-md text-on-surface-variant">Fabric Certificate PEM</label>
+<textarea class="w-full px-4 py-3 bg-surface-container-lowest border border-outline rounded-xl font-mono text-sm focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none" placeholder="-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----" rows="6"></textarea>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Upload your organization's public certificate to enable verifiable signing.</p>
+</div>
+</div>
+</div>
+<div class="md:col-span-2 flex flex-col gap-4 pt-4">
+<button class="w-full bg-primary text-on-primary py-4 rounded-xl font-label-md text-label-md hover:opacity-90 active:scale-[0.98] transition-all flex justify-center items-center gap-2" type="submit">
+                            Initialize Authority Account
+                            <span class="material-symbols-outlined" data-icon="arrow_forward">arrow_forward</span>
+</button>
+<p class="text-center font-body-sm text-body-sm text-on-surface-variant">
+                            Already have an account? <a class="text-secondary font-semibold hover:underline" href="#">Log in here</a>
+</p>
+</div>
+</form>
+</div>
+</main>
+<footer class="mt-16 w-full flex flex-col items-center gap-6">
+<div class="grid grid-cols-2 md:grid-cols-4 gap-gutter opacity-40 grayscale">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="shield">shield</span>
+<span class="font-label-md">Verified</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="lan">lan</span>
+<span class="font-label-md">Hyperledger</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="encrypted">encrypted</span>
+<span class="font-label-md">E2EE</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="account_balance">account_balance</span>
+<span class="font-label-md">Compliant</span>
+</div>
+</div>
+<p class="font-body-sm text-body-sm text-outline">© 2024 CivicGuard Institutional Access Portal. All rights reserved.</p>
+</footer>
+</div>
+<div class="fixed right-margin-desktop bottom-margin-desktop hidden md:block">
+<div class="bg-surface-container-lowest border border-outline-variant shadow-level-1 rounded-2xl p-6 max-w-xs overflow-hidden">
+<div class="w-full aspect-video rounded-lg mb-4 overflow-hidden relative">
+<img alt="Cybersecurity interface" class="w-full h-full object-cover" data-alt="A high-tech digital security interface displayed on a sleek monitor in a dimly lit server room. The screen shows complex cryptographic data visualizations and network nodes in deep navy and electric blue tones. The lighting is low and atmospheric, emphasizing a professional, high-security environment with soft focus on blinking server rack LEDs in the background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAbWzBuLSJ4hdrw6frYD9lpaA5z1G9y5iwn3qZp-n9qn-e_hD9CW5qDJmEDp6KE_Ha2rnJ3yUTIxt9V_5IpDxYvXsuuqg7wuZ7Rj3TOmbY33kWhlE4thH0YobUPMR9r3PfWzUw9sCZP1mLoV7xrxlr2EVO_cxp6yyKXFoXLPVRnfVqo5dR6UVs7zpt0k1-pFd_sUEcSFhRJRYsDkRzKox2oy-9gPVPDKuVE0scSRbKRUzB4m4PqST0RpIvsSX-5SI33VhwoZ427mqM"/>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-on-surface mb-2">Need technical help?</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-4">Our systems integration team is available for real-time certificate troubleshooting.</p>
+<button class="w-full border border-primary text-primary py-2 rounded-xl font-label-md text-label-md hover:bg-surface-container-low transition-colors">
+                Contact Technical Ops
+            </button>
+</div>
+</div>
+</body></html>

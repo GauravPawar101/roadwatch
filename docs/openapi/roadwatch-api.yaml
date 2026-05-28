@@ -1,0 +1,438 @@
+openapi: 3.0.3
+info:
+  title: Roadwatch API
+  version: 1.0.0
+  description: Combined OpenAPI spec for Gateway API (user-facing) and Backend API (auxiliary services). Includes health, auth, complaints, submissions, webhook and analytics endpoints.
+servers:
+  - url: http://localhost:3100
+    description: Local gateway
+  - url: http://localhost:4001
+    description: Backend auxiliary service
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    serviceJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: object
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        phone:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/UserSummary'
+    OtpRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+        identifier:
+          type: string
+    OtpVerify:
+      type: object
+      properties:
+        phone:
+          type: string
+        sessionId:
+          type: string
+        code:
+          type: string
+    ComplaintCreate:
+      type: object
+      required: [roadId, title, description, damageType, severity, lat, lng]
+      properties:
+        roadId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        damageType:
+          type: string
+        severity:
+          type: integer
+          minimum: 1
+          maximum: 5
+        lat:
+          type: number
+        lng:
+          type: number
+        capturedLat:
+          type: number
+        capturedLng:
+          type: number
+        capturedAt:
+          type: string
+          format: date-time
+        imageCid:
+          type: string
+    ComplaintSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        severity:
+          type: integer
+        reportCount:
+          type: integer
+        lat:
+          type: number
+        lng:
+          type: number
+    NonceResponse:
+      type: object
+      properties:
+        nonce:
+          type: string
+        issued_at:
+          type: string
+        expires_at:
+          type: string
+        ttl_seconds:
+          type: integer
+    SubmissionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        request_id:
+          type: string
+        verified_status:
+          type: string
+        message:
+          type: string
+    WebhookEvent:
+      type: object
+      properties:
+        complaintId:
+          type: string
+        eventType:
+          type: string
+        fabricTxId:
+          type: string
+        newStatus:
+          type: string
+        metadata:
+          type: object
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /health/db:
+    get:
+      summary: Database health check
+      responses:
+        '200':
+          description: DB OK
+        '503':
+          description: DB Unhealthy
+  /auth/citizen/otp/request:
+    post:
+      summary: Request OTP for citizen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpRequest'
+      responses:
+        '200':
+          description: OTP requested
+        '400':
+          description: Invalid request
+  /auth/citizen/otp/verify:
+    post:
+      summary: Verify OTP for citizen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpVerify'
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid OTP
+  /auth/citizen/signup:
+    post:
+      summary: Signup citizen (email/phone/username + password)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                phone:
+                  type: string
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+  /auth/citizen/login:
+    post:
+      summary: Citizen login (identifier + password)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                identifier:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+  /auth/refresh:
+    post:
+      summary: Rotate refresh token
+      responses:
+        '200':
+          description: New access token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+  /auth/logout:
+    post:
+      summary: Logout (revoke refresh token)
+      responses:
+        '200':
+          description: OK
+  /complaints:
+    get:
+      summary: List complaints with filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: bounds
+          schema:
+            type: string
+        - in: query
+          name: severity
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Complaint list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  complaints:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ComplaintSummary'
+                  pagination:
+                    type: object
+    post:
+      summary: Create or merge complaint (gateway)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComplaintCreate'
+      responses:
+        '201':
+          description: Created or merged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  message:
+                    type: string
+                  complaint:
+                    $ref: '#/components/schemas/ComplaintSummary'
+  /complaints/{id}:
+    get:
+      summary: Get complaint by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Complaint
+        '404':
+          description: Not found
+  /submissions/nonce:
+    post:
+      summary: Generate nonce for image submission
+      security:
+        - serviceJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request_id:
+                  type: string
+                ttl_seconds:
+                  type: integer
+      responses:
+        '200':
+          description: Nonce issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonceResponse'
+  /submissions:
+    post:
+      summary: Submit geotagged image (raw octet-stream)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Submission received
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionResponse'
+    get:
+      summary: List submissions (authority/admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: request_id
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+      responses:
+        '200':
+          description: list
+  /submissions/{id}:
+    get:
+      summary: Get submission by id (privacy-filtered)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Submission
+  /webhook/fabric-state-change:
+    post:
+      summary: Fabric state change webhook (complaint events)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEvent'
+      responses:
+        '200':
+          description: OK
+  /analytics/collect:
+    post:
+      summary: Analytics collector (expects service JWT)
+      security:
+        - serviceJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '204':
+          description: Accepted

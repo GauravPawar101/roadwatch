@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/.turbo
+**/.vite
+**/coverage
+**/.next
+**/.cache
+**/*.log
+.git
+.gitignore
+docker-compose.override.yml
+**/.DS_Store

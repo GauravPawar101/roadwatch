@@ -12,13 +12,15 @@
     "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
   "dependencies": {
+    "pg": "^8.13.1",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-native-config": "^1.5.1"
   },
   "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "@vitest/coverage-v8": "^3.2.4",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.4",
-    "@vitest/coverage-v8": "^3.2.4"
+    "vitest": "^3.2.4"
   }
 }

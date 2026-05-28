@@ -1,5 +1,5 @@
 import PDFDocument from 'pdfkit';
-import { pool } from '../db.js';
+import { pool } from '../postgres.js';
 
 export type AnalyticsEventType =
   | 'COMPLAINT_CREATED'
@@ -8,6 +8,25 @@ export type AnalyticsEventType =
   | 'COMPLAINT_RESOLVED'
   | 'COMPLAINT_ASSIGNED'
   | 'SLA_WARNING';
+
+function normalizeComplaintStatus(status: string | null | undefined): string {
+  switch (String(status ?? '').toUpperCase()) {
+    case 'FILED':
+    case 'OPEN':
+      return 'Open';
+    case 'IN_PROGRESS':
+    case 'INPROGRESS':
+      return 'InProgress';
+    case 'RESOLVED':
+      return 'Resolved';
+    case 'DISMISSED':
+      return 'Dismissed';
+    case 'ESCALATED':
+      return 'Escalated';
+    default:
+      return String(status ?? '');
+  }
+}
 
 export async function trackAnalyticsEvent(event: {
   type: AnalyticsEventType;
@@ -61,7 +80,10 @@ export async function getCountsByStatus(params?: { district?: string; zone?: str
   );
 
   const byStatus: Record<string, number> = {};
-  for (const row of r.rows) byStatus[row.status] = row.count;
+  for (const row of r.rows) {
+    const normalized = normalizeComplaintStatus(row.status);
+    byStatus[normalized] = (byStatus[normalized] ?? 0) + Number(row.count ?? 0);
+  }
   return byStatus;
 }
 
@@ -86,7 +108,7 @@ export async function listChronicRoads(params?: {
   const days = Math.max(1, Math.floor(params?.days ?? 60));
   const limit = Math.min(500, Math.max(1, Math.floor(params?.limit ?? 100)));
 
-  const where: string[] = [`status <> 'RESOLVED'`, `created_at <= now() - ($1::int * interval '1 day')`];
+  const where: string[] = [`UPPER(status) <> 'RESOLVED'`, `created_at <= now() - ($1::int * interval '1 day')`];
   const values: any[] = [days];
 
   if (params?.district) {
@@ -297,7 +319,7 @@ export async function getWorseningTrends(params?: {
     if (createdMs >= recentStart) v.recent += 1;
     else if (createdMs >= previousStart) v.previous += 1;
 
-    if (row.status !== 'RESOLVED') v.open += 1;
+    if (String(row.status ?? '').toUpperCase() !== 'RESOLVED') v.open += 1;
 
     v.sumLat += lat;
     v.sumLng += lng;
@@ -335,7 +357,35 @@ export type ContractorScorecardRow = {
   avgResolutionDays: number | null;
   slaBreaches: number;
   onTimeRate: number | null;
+  karmaScore: number;
+  reliabilityRank: number;
+  avgSlaSuccessDays: number | null;
+  repeatFailureRate: number;
+  budgetDisciplineScore: number;
+  citizenSatisfactionScore: number;
+  auditPerformanceScore: number;
+  maintenanceEfficiencyScore: number;
+  historicalDurabilityDays: number;
+  regionalExpertise: string[];
+  roadTypeSpecialization: string[];
+  riskIndicator: 'low' | 'medium' | 'high';
+  lifecycleCostINR: number;
+  proposalConfidence: number;
 };
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalizeList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item ?? '').trim()).filter(Boolean);
+}
+
+function safePercentage(value: number | null | undefined): number {
+  if (!Number.isFinite(value ?? Number.NaN)) return 0;
+  return clamp(Number(value), 0, 100);
+}
 
 export async function getContractorScorecard(params?: { district?: string; zone?: string; limit?: number }): Promise<ContractorScorecardRow[]> {
   const limit = Math.min(200, Math.max(1, Math.floor(params?.limit ?? 50)));
@@ -357,12 +407,14 @@ export async function getContractorScorecard(params?: { district?: string; zone?
     `SELECT
         ctr.id AS contractor_id,
         ctr.name AS contractor_name,
+        ctr.districts AS contractor_districts,
+        ctr.zones AS contractor_zones,
         count(*)::int AS assigned_count,
-        count(*) FILTER (WHERE c.status = 'RESOLVED')::int AS resolved_count,
-        count(*) FILTER (WHERE c.status <> 'RESOLVED')::int AS open_count,
-        avg(EXTRACT(epoch FROM (c.updated_at - a.assigned_at))/86400.0) FILTER (WHERE c.status = 'RESOLVED') AS avg_resolution_days,
+        count(*) FILTER (WHERE UPPER(c.status) = 'RESOLVED')::int AS resolved_count,
+        count(*) FILTER (WHERE UPPER(c.status) <> 'RESOLVED')::int AS open_count,
+        avg(EXTRACT(epoch FROM (c.updated_at - a.assigned_at))/86400.0) FILTER (WHERE UPPER(c.status) = 'RESOLVED') AS avg_resolution_days,
         count(*) FILTER (
-          WHERE c.status = 'RESOLVED'
+          WHERE UPPER(c.status) = 'RESOLVED'
             AND a.expected_resolution_days IS NOT NULL
             AND c.updated_at > a.assigned_at + (a.expected_resolution_days * interval '1 day')
         )::int AS sla_breaches
@@ -376,20 +428,281 @@ export async function getContractorScorecard(params?: { district?: string; zone?
     values
   );
 
-  return (r.rows as any[]).map((row) => {
-    const resolved = Number(row.resolved_count ?? 0);
-    const breaches = Number(row.sla_breaches ?? 0);
-    return {
-      contractorId: row.contractor_id,
-      contractorName: row.contractor_name,
-      assignedCount: Number(row.assigned_count ?? 0),
-      resolvedCount: resolved,
-      openCount: Number(row.open_count ?? 0),
+  const contractorIds = (r.rows as any[]).map((row) => String(row.contractor_id)).filter(Boolean);
+  if (!contractorIds.length) return [];
+
+  const [contractorInfoRes, roadTypeRes, complaintRoadRes, slaTrackingRes] = await Promise.all([
+    pool.query(
+      `SELECT id, COALESCE(name, id) AS name, districts, zones
+       FROM contractors
+       WHERE id = ANY($1)`,
+      [contractorIds]
+    ),
+    pool.query(
+      `SELECT ra.contractor_id, COALESCE(rc.road_type, 'Unknown') AS road_type, count(*)::int AS count
+       FROM road_assignments ra
+       LEFT JOIN roads_catalog rc ON rc.id = ra.road_id
+       WHERE ra.contractor_id = ANY($1)
+       GROUP BY ra.contractor_id, COALESCE(rc.road_type, 'Unknown')`,
+      [contractorIds]
+    ),
+    pool.query(
+      `SELECT ca.contractor_id,
+              c.road_id,
+              count(*)::int AS complaint_count,
+              count(*) FILTER (WHERE UPPER(c.status) = 'RESOLVED')::int AS resolved_count,
+              avg(EXTRACT(epoch FROM (c.updated_at - ca.assigned_at))/86400.0) FILTER (WHERE UPPER(c.status) = 'RESOLVED') AS avg_resolution_days,
+              count(*) FILTER (
+                WHERE UPPER(c.status) = 'RESOLVED'
+                  AND ca.expected_resolution_days IS NOT NULL
+                  AND c.updated_at > ca.assigned_at + (ca.expected_resolution_days * interval '1 day')
+              )::int AS breaches
+       FROM complaint_assignments ca
+       JOIN complaints c ON c.id = ca.complaint_id
+       WHERE ca.contractor_id = ANY($1)
+       GROUP BY ca.contractor_id, c.road_id`,
+      [contractorIds]
+    ),
+    pool.query(
+      `SELECT contractor_id,
+              count(*)::int AS tracked_count,
+              count(*) FILTER (WHERE breached)::int AS breach_count
+       FROM sla_tracking
+       WHERE contractor_id = ANY($1)
+       GROUP BY contractor_id`,
+      [contractorIds]
+    )
+  ]);
+
+  const contractorInfoById = new Map<string, { districts: string[]; zones: string[] }>();
+  for (const row of contractorInfoRes.rows as any[]) {
+    contractorInfoById.set(String(row.id), {
+      districts: normalizeList(row.districts),
+      zones: normalizeList(row.zones)
+    });
+  }
+
+  const roadTypesByContractor = new Map<string, Array<{ roadType: string; count: number }>>();
+  for (const row of roadTypeRes.rows as any[]) {
+    const contractorId = String(row.contractor_id);
+    const entries = roadTypesByContractor.get(contractorId) ?? [];
+    entries.push({ roadType: String(row.road_type ?? 'Unknown'), count: Number(row.count ?? 0) });
+    roadTypesByContractor.set(contractorId, entries);
+  }
+
+  const complaintRoadStatsByContractor = new Map<string, Array<{ roadId: string; complaintCount: number; resolvedCount: number; avgResolutionDays: number | null; breaches: number }>>();
+  for (const row of complaintRoadRes.rows as any[]) {
+    const contractorId = String(row.contractor_id);
+    const entries = complaintRoadStatsByContractor.get(contractorId) ?? [];
+    entries.push({
+      roadId: String(row.road_id),
+      complaintCount: Number(row.complaint_count ?? 0),
+      resolvedCount: Number(row.resolved_count ?? 0),
       avgResolutionDays: row.avg_resolution_days == null ? null : Number(row.avg_resolution_days),
+      breaches: Number(row.breaches ?? 0)
+    });
+    complaintRoadStatsByContractor.set(contractorId, entries);
+  }
+
+  const slaStatsByContractor = new Map<string, { trackedCount: number; breachCount: number }>();
+  for (const row of slaTrackingRes.rows as any[]) {
+    slaStatsByContractor.set(String(row.contractor_id), {
+      trackedCount: Number(row.tracked_count ?? 0),
+      breachCount: Number(row.breach_count ?? 0)
+    });
+  }
+
+  const rows = (r.rows as any[]).map((row) => {
+    const contractorId = String(row.contractor_id);
+    const resolved = Number(row.resolved_count ?? 0);
+    const assigned = Number(row.assigned_count ?? 0);
+    const openCount = Number(row.open_count ?? 0);
+    const breaches = Number(row.sla_breaches ?? 0);
+    const avgResolutionDays = row.avg_resolution_days == null ? null : Number(row.avg_resolution_days);
+    const onTimeRate = resolved > 0 ? clamp((resolved - breaches) / resolved, 0, 1) : null;
+
+    const contractorInfo = contractorInfoById.get(contractorId);
+    const roadTypeEntries = (roadTypesByContractor.get(contractorId) ?? []).slice().sort((left, right) => right.count - left.count);
+    const roadTypeSpecialization = roadTypeEntries.slice(0, 3).map((entry) => entry.roadType);
+
+    const complaintRoadEntries = complaintRoadStatsByContractor.get(contractorId) ?? [];
+    const repeatRoads = complaintRoadEntries.filter((entry) => entry.complaintCount > 1).length;
+    const repeatFailureRate = complaintRoadEntries.length > 0 ? repeatRoads / complaintRoadEntries.length : 0;
+
+    const trackedStats = slaStatsByContractor.get(contractorId);
+    const trackedBreaches = trackedStats?.breachCount ?? breaches;
+    const trackedTotal = trackedStats?.trackedCount ?? Math.max(assigned, 1);
+    const trackedSuccessRate = trackedTotal > 0 ? clamp((trackedTotal - trackedBreaches) / trackedTotal, 0, 1) : 0;
+
+    const budgetDisciplineScore = clamp(Math.round(100 - openCount * 2.2 - breaches * 5.5 - repeatFailureRate * 22 + trackedSuccessRate * 20), 0, 100);
+    const citizenSatisfactionScore = clamp(Math.round(100 - openCount * 1.8 - breaches * 4.5 - repeatFailureRate * 18 + trackedSuccessRate * 15), 0, 100);
+    const auditPerformanceScore = clamp(Math.round(100 - breaches * 7 - repeatFailureRate * 20 + trackedSuccessRate * 10), 0, 100);
+    const maintenanceEfficiencyScore = clamp(Math.round(100 - repeatFailureRate * 28 - openCount * 1.5 - breaches * 3.5 + trackedSuccessRate * 15), 0, 100);
+    const historicalDurabilityDays = Math.max(
+      7,
+      Math.round(clamp((avgResolutionDays ?? 14) * 1.6 + trackedSuccessRate * 25 - repeatFailureRate * 30 - breaches * 2, 7, 365))
+    );
+    const karmaScore = clamp(
+      Math.round(62 + resolved * 1.45 + trackedSuccessRate * 20 + citizenSatisfactionScore * 0.12 - openCount * 2.1 - breaches * 8.5 - repeatFailureRate * 24),
+      0,
+      100
+    );
+    const proposalConfidence = clamp(Math.round(50 + trackedSuccessRate * 35 + citizenSatisfactionScore * 0.1 - repeatFailureRate * 20), 0, 100);
+    const lifecycleCostINR = Math.round(assigned * 165000 + openCount * 75000 + breaches * 90000 + repeatRoads * 240000 + Math.max(0, 100 - karmaScore) * 2500);
+    const riskIndicator: 'low' | 'medium' | 'high' =
+      karmaScore < 55 || repeatFailureRate > 0.35 || breaches >= 4
+        ? 'high'
+        : karmaScore < 75 || repeatFailureRate > 0.15 || openCount >= 6
+          ? 'medium'
+          : 'low';
+
+    const regionalExpertise = Array.from(new Set([...(contractorInfo?.districts ?? []), ...(contractorInfo?.zones ?? []), ...roadTypeSpecialization])).filter(Boolean);
+
+    return {
+      contractorId,
+      contractorName: row.contractor_name,
+      assignedCount: assigned,
+      resolvedCount: resolved,
+      openCount,
+      avgResolutionDays,
       slaBreaches: breaches,
-      onTimeRate: resolved > 0 ? (resolved - breaches) / resolved : null
+      onTimeRate,
+      karmaScore,
+      reliabilityRank: 0,
+      avgSlaSuccessDays: avgResolutionDays,
+      repeatFailureRate,
+      budgetDisciplineScore,
+      citizenSatisfactionScore,
+      auditPerformanceScore,
+      maintenanceEfficiencyScore,
+      historicalDurabilityDays,
+      regionalExpertise,
+      roadTypeSpecialization,
+      riskIndicator,
+      lifecycleCostINR,
+      proposalConfidence
     } satisfies ContractorScorecardRow;
   });
+
+  return rows
+    .sort((left, right) => {
+      const karmaDelta = right.karmaScore - left.karmaScore;
+      if (karmaDelta !== 0) return karmaDelta;
+
+      const onTimeDelta = safePercentage(right.onTimeRate) - safePercentage(left.onTimeRate);
+      if (onTimeDelta !== 0) return onTimeDelta;
+
+      return right.resolvedCount - left.resolvedCount || left.slaBreaches - right.slaBreaches;
+    })
+    .map((row, index) => ({
+      ...row,
+      reliabilityRank: index + 1
+    }));
+}
+
+export type ProposalIntelligence = {
+  generatedAt: string;
+  scope: { district: string | null; zone: string | null; roadType: string | null };
+  plannedLengthKm: number;
+  requestedBudgetINR: number | null;
+  materialEstimateINR: number;
+  laborEstimateINR: number;
+  maintenanceReserveINR: number;
+  lifecycleOwnershipCostINR: number;
+  forecastRepairProbability: number;
+  inflatedBudgetFlag: boolean;
+  anomalyReason: string | null;
+  contractorRecommendations: Array<{
+    contractorId: string;
+    contractorName: string;
+    karmaScore: number;
+    reliabilityRank: number;
+    budgetDisciplineScore: number;
+    durabilityScore: number;
+    riskIndicator: 'low' | 'medium' | 'high';
+    regionalExpertise: string[];
+    roadTypeSpecialization: string[];
+    estimatedLifecycleCostINR: number;
+    proposalConfidence: number;
+  }>;
+};
+
+function roadTypeMultiplier(roadType?: string | null): number {
+  const normalized = String(roadType ?? '').trim().toLowerCase();
+  if (!normalized) return 1;
+  if (normalized.includes('nh') || normalized.includes('national')) return 1.45;
+  if (normalized.includes('sh') || normalized.includes('state')) return 1.2;
+  if (normalized.includes('mdr')) return 1.05;
+  if (normalized.includes('urban') || normalized.includes('city')) return 1.1;
+  if (normalized.includes('rural') || normalized.includes('village')) return 0.88;
+  return 1;
+}
+
+export async function getProposalIntelligence(params?: {
+  district?: string;
+  zone?: string;
+  roadType?: string;
+  plannedLengthKm?: number;
+  requestedBudgetINR?: number;
+  limit?: number;
+}): Promise<ProposalIntelligence> {
+  const plannedLengthKm = Math.max(0.5, Number(params?.plannedLengthKm ?? 12));
+  const requestedBudgetINR = typeof params?.requestedBudgetINR === 'number' && Number.isFinite(params.requestedBudgetINR)
+    ? Math.max(0, Math.round(params.requestedBudgetINR))
+    : null;
+  const contractors = await getContractorScorecard({ district: params?.district, zone: params?.zone, limit: params?.limit ?? 12 });
+  const multiplier = roadTypeMultiplier(params?.roadType);
+
+  const materialEstimateINR = Math.round(plannedLengthKm * 3_000_000 * multiplier);
+  const laborEstimateINR = Math.round(plannedLengthKm * 1_600_000 * multiplier);
+  const averageRisk = contractors.length
+    ? contractors.reduce((sum, row) => sum + (row.riskIndicator === 'high' ? 0.68 : row.riskIndicator === 'medium' ? 0.42 : 0.18), 0) / contractors.length
+    : 0.32;
+  const averageRepeatRate = contractors.length
+    ? contractors.reduce((sum, row) => sum + row.repeatFailureRate, 0) / contractors.length
+    : 0.15;
+  const maintenanceReserveINR = Math.round((materialEstimateINR + laborEstimateINR) * (0.12 + averageRepeatRate * 0.28));
+  const lifecycleOwnershipCostINR = materialEstimateINR + laborEstimateINR + maintenanceReserveINR;
+  const forecastRepairProbability = clamp(Math.round((averageRisk * 0.55 + averageRepeatRate * 0.45) * 100), 0, 100);
+  const inflatedBudgetFlag = requestedBudgetINR != null ? requestedBudgetINR > lifecycleOwnershipCostINR * 1.25 : false;
+
+  let anomalyReason: string | null = null;
+  if (inflatedBudgetFlag) {
+    anomalyReason = 'Requested budget exceeds lifecycle benchmark by more than 25%.';
+  } else if (requestedBudgetINR != null && requestedBudgetINR < lifecycleOwnershipCostINR * 0.75) {
+    anomalyReason = 'Requested budget appears materially below lifecycle benchmark.';
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    scope: {
+      district: params?.district ?? null,
+      zone: params?.zone ?? null,
+      roadType: params?.roadType ?? null
+    },
+    plannedLengthKm,
+    requestedBudgetINR,
+    materialEstimateINR,
+    laborEstimateINR,
+    maintenanceReserveINR,
+    lifecycleOwnershipCostINR,
+    forecastRepairProbability,
+    inflatedBudgetFlag,
+    anomalyReason,
+    contractorRecommendations: contractors.slice(0, 8).map((row) => ({
+      contractorId: row.contractorId,
+      contractorName: row.contractorName,
+      karmaScore: row.karmaScore,
+      reliabilityRank: row.reliabilityRank,
+      budgetDisciplineScore: row.budgetDisciplineScore,
+      durabilityScore: row.historicalDurabilityDays,
+      riskIndicator: row.riskIndicator,
+      regionalExpertise: row.regionalExpertise,
+      roadTypeSpecialization: row.roadTypeSpecialization,
+      estimatedLifecycleCostINR: row.lifecycleCostINR,
+      proposalConfidence: row.proposalConfidence
+    }))
+  };
 }
 
 export function toCsv(rows: Record<string, any>[], columns: string[]): string {
@@ -419,7 +732,7 @@ export async function exportRoadsGeoJson(params?: {
   if (params?.chronicOnly) {
     const days = Math.max(1, Math.floor(params?.chronicDays ?? 60));
     values.push(days);
-    where.push(`status <> 'RESOLVED'`);
+    where.push(`UPPER(status) <> 'RESOLVED'`);
     where.push(`created_at <= now() - ($${values.length}::int * interval '1 day')`);
   }
 

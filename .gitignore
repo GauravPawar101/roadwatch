@@ -65,3 +65,18 @@ fabric/network/**/*.tx
 
 # OS
 .DS_Store
+.aider*
+
+# Sensitive / secret files
+credentials.txt
+scripts/test-ids.env
+apps/mobile-host/ios/.xcode.env
+services/media-ingest/.supabase.env
+
+# Key and certificate files
+*.key
+*.pem
+*.p12
+*.pfx
+*.jwk
+*.crt

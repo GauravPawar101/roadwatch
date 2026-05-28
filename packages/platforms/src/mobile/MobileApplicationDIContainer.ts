@@ -13,10 +13,10 @@ import { NhaiGovDataProvider } from '@roadwatch/providers/src/govdata-nhai/NhaiG
 import { ComplaintFilingUseCase } from '@roadwatch/features/src/complaint-filing/ComplaintFilingUseCase';
 import { IndiaAdapter } from '@roadwatch/adapters/src/india/IndiaAdapter';
 
-// Simulated Supabase Auth implementation since it represents generic Web3/Auth Provider integrations
-export class SupabaseAuthProvider {
+// Simulated Auth Provider implementation (generic Web3/Auth Provider integrations)
+export class AuthProvider {
   async authenticateUser(): Promise<boolean> { 
-    console.log("Supabase: Authenticating User...");
+    console.log("Auth: Authenticating User...");
     return true; 
   }
 }
@@ -42,7 +42,7 @@ export class MobileApplicationDIContainer {
   public readonly aiAgent: IAiAgent;
   public readonly govDataGateway: IGovDataGateway;
   
-  public readonly authProvider: SupabaseAuthProvider;
+  public readonly authProvider: AuthProvider;
   public readonly indiaAdapter: IndiaAdapter;
 
   // Initialized Vertical Slices
@@ -65,7 +65,7 @@ export class MobileApplicationDIContainer {
     this.aiAgent = new MlKitAiAgent(mlKitConnection);
     this.govDataGateway = new NhaiGovDataProvider('dummy_api_key');
     
-    this.authProvider = new SupabaseAuthProvider();
+    this.authProvider = new AuthProvider();
     this.indiaAdapter = new IndiaAdapter(this.govDataGateway);
 
     // 3. Application Assembly (Binding Providers to the Use Cases)
@@ -91,20 +91,20 @@ export class MobileApplicationDIContainer {
   // --- App Lifecycle Listeners ---
 
   onAppBackgrounded(): void {
-    console.log(\`
+    console.log(`
       [OS Event]: App moved to BACKGROUND.
-      -> Suspending GPS background polling polling to preserve battery.
+      -> Suspending GPS background polling to preserve battery.
       -> Halting heavy MapLibre tile downloads.
       -> Releasing camera lock.
-    \`);
+    `);
   }
 
   onAppForegrounded(): void {
-    console.log(\`
+    console.log(`
       [OS Event]: App moved to FOREGROUND.
       -> Resuming precision GPS listeners.
       -> Checking SQLite for 'synced=0' complaints to push to backend.
-    \`);
+    `);
     
     // Logic: Background sync manager would be invoked here
     // e.g. this.storageProvider.syncOfflineComplaints();

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./",
+    "module": "esnext"
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["node_modules", ".turbo"]
+}

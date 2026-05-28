@@ -4,24 +4,37 @@ import { getEnv } from '../env.js';
 
 export type JwtClaims = {
   sub: string;
-  // phone is masked (e.g. +91******1234)
-  phone: string;
+  // phone is masked (e.g. +91******1234) - optional depending on signup
+  phone?: string | null;
   // phoneHash is HMAC(phone) for server-side correlation without plaintext
-  phoneHash: string;
+  phoneHash?: string | null;
   role: Role;
-  districts: string[];
-  zones: string[];
+  districts?: string[];
+  zones?: string[];
 };
 
-export function signAccessToken(claims: JwtClaims): string {
-  return jwt.sign(claims, getEnv().JWT_SECRET, {
-    algorithm: 'HS256',
-    expiresIn: '12h'
-  });
+const env = getEnv();
+
+export function signAccessToken(claims: any): string {
+  const expires = `${env.ACCESS_TOKEN_EXPIRES_MINUTES}m`;
+  const secret = (env.ACCESS_SECRET || env.JWT_SECRET) as string;
+  return (jwt as any).sign(claims, secret, { expiresIn: expires });
 }
 
 export function verifyAccessToken(token: string): JwtClaims {
-  const payload = jwt.verify(token, getEnv().JWT_SECRET);
-  // jsonwebtoken returns string | object; we only sign objects
+  const secret = (env.ACCESS_SECRET || env.JWT_SECRET) as string;
+  const payload = (jwt as any).verify(token, secret);
   return payload as JwtClaims;
+}
+
+export function signRefreshToken(payload: { sub: string }): string {
+  const expires = `${env.REFRESH_TOKEN_EXPIRES_DAYS}d`;
+  const secret = (env.REFRESH_SECRET || env.JWT_SECRET) as string;
+  return (jwt as any).sign(payload, secret, { expiresIn: expires });
+}
+
+export function verifyRefreshToken(token: string): { sub: string } {
+  const secret = (env.REFRESH_SECRET || env.JWT_SECRET) as string;
+  const payload = (jwt as any).verify(token, secret);
+  return payload as { sub: string };
 }

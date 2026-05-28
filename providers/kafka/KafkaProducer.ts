@@ -1,5 +1,6 @@
+import { Kafka as KafkaJS, Partitioners } from 'kafkajs';
 import type { IEventBus } from '../../core/interfaces/IEventBus.js';
-import { getKafkaClient } from './KafkaClient.js';
+import { getLocalKafkaBrokers } from './config.js';
 
 export type PublishOptions = {
   key?: string;
@@ -11,42 +12,78 @@ function approxBytes(value: string): number {
 }
 
 export class KafkaProducer implements IEventBus {
-  private readonly producer = getKafkaClient().producer();
+  private localProducer: ReturnType<KafkaJS['producer']> | null = null;
+  private localConnected = false;
+
+  private async ensureLocalConnected(): Promise<void> {
+    if (this.localConnected) return;
+
+    const brokers = getLocalKafkaBrokers();
+    if (!brokers) {
+      throw new Error('Kafka is required but KAFKA_BROKER(S) is not set');
+    }
+
+    if (!this.localProducer) {
+      const kafka = new KafkaJS({ clientId: 'roadwatch', brokers });
+      this.localProducer = kafka.producer({
+        createPartitioner: Partitioners.LegacyPartitioner
+      });
+    }
+
+    await this.localProducer.connect();
+    this.localConnected = true;
+  }
 
   async publish(topic: string, event: unknown, options?: PublishOptions): Promise<void> {
     const serialized = JSON.stringify(event);
-    // Upstash hard limit is ~1MB; keep a safety margin.
-    if (approxBytes(serialized) > 900_000) {
-      throw new Error(`Kafka message too large for topic ${topic}`);
-    }
 
-    await this.producer.produce(topic, serialized, {
-      key: options?.key,
-      headers: options?.headers
-        ? Object.entries(options.headers).map(([key, value]) => ({ key, value }))
-        : undefined
+    await this.ensureLocalConnected();
+    await this.localProducer!.send({
+      topic,
+      messages: [
+        {
+          value: serialized,
+          key: options?.key,
+          headers: options?.headers
+        }
+      ]
     });
   }
 
   async publishMany(
     events: Array<{ topic: string; event: unknown; key?: string; headers?: Record<string, string> }>
   ): Promise<void> {
-    const requests = events.map(item => {
+    await this.ensureLocalConnected();
+
+    const byTopic = new Map<
+      string,
+      Array<{ value: string; key?: string; headers?: Record<string, string> }>
+    >();
+
+    for (const item of events) {
       const serialized = JSON.stringify(item.event);
-      if (approxBytes(serialized) > 900_000) {
-        throw new Error(`Kafka message too large for topic ${item.topic}`);
-      }
+      const list = byTopic.get(item.topic) ?? [];
+      list.push({ value: serialized, key: item.key, headers: item.headers });
+      byTopic.set(item.topic, list);
+    }
 
-      return {
-        topic: item.topic,
-        value: serialized,
-        key: item.key,
-        headers: item.headers
-          ? Object.entries(item.headers).map(([key, value]) => ({ key, value }))
-          : undefined
-      };
-    });
+    await Promise.all(
+      Array.from(byTopic.entries()).map(([topic, messages]) =>
+        this.localProducer!.send({ topic, messages })
+      )
+    );
+  }
 
-    await this.producer.produceMany(requests);
+  async disconnect(): Promise<void> {
+    if (!this.localProducer) {
+      return;
+    }
+
+    if (this.localConnected) {
+      await this.localProducer.disconnect();
+    }
+
+    this.localConnected = false;
+    this.localProducer = null;
   }
 }

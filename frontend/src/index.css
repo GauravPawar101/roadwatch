@@ -1,0 +1,193 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+@import './styles/stitch-design.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --surface-dim: #cbdbf5;
+    --outline: #74777f;
+    --tertiary: #000b04;
+    --surface: #f8f9ff;
+    --tertiary-container: #002614;
+    --background: #f8f9ff;
+    --inverse-surface: #213145;
+    --outline-variant: #c4c6cf;
+    --surface-container-highest: #d3e4fe;
+    --primary-fixed: #d6e3ff;
+    --on-surface-variant: #44474e;
+    --on-secondary: #ffffff;
+    --surface-tint: #465f87;
+    --tertiary-fixed-dim: #83d8a6;
+    --on-surface: #0b1c30;
+    --on-secondary-container: #00477f;
+    --surface-bright: #f8f9ff;
+    --on-tertiary-fixed: #002111;
+    --on-primary-container: #7089b3;
+    --surface-container-lowest: #ffffff;
+    --surface-container: #e5eeff;
+    --secondary-fixed-dim: #a2c9ff;
+    --on-secondary-fixed: #001c38;
+    --secondary-container: #7db6ff;
+    --primary-container: #002045;
+    --on-tertiary-container: #43976a;
+    --primary: #00091b;
+    --on-secondary-fixed-variant: #004881;
+    --inverse-primary: #aec7f5;
+    --on-primary: #ffffff;
+    --surface-variant: #d3e4fe;
+    --surface-container-high: #dce9ff;
+    --error-container: #ffdad6;
+    --error: #ba1a1a;
+    --secondary: #1960a3;
+    --surface-container-low: #eff4ff;
+    --on-primary-fixed-variant: #2e476e;
+    --inverse-on-surface: #eaf1ff;
+    --on-error: #ffffff;
+    --on-tertiary-fixed-variant: #005231;
+    --on-error-container: #93000a;
+    --on-primary-fixed: #001b3c;
+    --secondary-fixed: #d3e4ff;
+    --primary-fixed-dim: #aec7f5;
+    --on-tertiary: #ffffff;
+    --tertiary-fixed: #9ff5c1;
+    --on-background: #0b1c30;
+    --status-pending: #fff7ed;
+    --status-pending-text: #7c2d12;
+    --status-resolved: #003f25;
+    --status-resolved-text: #ffffff;
+  }
+
+  html, body, #root {
+    height: 100%;
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-surface font-sans text-on-surface transition-colors duration-300;
+    font-family: 'Inter', sans-serif;
+    background-color: #f8f9ff;
+    background-image:
+      radial-gradient(circle at top right, rgba(25, 96, 163, 0.05), transparent 35%),
+      radial-gradient(circle at top left, rgba(0, 32, 69, 0.03), transparent 35%);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    border-color: rgba(var(--border), 0.1);
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply backdrop-blur-[12px] border border-outline-variant shadow-sm;
+    background: rgba(255, 255, 255, 0.8);
+  }
+
+  .glass-card {
+    @apply glass-panel rounded-xl;
+  }
+
+  .prism-gradient {
+    background: linear-gradient(45deg, #8b5cf6, #4cd7f6);
+  }
+
+  .prism-glow {
+    @apply transition-all duration-200;
+  }
+
+  .prism-glow:hover {
+    box-shadow: 0 0 15px rgba(76, 215, 246, 0.3);
+  }
+
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-primary-container to-secondary px-lg py-md font-semibold text-white transition hover:opacity-95 active:scale-95 duration-200 shadow-sm hover:shadow-md;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 rounded-xl border border-outline bg-surface-container px-lg py-md font-semibold text-on-surface transition hover:bg-surface-container-high hover:shadow-sm active:scale-95 duration-200;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 rounded-xl border border-transparent px-lg py-md font-semibold text-on-surface-variant transition hover:bg-surface-container hover:text-on-surface active:scale-95 duration-200;
+  }
+
+  .dashboard-card {
+    @apply glass-panel rounded-xl p-lg;
+    animation: slideInUp 250ms cubic-bezier(0.4, 0, 0.2, 1) ease-out;
+    transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform, opacity;
+  }
+
+  .dashboard-card-muted {
+    @apply glass-panel rounded-xl p-lg opacity-80;
+  }
+
+  .dashboard-chip {
+    @apply inline-flex items-center gap-2 rounded-full border border-secondary bg-secondary-container/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-secondary transition hover:bg-secondary-container/20;
+  }
+
+  .dashboard-chip-active {
+    @apply border-secondary bg-secondary-container text-on-secondary-container;
+  }
+
+  .dashboard-panel-title {
+    @apply text-label-md font-label-md text-secondary uppercase mb-4;
+  }
+
+  .dashboard-value {
+    @apply text-headline-md font-headline-md tracking-tight text-on-surface;
+  }
+
+  .dashboard-caption {
+    @apply text-caption font-caption text-on-surface-variant;
+  }
+
+  .stat-card {
+    @apply glass-panel rounded-xl p-md;
+    animation: slideInUp 250ms ease-out;
+    transition: all 250ms ease-out;
+    will-change: transform;
+  }
+
+  .card-grid {
+    @apply grid gap-md md:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .section-grid {
+    @apply grid gap-gutter xl:grid-cols-[1.28fr_0.72fr];
+  }
+}
+
+@keyframes dashboardFloat {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes dashboardPulse {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -24,4 +24,23 @@ export class PresignedUrlGenerator {
         storage_region_routing: 'auto' // Cloudflare explicitly routes edge uploads dynamically
     });
   }
+
+  async requestDownloadUrl(mediaKey: string): Promise<string> {
+    // Fallback implementation: delegate to backend if available or construct a simple path
+    try {
+      const resp = await this.apiClient.get<{ url: string }>(`/api/v1/media/r2/${encodeURIComponent(mediaKey)}/download`);
+      return (resp as any)?.url ?? `/r2/${mediaKey}`;
+    } catch (_) {
+      return `/r2/${mediaKey}`;
+    }
+  }
+
+  async requestDeleteUrl(mediaKey: string): Promise<string> {
+    try {
+      const resp = await this.apiClient.post<{ url: string }>(`/api/v1/media/r2/${encodeURIComponent(mediaKey)}/delete`, {});
+      return (resp as any)?.url ?? `/r2/${mediaKey}`;
+    } catch (_) {
+      return `/r2/${mediaKey}`;
+    }
+  }
 }

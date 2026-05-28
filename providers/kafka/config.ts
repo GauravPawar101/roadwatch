@@ -1,11 +1,3 @@
-export type KafkaConfig = {
-  url: string;
-  username: string;
-  password: string;
-};
-
-let cached: KafkaConfig | null = null;
-
 function requireEnv(value: string | undefined, name: string): string {
   if (!value || value.trim().length === 0) {
     throw new Error(`Missing required env var ${name}`);
@@ -13,15 +5,21 @@ function requireEnv(value: string | undefined, name: string): string {
   return value;
 }
 
-export function getKafkaConfig(env: KafkaEnv = process.env): KafkaConfig {
-  if (cached) return cached;
+export function getKafkaConnectionMode(env: KafkaEnv = process.env): 'local' {
+  const brokers = getLocalKafkaBrokers(env);
+  if (brokers) return 'local';
 
-  const url = requireEnv(env.UPSTASH_KAFKA_REST_URL, 'UPSTASH_KAFKA_REST_URL');
-  const username = requireEnv(env.UPSTASH_KAFKA_REST_USERNAME, 'UPSTASH_KAFKA_REST_USERNAME');
-  const password = requireEnv(env.UPSTASH_KAFKA_REST_PASSWORD, 'UPSTASH_KAFKA_REST_PASSWORD');
+  throw new Error('Kafka is required but KAFKA_BROKER or KAFKA_BROKERS is not configured');
+}
 
-  cached = { url, username, password };
-  return cached;
+export function getLocalKafkaBrokers(env: KafkaEnv = process.env): string[] | null {
+  const raw = (env.KAFKA_BROKERS ?? env.KAFKA_BROKER ?? '127.0.0.1:9094').trim();
+  if (!raw) return null;
+  const brokers = raw
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  return brokers.length > 0 ? brokers : null;
 }
 
 type KafkaEnv = NodeJS.ProcessEnv;

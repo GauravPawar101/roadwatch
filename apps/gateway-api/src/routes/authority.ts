@@ -1,30 +1,81 @@
-import { KafkaProducer, KafkaTopics, type ComplaintSubmittedEvent } from '@roadwatch/kafka';
+import { KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent } from '@roadwatch/kafka';
 import express from 'express';
 import { z } from 'zod';
-import { trackAnalyticsEvent } from '../analytics/service.js';
-import { pool } from '../db.js';
+import { getContractorScorecard, trackAnalyticsEvent } from '../analytics/service.js';
+import { enqueueKafkaEvent } from '../kafka/outbox.js';
 import { createAndFanoutNotification } from '../notifications/service.js';
+import { sql as pool } from '../postgres.js'; // Use `sql` tagged-template executor exported from postgres.ts
 import { assertDistrictAccess, assertZoneAccess, requireAuth, requireRole } from '../rbac.js';
 import { broadcastComplaintEvent } from '../realtime/sse.js';
+import { fabricLedgerService } from '../services/fabric-ledger.js';
+import { uuidv7 } from '../uuid.js';
 
 const router = express.Router();
 
-function kafkaConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(
-    env.UPSTASH_KAFKA_REST_URL?.trim() &&
-      env.UPSTASH_KAFKA_REST_USERNAME?.trim() &&
-      env.UPSTASH_KAFKA_REST_PASSWORD?.trim()
-  );
+function toRad(v: number) {
+  return (v * Math.PI) / 180;
 }
 
+function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function normalizeComplaintStatus(status: string | null | undefined): string {
+  switch (String(status ?? '').toUpperCase()) {
+    case 'FILED':
+    case 'OPEN':
+      return 'Open';
+    case 'IN_PROGRESS':
+    case 'INPROGRESS':
+      return 'InProgress';
+    case 'RESOLVED':
+      return 'Resolved';
+    case 'DISMISSED':
+      return 'Dismissed';
+    case 'ESCALATED':
+      return 'Escalated';
+    default:
+      return String(status ?? '');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: write an audit log entry
+// ---------------------------------------------------------------------------
+async function writeAudit(
+  actorUserId: string,
+  actorPhoneHash: string,
+  actorPhoneMasked: string,
+  action: string,
+  targetType: string,
+  targetId: string,
+  details: Record<string, unknown>
+): Promise<void> {
+  await pool`
+    INSERT INTO audit_log (
+      id, actor_user_id, actor_phone_hash, actor_phone_masked, 
+      action, target_type, target_id, details, created_at
+    ) VALUES (
+      ${uuidv7()}, ${actorUserId}, ${actorPhoneHash}, ${actorPhoneMasked}, 
+      ${action}, ${targetType}, ${targetId}, ${JSON.stringify(details)}, NOW()
+    )
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// POST /complaints
+// ---------------------------------------------------------------------------
 router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, res) => {
   const user = (req as any).user as {
-    sub: string;
-    phone: string;
-    phoneHash: string;
-    role: string;
-    districts: string[];
-    zones: string[];
+    sub: string; phone: string; phoneHash: string; role: string; districts: string[]; zones: string[];
   };
 
   const body = z
@@ -42,43 +93,39 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const generatedId = `RW-${body.district.slice(0, 3).toUpperCase()}-${Date.now()}`;
+  const generatedId = uuidv7();
   const id = body.id ?? generatedId;
 
-  await pool.query(
-    `INSERT INTO complaints (id, district, zone, status, description, lat, lng)
-     VALUES ($1, $2, $3, 'PENDING', $4, $5, $6)
-     ON CONFLICT (id) DO NOTHING;`,
-    [id, body.district, body.zone, body.description, body.lat ?? null, body.lng ?? null]
-  );
+  const event: ComplaintSubmittedEvent = {
+    type: 'complaint-submitted',
+    idempotencyKey: `complaint:${id}:submitted`,
+    occurredAt: new Date().toISOString(),
+    version: 1,
+    complaintId: id,
+    district: body.district,
+    zone: body.zone,
+    lat: body.lat ?? undefined,
+    lng: body.lng ?? undefined,
+    description: body.description,
+    roadId: `${body.district}:${body.zone}`,
+    authorityOrg: body.zone,
+    citizenId: user.sub,
+    location: { district: body.district, zone: body.zone, lat: body.lat ?? null, lng: body.lng ?? null },
+    merged: false,
+    reportCount: 1
+  };
 
-  if (kafkaConfigured()) {
-    try {
-      const event: ComplaintSubmittedEvent = {
-        type: 'complaint.submitted',
-        idempotencyKey: `complaint:${id}:submitted`,
-        occurredAt: new Date().toISOString(),
-        version: 1,
-        complaintId: id,
-        district: body.district,
-        zone: body.zone,
-        lat: body.lat ?? undefined,
-        lng: body.lng ?? undefined,
-        description: body.description
-      };
+  await pool.begin(async (tx: any) => {
+    await tx`
+      INSERT INTO complaints (id, district, zone, status, description, lat, lng, created_at, updated_at)
+      VALUES (${id}, ${body.district}, ${body.zone}, 'FILED', ${body.description}, ${body.lat ?? null}, ${body.lng ?? null}, NOW(), NOW())
+      ON CONFLICT (id) DO NOTHING
+    `;
 
-      const producer = new KafkaProducer();
-      await producer.publish(KafkaTopics.complaintSubmitted, event, { key: id });
-    } catch (e) {
-      console.error('[kafka] complaint.submitted publish failed', e);
-    }
-  }
+    await enqueueKafkaEvent(tx, KafkaTopics.complaintSubmitted, event, { key: id, idempotencyKey: event.idempotencyKey });
+  });
 
-  await pool.query(
-    `INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details)
-     VALUES ($1, $2, $3, 'COMPLAINT_CREATED', 'complaint', $4, $5);`,
-    [user.sub, user.phoneHash, user.phone, id, { district: body.district, zone: body.zone }]
-  );
+  await writeAudit(user.sub, user.phoneHash, user.phone, 'COMPLAINT_CREATED', 'complaint', id, { district: body.district, zone: body.zone });
 
   await trackAnalyticsEvent({
     type: 'COMPLAINT_CREATED',
@@ -88,21 +135,7 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     zone: body.zone,
     lat: body.lat ?? null,
     lng: body.lng ?? null,
-    properties: { status: 'PENDING' }
-  });
-
-  broadcastComplaintEvent({
-    type: 'complaint_created',
-    complaint: {
-      id,
-      district: body.district,
-      zone: body.zone,
-      status: 'PENDING',
-      description: body.description,
-      lat: body.lat ?? null,
-      lng: body.lng ?? null,
-      updatedAt: new Date().toISOString()
-    }
+    properties: { status: 'FILED' }
   });
 
   await createAndFanoutNotification({
@@ -116,168 +149,258 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     }
   });
 
-  res.json({ ok: true, complaint: { id } });
+  res.json({ ok: true, complaint: { id, district: body.district, zone: body.zone, status: 'FILED', description: body.description, lat: body.lat ?? null, lng: body.lng ?? null, updatedAt: new Date().toISOString() } });
 });
 
+// ---------------------------------------------------------------------------
+// POST /complaints/:id/repair-verification
+// ---------------------------------------------------------------------------
+router.post('/complaints/:id/repair-verification', requireAuth, requireRole(['CE', 'EE']), async (req, res) => {
+  const user = (req as any).user as { sub: string; phone: string; phoneHash: string; role: string; districts: string[]; zones: string[] };
+  const params = z.object({ id: z.string().min(1) }).parse(req.params);
+  const body = z
+    .object({
+      beforeSha256: z.string().min(10),
+      afterSha256: z.string().min(10),
+      imageLat: z.number(),
+      imageLng: z.number(),
+      currentLat: z.number(),
+      currentLng: z.number(),
+      model: z.string().optional().default('roadwatch-repair-ai-v1')
+    })
+    .parse(req.body);
+
+  const [row] = await pool`
+    SELECT id, district, zone, lat, lng FROM complaints WHERE id = ${params.id} LIMIT 1
+  `;
+  if (!row) return res.status(404).json({ error: 'Not found' });
+
+  if (!assertDistrictAccess(user as any, row.district) || !assertZoneAccess(user as any, row.zone)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const liveToImageDistanceM = distanceMeters(
+    { lat: body.currentLat, lng: body.currentLng },
+    { lat: body.imageLat, lng: body.imageLng }
+  );
+  const complaintDistanceM = row.lat != null && row.lng != null
+    ? distanceMeters({ lat: Number(row.lat), lng: Number(row.lng) }, { lat: body.currentLat, lng: body.currentLng })
+    : liveToImageDistanceM;
+
+  const hashChangedScore = body.beforeSha256 !== body.afterSha256 ? 0.55 : 0.2;
+  const locationScore = Math.max(0, 1 - complaintDistanceM / 120) * 0.45;
+  const aiScore = Math.max(0, Math.min(1, hashChangedScore + locationScore));
+  const repaired = aiScore >= 0.62 && complaintDistanceM <= 120;
+
+  await pool`
+    INSERT INTO complaint_repair_verifications (
+      complaint_id, before_sha256, after_sha256, image_lat, image_lng, current_lat, current_lng,
+      distance_m, ai_score, repaired, model, details, verified_by_user_id, verified_at
+    ) VALUES (
+      ${params.id}, ${body.beforeSha256}, ${body.afterSha256}, ${body.imageLat}, ${body.imageLng}, 
+      ${body.currentLat}, ${body.currentLng}, ${complaintDistanceM}, ${aiScore}, ${repaired}, 
+      ${body.model}, ${JSON.stringify({ liveToImageDistanceM, complaintDistanceM })}, ${user.sub}, NOW()
+    )
+    ON CONFLICT (complaint_id) DO UPDATE
+      SET before_sha256        = EXCLUDED.before_sha256,
+          after_sha256         = EXCLUDED.after_sha256,
+          image_lat            = EXCLUDED.image_lat,
+          image_lng            = EXCLUDED.image_lng,
+          current_lat          = EXCLUDED.current_lat,
+          current_lng          = EXCLUDED.current_lng,
+          distance_m           = EXCLUDED.distance_m,
+          ai_score             = EXCLUDED.ai_score,
+          repaired             = EXCLUDED.repaired,
+          model                = EXCLUDED.model,
+          details              = EXCLUDED.details,
+          verified_by_user_id  = EXCLUDED.verified_by_user_id,
+          verified_at          = NOW()
+  `;
+
+  await writeAudit(user.sub, user.phoneHash, user.phone, 'REPAIR_AI_VERIFIED', 'complaint', params.id, { repaired, aiScore, complaintDistanceM, model: body.model });
+
+  res.json({ ok: true, repaired, aiScore, complaintDistanceM });
+});
+
+// ---------------------------------------------------------------------------
+// POST /complaints/:id/status
+// ---------------------------------------------------------------------------
 router.post('/complaints/:id/status', requireAuth, requireRole(['CE', 'EE']), async (req, res) => {
   const user = (req as any).user as { sub: string; phone: string; phoneHash: string; role: string; districts: string[]; zones: string[] };
   const params = z.object({ id: z.string().min(1) }).parse(req.params);
   const body = z.object({ status: z.string().min(1) }).parse(req.body);
 
-  const complaint = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.id]
-  );
-  const row = complaint.rows[0];
+  const [row] = await pool`
+    SELECT id, district, zone, status, description, lat, lng FROM complaints WHERE id = ${params.id} LIMIT 1
+  `;
   if (!row) return res.status(404).json({ error: 'Not found' });
 
   if (!assertDistrictAccess(user as any, row.district) || !assertZoneAccess(user as any, row.zone)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  await pool.query(`UPDATE complaints SET status = $2, updated_at = now() WHERE id = $1;`, [params.id, body.status]);
+  if (row.status === body.status) return res.json({ ok: true, unchanged: true });
 
-  await pool.query(
-    `INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details)
-     VALUES ($1, $2, $3, 'COMPLAINT_STATUS_CHANGED', 'complaint', $4, $5);`,
-    [user.sub, user.phoneHash, user.phone, params.id, { from: row.status, to: body.status }]
-  );
-
-  await trackAnalyticsEvent({
-    type: 'COMPLAINT_STATUS_CHANGED',
-    actorUserId: user.sub,
-    complaintId: params.id,
-    district: row.district,
-    zone: row.zone,
-    lat: row.lat ?? null,
-    lng: row.lng ?? null,
-    properties: { from: row.status, to: body.status }
-  });
-
-  const updated = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng, updated_at FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.id]
-  );
-  const u = updated.rows[0];
-
-  broadcastComplaintEvent({
-    type: 'complaint_updated',
-    complaint: {
-      id: u.id,
-      district: u.district,
-      zone: u.zone,
-      status: u.status,
-      description: u.description,
-      lat: u.lat,
-      lng: u.lng,
-      updatedAt: new Date(u.updated_at).toISOString()
+  if (String(body.status).toUpperCase() === 'RESOLVED') {
+    const [v] = await pool`
+      SELECT repaired, ai_score, distance_m, verified_at FROM complaint_repair_verifications WHERE complaint_id = ${params.id} LIMIT 1
+    `;
+    if (!v || !v.repaired) {
+      return res.status(400).json({ error: 'Complaint cannot be resolved before repair verification passes', verification: v ?? null });
     }
+  }
+
+  let u: any;
+  await pool.begin(async (tx: any) => {
+    await tx`
+      UPDATE complaints SET status = ${body.status}, updated_at = NOW() WHERE id = ${params.id}
+    `;
+
+    const event: ComplaintStatusChangedEvent = {
+      type: 'complaint-status-changed',
+      idempotencyKey: `complaint:${params.id}:status:${row.status}->${body.status}`,
+      occurredAt: new Date().toISOString(),
+      version: 1,
+      complaintId: params.id,
+      fromStatus: row.status,
+      toStatus: body.status,
+      changedBy: { actorType: 'authority', actorId: user.sub }
+    };
+    await enqueueKafkaEvent(tx, KafkaTopics.complaintStatusChanged, event, { key: params.id, idempotencyKey: event.idempotencyKey });
+
+    await writeAudit(user.sub, user.phoneHash, user.phone, 'COMPLAINT_STATUS_CHANGED', 'complaint', params.id, { from: row.status, to: body.status });
+
+    await trackAnalyticsEvent({
+      type: 'COMPLAINT_STATUS_CHANGED',
+      actorUserId: user.sub,
+      complaintId: params.id,
+      district: row.district,
+      zone: row.zone,
+      lat: row.lat ?? null,
+      lng: row.lng ?? null,
+      properties: { from: row.status, to: body.status }
+    });
+
+    [u] = await tx`
+      SELECT id, district, zone, status, description, lat, lng, updated_at FROM complaints WHERE id = ${params.id} LIMIT 1
+    `;
   });
 
-  await createAndFanoutNotification({
-    message: {
-      type: 'status_change',
-      title: `Complaint ${u.id} status changed`,
-      body: `Status updated to ${u.status} for a complaint in ${u.district} / ${u.zone}.`,
-      data: { complaintId: u.id, district: u.district, zone: u.zone, status: u.status },
-      audience: { kind: 'jurisdiction', district: u.district, zone: u.zone },
-      critical: false
-    }
-  });
+  if (u) {
+    broadcastComplaintEvent({
+      type: 'complaint_updated',
+      complaint: { id: u.id, district: u.district, zone: u.zone, status: u.status, description: u.description, lat: u.lat, lng: u.lng, updatedAt: new Date(u.updated_at).toISOString() }
+    });
+
+    await createAndFanoutNotification({
+      message: {
+        type: 'status_change',
+        title: `Complaint ${u.id} status changed`,
+        body: `Status updated to ${u.status} for a complaint in ${u.district} / ${u.zone}.`,
+        data: { complaintId: u.id, district: u.district, zone: u.zone, status: u.status },
+        audience: { kind: 'jurisdiction', district: u.district, zone: u.zone },
+        critical: false
+      }
+    });
+  }
 
   res.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// POST /complaints/:id/escalate
+// ---------------------------------------------------------------------------
 router.post('/complaints/:id/escalate', requireAuth, requireRole(['CE', 'EE']), async (req, res) => {
   const user = (req as any).user as { sub: string; phone: string; phoneHash: string; role: string; districts: string[]; zones: string[] };
   const params = z.object({ id: z.string().min(1) }).parse(req.params);
   const body = z.object({ reason: z.string().optional() }).parse(req.body);
 
-  const complaint = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.id]
-  );
-  const row = complaint.rows[0];
+  const [row] = await pool`
+    SELECT id, district, zone, status, description, lat, lng FROM complaints WHERE id = ${params.id} LIMIT 1
+  `;
   if (!row) return res.status(404).json({ error: 'Not found' });
 
   if (!assertDistrictAccess(user as any, row.district) || !assertZoneAccess(user as any, row.zone)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  await pool.query(`UPDATE complaints SET status = 'ESCALATED', updated_at = now() WHERE id = $1;`, [params.id]);
+  if (row.status === 'ESCALATED') return res.json({ ok: true, unchanged: true });
 
-  await pool.query(
-    `INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details)
-     VALUES ($1, $2, $3, 'COMPLAINT_ESCALATED', 'complaint', $4, $5);`,
-    [user.sub, user.phoneHash, user.phone, params.id, { reason: body.reason ?? null }]
-  );
+  let u: any;
+  await pool.begin(async (tx: any) => {
+    await tx`
+      UPDATE complaints SET status = 'ESCALATED', updated_at = NOW() WHERE id = ${params.id}
+    `;
 
-  await trackAnalyticsEvent({
-    type: 'COMPLAINT_ESCALATED',
-    actorUserId: user.sub,
-    complaintId: params.id,
-    district: row.district,
-    zone: row.zone,
-    lat: row.lat ?? null,
-    lng: row.lng ?? null,
-    properties: { reason: body.reason ?? null }
+    const event: ComplaintStatusChangedEvent = {
+      type: 'complaint-status-changed',
+      idempotencyKey: `complaint:${params.id}:status:${row.status}->ESCALATED`,
+      occurredAt: new Date().toISOString(),
+      version: 1,
+      complaintId: params.id,
+      fromStatus: row.status,
+      toStatus: 'ESCALATED',
+      changedBy: { actorType: 'authority', actorId: user.sub }
+    };
+    await enqueueKafkaEvent(tx, KafkaTopics.complaintStatusChanged, event, { key: params.id, idempotencyKey: event.idempotencyKey });
+
+    await writeAudit(user.sub, user.phoneHash, user.phone, 'COMPLAINT_ESCALATED', 'complaint', params.id, { reason: body.reason ?? null });
+
+    await trackAnalyticsEvent({
+      type: 'COMPLAINT_ESCALATED',
+      actorUserId: user.sub,
+      complaintId: params.id,
+      district: row.district,
+      zone: row.zone,
+      lat: row.lat ?? null,
+      lng: row.lng ?? null,
+      properties: { reason: body.reason ?? null }
+    });
+
+    [u] = await tx`
+      SELECT id, district, zone, status, description, lat, lng, updated_at FROM complaints WHERE id = ${params.id} LIMIT 1
+    `;
   });
 
-  const updated = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng, updated_at FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.id]
-  );
-  const u = updated.rows[0];
+  if (u) {
+    broadcastComplaintEvent({
+      type: 'complaint_updated',
+      complaint: { id: u.id, district: u.district, zone: u.zone, status: u.status, description: u.description, lat: u.lat, lng: u.lng, updatedAt: new Date(u.updated_at).toISOString() }
+    });
 
-  broadcastComplaintEvent({
-    type: 'complaint_updated',
-    complaint: {
-      id: u.id,
-      district: u.district,
-      zone: u.zone,
-      status: u.status,
-      description: u.description,
-      lat: u.lat,
-      lng: u.lng,
-      updatedAt: new Date(u.updated_at).toISOString()
-    }
-  });
-
-  await createAndFanoutNotification({
-    message: {
-      type: 'escalation',
-      title: `Complaint ${u.id} escalated`,
-      body: `Escalation raised for ${u.district} / ${u.zone}.`,
-      data: { complaintId: u.id, district: u.district, zone: u.zone, reason: body.reason ?? null },
-      audience: { kind: 'jurisdiction', district: u.district, zone: u.zone },
-      critical: true
-    }
-  });
+    await createAndFanoutNotification({
+      message: {
+        type: 'escalation',
+        title: `Complaint ${u.id} escalated`,
+        body: `Escalation raised for ${u.district} / ${u.zone}.`,
+        data: { complaintId: u.id, district: u.district, zone: u.zone, reason: body.reason ?? null },
+        audience: { kind: 'jurisdiction', district: u.district, zone: u.zone },
+        critical: true
+      }
+    });
+  }
 
   res.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// POST /complaints/:id/sla-warning
+// ---------------------------------------------------------------------------
 router.post('/complaints/:id/sla-warning', requireAuth, requireRole(['CE', 'EE']), async (req, res) => {
   const user = (req as any).user as { sub: string; phone: string; phoneHash: string; role: string; districts: string[]; zones: string[] };
   const params = z.object({ id: z.string().min(1) }).parse(req.params);
   const body = z.object({ message: z.string().optional() }).parse(req.body);
 
-  const complaint = await pool.query(
-    `SELECT id, district, zone, status FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.id]
-  );
-  const row = complaint.rows[0];
+  const [row] = await pool`
+    SELECT id, district, zone, status FROM complaints WHERE id = ${params.id} LIMIT 1
+  `;
   if (!row) return res.status(404).json({ error: 'Not found' });
 
   if (!assertDistrictAccess(user as any, row.district) || !assertZoneAccess(user as any, row.zone)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  await pool.query(
-    `INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details)
-     VALUES ($1, $2, $3, 'SLA_WARNING', 'complaint', $4, $5);`,
-    [user.sub, user.phoneHash, user.phone, params.id, { status: row.status }]
-  );
+  await writeAudit(user.sub, user.phoneHash, user.phone, 'SLA_WARNING', 'complaint', params.id, { status: row.status });
 
   await trackAnalyticsEvent({
     type: 'SLA_WARNING',
@@ -302,134 +425,170 @@ router.post('/complaints/:id/sla-warning', requireAuth, requireRole(['CE', 'EE']
   res.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// GET /complaints
+// ---------------------------------------------------------------------------
 router.get('/complaints', requireAuth, async (req, res) => {
   const user = (req as any).user as { role: string; districts: string[]; zones: string[] };
 
   const query = z
-    .object({
-      district: z.string().optional(),
-      zone: z.string().optional(),
-      status: z.string().optional()
-    })
+    .object({ district: z.string().optional(), zone: z.string().optional(), status: z.string().optional() })
     .parse(req.query);
 
-  const where: string[] = [];
-  const params: any[] = [];
-
+  let districtCondition = pool``;
   if (query.district) {
     if (!assertDistrictAccess(user as any, query.district)) return res.status(403).json({ error: 'Forbidden' });
-    params.push(query.district);
-    where.push(`district = $${params.length}`);
-  } else if (user.role !== 'CE' && !user.districts.includes('ALL')) {
-    params.push(user.districts);
-    where.push(`district = ANY($${params.length}::text[])`);
+    districtCondition = pool`AND district = ${query.district}`;
+  } else if (user.role !== 'CE' && !user.districts.includes('ALL') && user.districts.length) {
+    districtCondition = pool`AND district = ANY(${user.districts})`;
   }
 
+  let zoneCondition = pool``;
   if (query.zone) {
     if (!assertZoneAccess(user as any, query.zone)) return res.status(403).json({ error: 'Forbidden' });
-    params.push(query.zone);
-    where.push(`zone = $${params.length}`);
-  } else if (user.role !== 'CE' && !user.zones.includes('ALL')) {
-    params.push(user.zones);
-    where.push(`zone = ANY($${params.length}::text[])`);
+    zoneCondition = pool`AND zone = ${query.zone}`;
+  } else if (user.role !== 'CE' && !user.zones.includes('ALL') && user.zones.length) {
+    zoneCondition = pool`AND zone = ANY(${user.zones})`;
   }
 
-  if (query.status) {
-    params.push(query.status);
-    where.push(`status = $${params.length}`);
-  }
+  const statusCondition = query.status ? pool`AND status = ${query.status}` : pool``;
 
-  const sql = `
+  // Use dynamic pool tagging components seamlessly
+  const list = await pool`
     SELECT id, district, zone, status, description, lat, lng, created_at, updated_at, fabric_txid
     FROM complaints
-    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-    ORDER BY updated_at DESC
-    LIMIT 200;
+    WHERE 1=1
+    ${districtCondition}
+    ${zoneCondition}
+    ${statusCondition}
+    ORDER BY created_at DESC
+    LIMIT 200
   `;
 
-  const r = await pool.query(sql, params);
-  res.json({ complaints: r.rows });
+  // postgres.js returns camelCased fields natively if configured. Mapping manually back to old output contract if necessary.
+  const mappedList = list.map((c: any) => ({
+    id: c.id,
+    district: c.district,
+    zone: c.zone,
+    status: c.status,
+    description: c.description,
+    lat: c.lat,
+    lng: c.lng,
+    created_at: c.createdAt ?? c.created_at,
+    updated_at: c.updatedAt ?? c.updated_at,
+    fabric_txid: c.fabricTxid ?? c.fabric_txid
+  }));
+
+  res.json({ complaints: mappedList });
 });
 
+// ---------------------------------------------------------------------------
+// GET /complaints/:id/history
+// ---------------------------------------------------------------------------
+router.get('/complaints/:id/history', requireAuth, async (req, res) => {
+  const user = (req as any).user as { role: string; districts: string[]; zones: string[] };
+  const params = z.object({ id: z.string().min(1) }).parse(req.params);
+
+  const [row] = await pool`
+    SELECT district, zone FROM complaints WHERE id = ${params.id} LIMIT 1
+  `;
+  if (!row) return res.status(404).json({ error: 'Not found' });
+
+  if (!assertDistrictAccess(user as any, row.district) || !assertZoneAccess(user as any, row.zone)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const history = await fabricLedgerService.getComplaintHistory(params.id);
+  res.json({ complaintId: params.id, history });
+});
+
+// ---------------------------------------------------------------------------
+// POST /complaints/:id/resolve
+// ---------------------------------------------------------------------------
 router.post('/complaints/:id/resolve', requireAuth, async (req, res) => {
   const user = (req as any).user as { sub: string; phone: string; phoneHash: string };
   const params = z.object({ id: z.string().min(1) }).parse(req.params);
   const body = z.object({ resolutionNote: z.string().optional() }).parse(req.body);
 
-  const complaint = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.id]
-  );
-  const row = complaint.rows[0];
+  const [row] = await pool`
+    SELECT id, district, zone, status, description, lat, lng FROM complaints WHERE id = ${params.id} LIMIT 1
+  `;
   if (!row) return res.status(404).json({ error: 'Not found' });
 
-  // RBAC: EE must be within zone/district.
   const fullUser = (req as any).user as any;
   if (!assertDistrictAccess(fullUser, row.district) || !assertZoneAccess(fullUser, row.zone)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  await pool.query(
-    `UPDATE complaints SET status = 'RESOLVED', updated_at = now() WHERE id = $1;`,
-    [params.id]
-  );
+  if (row.status === 'RESOLVED') return res.json({ ok: true, unchanged: true });
 
-  await pool.query(
-    `INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details)
-     VALUES ($1, $2, $3, 'COMPLAINT_RESOLVED', 'complaint', $4, $5);`,
-    [user.sub, user.phoneHash, user.phone, params.id, { resolutionNote: body.resolutionNote ?? null }]
-  );
+  const [v] = await pool`
+    SELECT repaired, ai_score, distance_m, verified_at FROM complaint_repair_verifications WHERE complaint_id = ${params.id} LIMIT 1
+  `;
+  if (!v || !v.repaired) {
+    return res.status(400).json({ error: 'Complaint cannot be resolved before repair verification passes', verification: v ?? null });
+  }
 
-  await trackAnalyticsEvent({
-    type: 'COMPLAINT_RESOLVED',
-    actorUserId: user.sub,
-    complaintId: params.id,
-    district: row.district,
-    zone: row.zone,
-    lat: row.lat ?? null,
-    lng: row.lng ?? null,
-    properties: { resolutionNote: body.resolutionNote ?? null }
+  let u: any;
+  await pool.begin(async (tx: any) => {
+    await tx`
+      UPDATE complaints SET status = 'RESOLVED', updated_at = NOW() WHERE id = ${params.id}
+    `;
+
+    const event: ComplaintStatusChangedEvent = {
+      type: 'complaint-status-changed',
+      idempotencyKey: `complaint:${params.id}:status:${row.status}->RESOLVED`,
+      occurredAt: new Date().toISOString(),
+      version: 1,
+      complaintId: params.id,
+      fromStatus: row.status,
+      toStatus: 'RESOLVED',
+      changedBy: { actorType: 'authority', actorId: user.sub }
+    };
+    await enqueueKafkaEvent(tx, KafkaTopics.complaintStatusChanged, event, { key: params.id, idempotencyKey: event.idempotencyKey });
+
+    await writeAudit(user.sub, user.phoneHash, user.phone, 'COMPLAINT_RESOLVED', 'complaint', params.id, { resolutionNote: body.resolutionNote ?? null });
+
+    await trackAnalyticsEvent({
+      type: 'COMPLAINT_RESOLVED',
+      actorUserId: user.sub,
+      complaintId: params.id,
+      district: row.district,
+      zone: row.zone,
+      lat: row.lat ?? null,
+      lng: row.lng ?? null,
+      properties: { resolutionNote: body.resolutionNote ?? null }
+    });
+
+    [u] = await tx`
+      SELECT id, district, zone, status, description, lat, lng, updated_at FROM complaints WHERE id = ${params.id} LIMIT 1
+    `;
   });
 
-  const updated = await pool.query(
-    `SELECT id, district, zone, status, description, lat, lng, updated_at FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.id]
-  );
+  if (u) {
+    broadcastComplaintEvent({
+      type: 'complaint_resolved',
+      complaint: { id: u.id, district: u.district, zone: u.zone, status: u.status, description: u.description, lat: u.lat, lng: u.lng, updatedAt: new Date(u.updated_at).toISOString() }
+    });
 
-  const u = updated.rows[0];
-  broadcastComplaintEvent({
-    type: 'complaint_resolved',
-    complaint: {
-      id: u.id,
-      district: u.district,
-      zone: u.zone,
-      status: u.status,
-      description: u.description,
-      lat: u.lat,
-      lng: u.lng,
-      updatedAt: new Date(u.updated_at).toISOString()
-    }
-  });
-
-  await createAndFanoutNotification({
-    message: {
-      type: 'resolved',
-      title: `Complaint ${u.id} resolved`,
-      body: `A complaint in ${u.district} / ${u.zone} was marked RESOLVED.`,
-      data: {
-        complaintId: u.id,
-        district: u.district,
-        zone: u.zone,
-        status: u.status
-      },
-      audience: { kind: 'jurisdiction', district: u.district, zone: u.zone },
-      critical: false
-    }
-  });
+    await createAndFanoutNotification({
+      message: {
+        type: 'resolved',
+        title: `Complaint ${u.id} resolved`,
+        body: `A complaint in ${u.district} / ${u.zone} was marked RESOLVED.`,
+        data: { complaintId: u.id, district: u.district, zone: u.zone, status: u.status },
+        audience: { kind: 'jurisdiction', district: u.district, zone: u.zone },
+        critical: false
+      }
+    });
+  }
 
   res.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// POST /complaints/:id/assign
+// ---------------------------------------------------------------------------
 router.post('/complaints/:id/assign', requireAuth, requireRole(['CE', 'EE']), async (req, res) => {
   const user = (req as any).user as { sub: string; phone: string; phoneHash: string; role: string; districts: string[]; zones: string[] };
   const params = z.object({ id: z.string().min(1) }).parse(req.params);
@@ -441,38 +600,35 @@ router.post('/complaints/:id/assign', requireAuth, requireRole(['CE', 'EE']), as
     })
     .parse(req.body);
 
-  const complaint = await pool.query(
-    `SELECT id, district, zone, status, lat, lng FROM complaints WHERE id = $1 LIMIT 1;`,
-    [params.id]
-  );
-  const row = complaint.rows[0];
+  const [row] = await pool`
+    SELECT id, district, zone, status, lat, lng FROM complaints WHERE id = ${params.id} LIMIT 1
+  `;
   if (!row) return res.status(404).json({ error: 'Not found' });
 
   if (!assertDistrictAccess(user as any, row.district) || !assertZoneAccess(user as any, row.zone)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const contractor = await pool.query(`SELECT id, name FROM contractors WHERE id = $1 LIMIT 1;`, [body.contractorId]);
-  if (!contractor.rows[0]) return res.status(400).json({ error: 'Unknown contractorId' });
+  const [contractor] = await pool`
+    SELECT id, name FROM contractors WHERE id = ${body.contractorId} LIMIT 1
+  `;
+  if (!contractor) return res.status(400).json({ error: 'Unknown contractorId' });
 
-  await pool.query(
-    `INSERT INTO complaint_assignments (complaint_id, contractor_id, expected_resolution_days, assigned_by_user_id, notes)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (complaint_id)
-     DO UPDATE SET
-       contractor_id = EXCLUDED.contractor_id,
-       expected_resolution_days = EXCLUDED.expected_resolution_days,
-       assigned_by_user_id = EXCLUDED.assigned_by_user_id,
-       assigned_at = now(),
-       notes = EXCLUDED.notes;`,
-    [params.id, body.contractorId, body.expectedResolutionDays ?? null, user.sub, body.notes ?? null]
-  );
+  await pool`
+    INSERT INTO complaint_assignments (
+      complaint_id, contractor_id, expected_resolution_days, assigned_by_user_id, assigned_at, notes
+    ) VALUES (
+      ${params.id}, ${body.contractorId}, ${body.expectedResolutionDays ?? null}, ${user.sub}, NOW(), ${body.notes ?? null}
+    )
+    ON CONFLICT (complaint_id) DO UPDATE
+      SET contractor_id             = EXCLUDED.contractor_id,
+          expected_resolution_days  = EXCLUDED.expected_resolution_days,
+          assigned_by_user_id       = EXCLUDED.assigned_by_user_id,
+          assigned_at               = NOW(),
+          notes                     = EXCLUDED.notes
+  `;
 
-  await pool.query(
-    `INSERT INTO audit_log (actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details)
-     VALUES ($1, $2, $3, 'COMPLAINT_ASSIGNED', 'complaint', $4, $5);`,
-    [user.sub, user.phoneHash, user.phone, params.id, { contractorId: body.contractorId, expectedResolutionDays: body.expectedResolutionDays ?? null }]
-  );
+  await writeAudit(user.sub, user.phoneHash, user.phone, 'COMPLAINT_ASSIGNED', 'complaint', params.id, { contractorId: body.contractorId, expectedResolutionDays: body.expectedResolutionDays ?? null });
 
   await trackAnalyticsEvent({
     type: 'COMPLAINT_ASSIGNED',
@@ -500,89 +656,232 @@ router.post('/complaints/:id/assign', requireAuth, requireRole(['CE', 'EE']), as
   res.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// GET /analytics
+// ---------------------------------------------------------------------------
 router.get('/analytics', requireAuth, async (req, res) => {
   const user = (req as any).user as any;
 
-  // District scoping: EE only.
   const district = typeof req.query.district === 'string' ? req.query.district : undefined;
   if (district && !assertDistrictAccess(user, district)) return res.status(403).json({ error: 'Forbidden' });
 
-  const where: string[] = [];
-  const params: any[] = [];
+  let districtCondition = pool``;
   if (district) {
-    params.push(district);
-    where.push(`district = $${params.length}`);
-  } else if (user.role !== 'CE' && !user.districts.includes('ALL')) {
-    params.push(user.districts);
-    where.push(`district = ANY($${params.length}::text[])`);
+    districtCondition = pool`WHERE district = ${district}`;
+  } else if (user.role !== 'CE' && !user.districts.includes('ALL') && user.districts.length) {
+    districtCondition = pool`WHERE district = ANY(${user.districts})`;
   }
 
-  const sql = `
-    SELECT status, count(*)::int as count
+  const analyticsRows = await pool`
+    SELECT status, COUNT(*)::int AS count
     FROM complaints
-    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-    GROUP BY status;
+    ${districtCondition}
+    GROUP BY status
   `;
-  const r = await pool.query(sql, params);
 
   const byStatus: Record<string, number> = {};
-  for (const row of r.rows) byStatus[row.status] = row.count;
+  for (const row of analyticsRows) {
+    byStatus[row.status] = row.count;
+  }
+
+  const [typeRows, severityRows, trendRows, resolutionRows] = await Promise.all([
+    pool`
+      SELECT COALESCE(metadata->>'damageType', 'Unknown') AS type, COUNT(*)::int AS count
+      FROM complaints
+      ${districtCondition}
+      GROUP BY COALESCE(metadata->>'damageType', 'Unknown')
+      ORDER BY count DESC, type ASC
+      LIMIT 5
+    `,
+    pool`
+      SELECT COALESCE((metadata->>'severity')::int, 0) AS severity, COUNT(*)::int AS count
+      FROM complaints
+      ${districtCondition}
+      GROUP BY COALESCE((metadata->>'severity')::int, 0)
+      ORDER BY severity ASC
+    `,
+    pool`
+      SELECT
+        to_char(day_bucket, 'YYYY-MM-DD') AS date,
+        COUNT(*)::int AS complaints,
+        COUNT(*) FILTER (WHERE resolved_status = TRUE)::int AS resolved
+      FROM (
+        SELECT
+          date_trunc('day', created_at) AS day_bucket,
+          CASE WHEN status IN ('RESOLVED', 'Resolved') THEN TRUE ELSE FALSE END AS resolved_status
+        FROM complaints
+        ${districtCondition}
+        AND created_at >= NOW() - INTERVAL '5 days'
+      ) AS complaint_days
+      GROUP BY day_bucket
+      ORDER BY day_bucket ASC
+    `,
+    pool`
+      SELECT
+        COALESCE(AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 3600.0), 0)::float AS average_hours
+      FROM complaints
+      ${districtCondition}
+      WHERE status IN ('RESOLVED', 'Resolved')
+    `
+  ]);
+
+  const normalizedCounts = Object.entries(byStatus).reduce<Record<string, number>>((acc, [status, count]) => {
+    const normalized = normalizeComplaintStatus(status);
+    acc[normalized] = (acc[normalized] ?? 0) + count;
+    return acc;
+  }, {});
+
+  const totalComplaints = Object.values(normalizedCounts).reduce((a, b) => a + b, 0);
+  const openComplaints = (normalizedCounts.Open ?? 0) + (byStatus.FILED ?? 0);
+  const inProgressComplaints = normalizedCounts.InProgress ?? 0;
+  const resolvedComplaints = normalizedCounts.Resolved ?? 0;
+  const slaBreaches = normalizedCounts.Escalated ?? 0;
+  const averageResolutionTime = Number((Number(resolutionRows[0]?.average_hours ?? 0)).toFixed(1));
 
   res.json({
+    totalComplaints,
+    openComplaints,
+    inProgressComplaints,
+    resolvedComplaints,
+    averageResolutionTime,
+    slaBreaches,
+    complaintsByType: typeRows.map((row: any) => ({ type: row.type, count: row.count })),
+    complaintsBySeverity: severityRows.map((row: any) => ({ severity: Number(row.severity), count: row.count })),
+    trendsData: trendRows.map((row: any) => ({ date: row.date, complaints: row.complaints, resolved: row.resolved })),
     byStatus,
-    totals: {
-      total: Object.values(byStatus).reduce((a, b) => a + b, 0)
-    }
+    totals: { total: totalComplaints }
   });
 });
 
+// ---------------------------------------------------------------------------
+// GET /budget
+// ---------------------------------------------------------------------------
 router.get('/budget', requireAuth, async (req, res) => {
   const user = (req as any).user as any;
   const district = typeof req.query.district === 'string' ? req.query.district : undefined;
   if (district && !assertDistrictAccess(user, district)) return res.status(403).json({ error: 'Forbidden' });
 
-  const where: string[] = [`status <> 'RESOLVED'`];
-  const params: any[] = [];
+  let districtCondition = pool``;
   if (district) {
-    params.push(district);
-    where.push(`district = $${params.length}`);
-  } else if (user.role !== 'CE' && !user.districts.includes('ALL')) {
-    params.push(user.districts);
-    where.push(`district = ANY($${params.length}::text[])`);
+    districtCondition = pool`AND district = ${district}`;
+  } else if (user.role !== 'CE' && !user.districts.includes('ALL') && user.districts.length) {
+    districtCondition = pool`AND district = ANY(${user.districts})`;
   }
 
-  // Simple deterministic budget: INR 25k per pending complaint, INR 10k per in-progress.
-  const r = await pool.query(
-    `SELECT status, count(*)::int as count FROM complaints WHERE ${where.join(' AND ')} GROUP BY status;`,
-    params
-  );
+  const budgetRows = await pool`
+    SELECT status, COUNT(*)::int AS count 
+    FROM complaints 
+    WHERE UPPER(status) <> 'RESOLVED' ${districtCondition} 
+    GROUP BY status
+  `;
+
   const counts: Record<string, number> = {};
-  for (const row of r.rows) counts[row.status] = row.count;
-  const pending = counts['PENDING'] ?? 0;
+  for (const row of budgetRows) {
+    counts[row.status] = row.count;
+  }
+
+  const pending = counts['FILED'] ?? 0;
   const inProgress = counts['IN_PROGRESS'] ?? 0;
   const rejected = counts['REJECTED'] ?? 0;
-
   const estimatedBacklogCostINR = pending * 25000 + inProgress * 10000 + rejected * 2000;
+
   res.json({
     district: district ?? null,
     estimatedBacklogCostINR,
-    model: {
-      PENDING: 25000,
-      IN_PROGRESS: 10000,
-      REJECTED: 2000
-    },
+    model: { PENDING: 25000, IN_PROGRESS: 10000, REJECTED: 2000 },
     counts
   });
 });
 
+// ---------------------------------------------------------------------------
+// GET /audit
+// ---------------------------------------------------------------------------
 router.get('/audit', requireAuth, requireRole(['CE']), async (req, res) => {
-  const r = await pool.query(
-    `SELECT id, actor_phone_masked, actor_phone_hash, action, target_type, target_id, details, fabric_txid, created_at
-     FROM audit_log
-     ORDER BY created_at DESC
-     LIMIT 200;`
-  );
-  res.json({ entries: r.rows });
+  const auditLogs = await pool`
+    SELECT id, actor_phone_masked, actor_phone_hash, action, target_type, target_id, details, fabric_txid, created_at
+    FROM audit_log
+    ORDER BY created_at DESC
+    LIMIT 200
+  `;
+
+  // Explicitly mapping keys backward to ensure compliance with old snake_case models
+  const mappedLogs = auditLogs.map((r: any) => ({
+    id: r.id,
+    actor_phone_masked: r.actorPhoneMasked ?? r.actor_phone_masked,
+    actor_phone_hash: r.actorPhoneHash ?? r.actor_phone_hash,
+    action: r.action,
+    target_type: r.targetType ?? r.target_type,
+    target_id: r.targetId ?? r.target_id,
+    details: r.details,
+    fabric_txid: r.fabricTxid ?? r.fabric_txid,
+    created_at: r.createdAt ?? r.created_at
+  }));
+
+  res.json({ entries: mappedLogs });
+});
+
+// ---------------------------------------------------------------------------
+// GET /performance/evaluation
+// ---------------------------------------------------------------------------
+router.get('/performance/evaluation', requireAuth, requireRole(['CE', 'EE']), async (req, res) => {
+  const user = (req as any).user as any;
+  const district = typeof req.query.district === 'string' ? req.query.district : undefined;
+  const zone = typeof req.query.zone === 'string' ? req.query.zone : undefined;
+
+  if (district && !assertDistrictAccess(user, district)) return res.status(403).json({ error: 'Forbidden' });
+  if (zone && !assertZoneAccess(user, zone)) return res.status(403).json({ error: 'Forbidden' });
+
+  let districtCondition = pool``;
+  if (district) {
+    districtCondition = pool`AND (${district} = ANY(u.districts) OR 'ALL' = ANY(u.districts))`;
+  }
+
+  let zoneCondition = pool``;
+  if (zone) {
+    zoneCondition = pool`AND (${zone} = ANY(u.zones) OR 'ALL' = ANY(u.zones))`;
+  }
+
+  const usersRes = await pool`
+    SELECT
+      u.id,
+      u.role,
+      u.phone_masked,
+      COUNT(CASE WHEN al.action = 'COMPLAINT_ASSIGNED'  THEN 1 END)::int AS assigned,
+      COUNT(CASE WHEN al.action = 'COMPLAINT_RESOLVED'  THEN 1 END)::int AS resolved,
+      COUNT(CASE WHEN al.action = 'COMPLAINT_ESCALATED' THEN 1 END)::int AS escalated,
+      COUNT(CASE WHEN al.action = 'SLA_WARNING'         THEN 1 END)::int AS sla_warnings
+    FROM users u
+    LEFT JOIN audit_log al ON al.actor_user_id = u.id
+    WHERE u.role IN ('CE','EE') ${districtCondition} ${zoneCondition}
+    GROUP BY u.id, u.role, u.phone_masked
+    LIMIT 200
+  `;
+
+  const employeesRanked = usersRes
+    .map((r: any) => {
+      const assigned = r.assigned;
+      const resolved = r.resolved;
+      const escalated = r.escalated;
+      const slaWarnings = r.slaWarnings ?? r.sla_warnings;
+      const phoneMasked = r.phoneMasked ?? r.phone_masked;
+
+      const karma = resolved * 6 + assigned * 2 - escalated * 4 - slaWarnings * 3;
+      return { userId: r.id, role: r.role, phoneMasked, assigned, resolved, escalated, slaWarnings, karma };
+    })
+    .sort((a: any, b: any) => b.karma - a.karma)
+    .map((row: any, idx: number) => ({ ...row, rank: idx + 1 }));
+
+  const contractors = await getContractorScorecard({ district, zone, limit: 200 });
+  const contractorRows = contractors
+    .map((c) => {
+      const onTime = c.onTimeRate == null ? 0 : c.onTimeRate * 100;
+      const karma = c.resolvedCount * 5 + Math.round(onTime) - c.slaBreaches * 4 - c.openCount;
+      return { contractorId: c.contractorId, contractorName: c.contractorName, assignedCount: c.assignedCount, resolvedCount: c.resolvedCount, openCount: c.openCount, slaBreaches: c.slaBreaches, onTimeRate: c.onTimeRate, avgResolutionDays: c.avgResolutionDays, karma };
+    })
+    .sort((a: any, b: any) => b.karma - a.karma)
+    .map((row: any, idx: number) => ({ ...row, rank: idx + 1 }));
+
+  res.json({ district: district ?? null, zone: zone ?? null, employees: employeesRanked, contractors: contractorRows });
 });
 
 export default router;

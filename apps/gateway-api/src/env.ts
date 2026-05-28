@@ -2,12 +2,26 @@ import { z } from 'zod';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).optional().default('development'),
-  PORT: z.coerce.number().int().positive().optional().default(3000),
-  DATABASE_URL: z
-    .string()
-    .optional()
-    .default('postgres://roadwatch_admin:development_password@localhost:5432/roadwatch_local'),
+  PORT: z.coerce.number().int().positive().optional().default(3100),
+
+  // PostgreSQL (use a PgBouncer-backed pooled endpoint)
+  DATABASE_URL: z.string().optional().default('postgresql://postgres:postgres@127.0.0.1:16432/roadwatch'),
+  POSTGRES_HOST: z.string().optional().default('127.0.0.1'),
+  POSTGRES_PORT: z.coerce.number().int().positive().optional().default(5432),
+  POSTGRES_DB: z.string().optional().default('roadwatch'),
+  POSTGRES_USER: z.string().optional().default('postgres'),
+  POSTGRES_PASSWORD: z.string().optional().default('postgres'),
+  POSTGRES_SSL: z.coerce.boolean().optional().default(false),
+  POSTGRES_POOL_MAX: z.coerce.number().int().positive().optional().default(10),
+
   JWT_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
+  // Backwards-compatible: ACCESS_SECRET used for access tokens, REFRESH_SECRET for refresh tokens.
+  ACCESS_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
+  REFRESH_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
+  SERVICE_AUTH_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
+  SERVICE_REGISTRY_SECRET: z.string().optional(),
+  ACCESS_TOKEN_EXPIRES_MINUTES: z.coerce.number().int().positive().optional().default(15),
+  REFRESH_TOKEN_EXPIRES_DAYS: z.coerce.number().int().positive().optional().default(7),
   OTP_TTL_SECONDS: z.coerce.number().int().positive().optional().default(300),
   ALLOW_DEV_OTP_ECHO: z.coerce.boolean().optional().default(true),
 
@@ -48,6 +62,11 @@ const envSchema = z.object({
   LLAMACPP_BASE_URL: z.string().optional(),
   LLAMACPP_MODEL: z.string().optional().default('llama'),
 
+  // Supabase Storage
+  SUPABASE_URL: z.string().optional(),
+  SUPABASE_ANON_KEY: z.string().optional(),
+  SUPABASE_STORAGE_BUCKET: z.string().optional().default('roadwatch-media'),
+
   // Comma-separated priority list, e.g. "gemini,ollama,llamacpp"
   LLM_FALLBACK_ORDER: z.string().optional().default('gemini,ollama,llamacpp')
 });
@@ -57,4 +76,19 @@ export type Env = z.infer<typeof envSchema>;
 export function getEnv(): Env {
   // eslint-disable-next-line no-process-env
   return envSchema.parse(process.env);
+}
+
+export function assertRequiredInfrastructure(): void {
+  const env = process.env;
+
+  const redisConfigured = Boolean((env.REDIS_URL ?? env.REDIS_URI ?? env.REDIS_HOST)?.toString().trim());
+  if (!redisConfigured) {
+    throw new Error('Redis is required but not configured. Set REDIS_URL or REDIS_HOST/REDIS_PORT');
+  }
+
+  const localKafkaConfigured = Boolean((env.KAFKA_BROKERS ?? env.KAFKA_BROKER ?? '').trim());
+
+  if (!localKafkaConfigured) {
+    throw new Error('Kafka is required but KAFKA_BROKER or KAFKA_BROKERS is missing');
+  }
 }

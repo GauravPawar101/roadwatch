@@ -5,6 +5,7 @@ import {
     getContractorScorecard,
     getCountsByStatus,
     getHotspots,
+    getProposalIntelligence,
     getWorseningTrends,
     listChronicRoads,
     renderPublicRoadsPdf,
@@ -15,9 +16,9 @@ import {
     listCountries,
     listDistricts,
     listRoadsForDistrict,
-    listStates,
-    pool
+    listStates
 } from '../db.js';
+import { pool } from '../postgres.js';
 
 const router = express.Router();
 
@@ -80,62 +81,98 @@ router.get('/roads/segments.geojson', async (req, res) => {
       return res.status(400).json({ error: 'Provide districtId or lat/lng' });
     }
 
-    const d = await pool.query(
-      `SELECT id
-       FROM districts
-       WHERE $1 BETWEEN LEAST(bottom_right_lat, top_left_lat) AND GREATEST(bottom_right_lat, top_left_lat)
-         AND $2 BETWEEN LEAST(top_left_lng, bottom_right_lng) AND GREATEST(top_left_lng, bottom_right_lng)
-       LIMIT 1;`,
+    // Resolve lat/lng to district via bbox query in PostgreSQL
+    const result = await pool.query(
+      `SELECT id FROM districts
+       WHERE top_left_lat >= $1 AND bottom_right_lat <= $1
+       AND top_left_lng <= $2 AND bottom_right_lng >= $2
+       LIMIT 1`,
       [query.lat, query.lng]
     );
-    districtId = d.rows[0]?.id;
+    districtId = result.rows[0]?.id;
     if (!districtId) return res.json({ type: 'FeatureCollection', features: [] });
   }
 
   const limit = Math.min(20000, Math.max(1, query.limit));
-  const r = await pool.query(
-    `SELECT
-        rc.id,
-        rc.name,
-        rc.road_type,
-        rc.authority_id,
-        rc.geometry,
-        d.code AS district_code,
-        ad.name AS authority_name,
-        ad.department AS authority_department,
-        ad.public_phone AS authority_public_phone,
-        ad.public_email AS authority_public_email,
-        ad.website AS authority_website,
-        ad.address AS authority_address,
-        ra.contractor_id,
-        c.name AS contractor_name,
-        c.contact_phone_masked AS contractor_phone_masked,
-        ra.engineer_user_id,
-        u.govt_id AS engineer_govt_id,
-        ra.starts_on,
-        ra.ends_on
-     FROM roads_catalog rc
-     JOIN districts d ON d.id = rc.district_id
-     LEFT JOIN authority_directory ad ON ad.authority_id = rc.authority_id
-     LEFT JOIN LATERAL (
-       SELECT * FROM road_assignments x
-       WHERE x.road_id = rc.id
-       ORDER BY x.created_at DESC
-       LIMIT 1
-     ) ra ON TRUE
-     LEFT JOIN contractors c ON c.id = ra.contractor_id
-     LEFT JOIN users u ON u.id = ra.engineer_user_id
-     WHERE rc.district_id = $1
-       AND rc.geometry IS NOT NULL
-     ORDER BY rc.id ASC
-     LIMIT $2;`,
+  const roadsRes = await pool.query(
+    `SELECT id, name, road_type, authority_id, geometry FROM roads_catalog
+     WHERE district_id = $1 AND geometry IS NOT NULL
+     LIMIT $2`,
     [districtId, limit]
   );
 
-  res.setHeader('Content-Type', 'application/geo+json');
-  res.json({
-    type: 'FeatureCollection',
-    features: (r.rows as any[]).map((row) => ({
+  // Prefetch all authority info for these roads
+  const authorityIds = Array.from(new Set(roadsRes.rows.map((r: any) => r.authority_id).filter(Boolean)));
+  const authorities: Record<string, any> = {};
+  
+  if (authorityIds.length > 0) {
+    const authRes = await pool.query(
+      `SELECT authority_id, name, department, public_phone, public_email, website, address
+       FROM authority_directory
+       WHERE authority_id = ANY($1)`,
+      [authorityIds]
+    );
+    for (const row of authRes.rows) {
+      authorities[row.authority_id] = row;
+    }
+  }
+
+  // Prefetch all road assignments
+  const roadIds = roadsRes.rows.map((r: any) => r.id);
+  const assignmentsRes = await pool.query(
+    `SELECT road_id, contractor_id, engineer_user_id, starts_on, ends_on, created_at
+     FROM road_assignments
+     WHERE road_id = ANY($1)
+     ORDER BY created_at DESC`,
+    [roadIds]
+  );
+
+  // Group assignments by road_id and take the latest
+  const latestAssignments: Record<string, any> = {};
+  for (const row of assignmentsRes.rows) {
+    if (!latestAssignments[row.road_id]) {
+      latestAssignments[row.road_id] = row;
+    }
+  }
+
+  // Prefetch contractor and engineer info
+  const contractorIds = Object.values(latestAssignments)
+    .map((a: any) => a.contractor_id)
+    .filter(Boolean);
+  const engineerIds = Object.values(latestAssignments)
+    .map((a: any) => a.engineer_user_id)
+    .filter(Boolean);
+
+  const contractors: Record<string, any> = {};
+  if (contractorIds.length > 0) {
+    const cRes = await pool.query(
+      `SELECT id, name, contact_phone_masked FROM contractors WHERE id = ANY($1)`,
+      [contractorIds]
+    );
+    for (const row of cRes.rows) {
+      contractors[row.id] = row;
+    }
+  }
+
+  const engineers: Record<string, any> = {};
+  if (engineerIds.length > 0) {
+    const eRes = await pool.query(
+      `SELECT id, govt_id FROM users WHERE id = ANY($1)`,
+      [engineerIds]
+    );
+    for (const row of eRes.rows) {
+      engineers[row.id] = row;
+    }
+  }
+
+  const features = [];
+  for (const row of roadsRes.rows) {
+    const assignment = latestAssignments[row.id];
+    const contractor = assignment?.contractor_id ? contractors[assignment.contractor_id] : null;
+    const engineer = assignment?.engineer_user_id ? engineers[assignment.engineer_user_id] : null;
+    const authority = authorities[row.authority_id] ?? null;
+
+    features.push({
       type: 'Feature',
       geometry: row.geometry,
       properties: {
@@ -143,40 +180,46 @@ router.get('/roads/segments.geojson', async (req, res) => {
         name: row.name,
         roadType: row.road_type,
         authorityId: row.authority_id,
-        districtCode: row.district_code,
+        districtCode: null,
         assignment: {
-          contractorId: row.contractor_id ?? null,
-          contractorName: row.contractor_name ?? null,
-          contractorPhoneMasked: row.contractor_phone_masked ?? null,
-          engineerUserId: row.engineer_user_id ?? null,
-          engineerGovtId: row.engineer_govt_id ?? null,
-          startsOn: row.starts_on ? new Date(row.starts_on).toISOString().slice(0, 10) : null,
-          endsOn: row.ends_on ? new Date(row.ends_on).toISOString().slice(0, 10) : null
+          contractorId: assignment?.contractor_id ?? null,
+          contractorName: contractor?.name ?? null,
+          contractorPhoneMasked: contractor?.contact_phone_masked ?? null,
+          engineerUserId: assignment?.engineer_user_id ?? null,
+          engineerGovtId: engineer?.govt_id ?? null,
+          startsOn: assignment?.starts_on ? new Date(assignment.starts_on).toISOString().slice(0, 10) : null,
+          endsOn: assignment?.ends_on ? new Date(assignment.ends_on).toISOString().slice(0, 10) : null
         },
         authority: {
-          name: row.authority_name ?? null,
-          department: row.authority_department ?? null,
-          publicPhone: row.authority_public_phone ?? null,
-          publicEmail: row.authority_public_email ?? null,
-          website: row.authority_website ?? null,
-          address: row.authority_address ?? null
+          name: authority?.name ?? null,
+          department: authority?.department ?? null,
+          publicPhone: authority?.public_phone ?? null,
+          publicEmail: authority?.public_email ?? null,
+          website: authority?.website ?? null,
+          address: authority?.address ?? null
         }
       }
-    }))
+    });
+  }
+
+  res.setHeader('Content-Type', 'application/geo+json');
+  res.json({
+    type: 'FeatureCollection',
+    features
   });
 });
 
 router.get('/authorities/:authorityId', async (req, res) => {
   const params = z.object({ authorityId: z.string().min(1) }).parse(req.params);
-  const r = await pool.query(
+  const result = await pool.query(
     `SELECT authority_id, name, department, public_phone, public_email, website, address, updated_at
      FROM authority_directory
      WHERE authority_id = $1
-     LIMIT 1;`,
+     LIMIT 1`,
     [params.authorityId]
   );
-  if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' });
-  res.json({ authority: r.rows[0] });
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ authority: result.rows[0] });
 });
 
 // ---------------------------------------------------------------------------
@@ -244,6 +287,22 @@ router.get('/contractors/scorecard', async (req, res) => {
 
   const rows = await getContractorScorecard(query);
   res.json({ generatedAt: new Date().toISOString(), rows });
+});
+
+router.get('/proposals/intelligence', async (req, res) => {
+  const query = z
+    .object({
+      district: z.string().min(1).optional(),
+      zone: z.string().min(1).optional(),
+      roadType: z.string().min(1).optional(),
+      plannedLengthKm: z.coerce.number().positive().optional().default(12),
+      requestedBudgetINR: z.coerce.number().int().positive().optional(),
+      limit: z.coerce.number().int().positive().optional().default(12)
+    })
+    .parse(req.query);
+
+  const intelligence = await getProposalIntelligence(query);
+  res.json(intelligence);
 });
 
 router.get('/hotspots', async (req, res) => {
@@ -351,26 +410,25 @@ router.get('/export/roads.pdf', async (req, res) => {
 router.get('/rti/:shareToken', async (req, res) => {
   const params = z.object({ shareToken: z.string().uuid() }).parse(req.params);
 
-  const rti = await pool.query(
-    `SELECT id, complaint_id, country_code, authority_name, subject, status,
-            submitted_at, response_due_at, first_appeal_last_date, public_opt_in_at, created_at, updated_at
+  const rtiRes = await pool.query(
+    `SELECT id, complaint_id, country_code, authority_name, subject, status, submitted_at, response_due_at, first_appeal_last_date, public_opt_in_at, created_at, updated_at
      FROM rti_requests
-     WHERE public_share_token = $1::uuid AND public_opt_in_at IS NOT NULL
-     LIMIT 1;`,
+     WHERE public_share_token = $1 AND public_opt_in_at IS NOT NULL
+     LIMIT 1`,
     [params.shareToken]
   );
+  if (rtiRes.rows.length === 0) return res.status(404).json({ error: 'Not found' });
 
-  if (rti.rowCount === 0) return res.status(404).json({ error: 'Not found' });
-
-  const responses = await pool.query(
+  const responsesRes = await pool.query(
     `SELECT received_at, file_mime, file_sha256, notes, created_at
      FROM rti_responses
      WHERE rti_id = $1
      ORDER BY created_at DESC
-     LIMIT 5;`,
-    [rti.rows[0].id]
+     LIMIT 5`,
+    [rtiRes.rows[0].id]
   );
 
-  res.json({ rti: rti.rows[0], recentResponses: responses.rows });
+  res.json({ rti: rtiRes.rows[0], recentResponses: responsesRes.rows });
 });
+
 export default router;

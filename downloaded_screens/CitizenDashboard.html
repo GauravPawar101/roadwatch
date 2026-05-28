@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8f9ff;
+        }
+        .glass-panel {
+            background: #ffffff;
+            border: 1px solid #c4c6cf;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        .prism-gradient {
+            background: #1a365d;
+        }
+        .prism-glow:hover {
+            box-shadow: 0 4px 12px rgba(26, 54, 93, 0.2);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-dim": "#cbdbf5",
+                      "surface-tint": "#455f88",
+                      "secondary-fixed-dim": "#a2c9ff",
+                      "on-secondary-fixed": "#001c38",
+                      "tertiary-container": "#003f25",
+                      "inverse-on-surface": "#eaf1ff",
+                      "surface-container-lowest": "#ffffff",
+                      "on-tertiary-fixed": "#002111",
+                      "outline": "#74777f",
+                      "on-surface-variant": "#43474e",
+                      "tertiary-fixed-dim": "#83d8a6",
+                      "secondary-container": "#7db6ff",
+                      "on-surface": "#0b1c30",
+                      "on-primary-fixed": "#001b3c",
+                      "error-container": "#ffdad6",
+                      "on-secondary": "#ffffff",
+                      "surface-bright": "#f8f9ff",
+                      "secondary-fixed": "#d3e4ff",
+                      "surface-container-high": "#dce9ff",
+                      "on-secondary-fixed-variant": "#004881",
+                      "inverse-surface": "#213145",
+                      "on-primary-container": "#86a0cd",
+                      "error": "#ba1a1a",
+                      "outline-variant": "#c4c6cf",
+                      "on-error": "#ffffff",
+                      "primary-fixed": "#d6e3ff",
+                      "on-primary-fixed-variant": "#2d476f",
+                      "on-error-container": "#93000a",
+                      "primary-fixed-dim": "#adc7f7",
+                      "background": "#f8f9ff",
+                      "on-tertiary-fixed-variant": "#005231",
+                      "on-primary": "#ffffff",
+                      "surface-container-low": "#eff4ff",
+                      "primary": "#002045",
+                      "surface-container-highest": "#d3e4fe",
+                      "on-tertiary-container": "#5caf81",
+                      "tertiary": "#002715",
+                      "surface": "#f8f9ff",
+                      "primary-container": "#1a365d",
+                      "on-background": "#0b1c30",
+                      "on-tertiary": "#ffffff",
+                      "on-secondary-container": "#00477f",
+                      "inverse-primary": "#adc7f7",
+                      "tertiary-fixed": "#9ff5c1",
+                      "secondary": "#1960a3",
+                      "surface-variant": "#d3e4fe",
+                      "surface-container": "#e5eeff"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "base": "8px",
+                      "margin-desktop": "64px",
+                      "container-max": "1280px",
+                      "gutter": "24px",
+                      "margin-mobile": "16px"
+              },
+              "fontFamily": {
+                      "label-md": ["Inter"],
+                      "headline-md": ["Inter"],
+                      "headline-lg": ["Inter"],
+                      "body-sm": ["Inter"],
+                      "display-lg": ["Inter"],
+                      "body-md": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "display-lg-mobile": ["Inter"],
+                      "headline-sm": ["Inter"]
+              },
+              "fontSize": {
+                      "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                      "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                      "headline-lg": ["30px", {"lineHeight": "38px", "fontWeight": "600"}],
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                      "display-lg-mobile": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}]
+              }
+            },
+          },
+        }
+      </script>
+</head>
+<body class="min-h-screen text-on-surface bg-background selection:bg-primary-fixed selection:text-on-primary-fixed overflow-x-hidden">
+<!-- Top Navigation Bar -->
+<header class="bg-surface-container-lowest border-b border-outline-variant sticky top-0 z-50">
+<div class="flex justify-between items-center px-6 py-4 max-w-container-max mx-auto w-full">
+<div class="flex items-center gap-8">
+<div class="text-headline-sm font-bold text-primary tracking-tight">
+                Infrastructure Grievance Platform
+            </div>
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="#">Report Issue</a>
+<a class="text-primary border-b-2 border-primary pb-1 font-semibold" href="#">Track Progress</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="#">Community Map</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="#">Help</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-all active:scale-95">search</button>
+<div class="h-8 w-8 rounded-full overflow-hidden border border-outline-variant">
+<img alt="User Profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA2CwPC9Bs3HRoRHw3v_MWBUHd_DbvW93LHvzToDaotRnMrtfxgekCezJpVCEWOnpPWbiEk3-cL2w9OxWjebXZQagbNgu_hlTka88SOTK4U4rRU8zzCgS4Nsn2J7lOvpPefa4w0gPn0SSJYurJw9rQ64HRaWzKmK5_FNiyStf8mbc0kfMnNNxGL6dBzglnWm14bkwKaD6bBda1CE6X90-ldvHKnalWqdqAHKlIwLKKyLazqDcb5vobUUWGWV7IG1VWtC_Dhgd7Ivwg"/>
+</div>
+</div>
+</div>
+</header>
+<main class="max-w-[1400px] mx-auto px-6 py-12">
+<!-- Dashboard Header -->
+<section class="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
+<div>
+<div class="flex items-center gap-3 mb-2">
+<span class="px-3 py-1 rounded-lg bg-secondary-container text-on-secondary-container text-label-md font-semibold">Citizen</span>
+<span class="text-primary text-label-md font-bold tracking-widest uppercase">Verified Account</span>
+</div>
+<h1 class="text-headline-lg text-on-surface mb-2">Citizen Dashboard</h1>
+<p class="text-body-lg text-on-surface-variant max-w-2xl">Monitor your local road health and reporting impact. Your data-driven voice shapes the infrastructure of tomorrow.</p>
+</div>
+<button class="prism-gradient prism-glow text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">add_circle</span>
+            Report New Issue
+        </button>
+</section>
+<div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+<!-- QuickActions (Left Sidebar) -->
+<aside class="md:col-span-3 flex flex-col gap-4">
+<div class="glass-panel p-6 rounded-lg flex flex-col gap-2">
+<h3 class="text-label-md font-bold text-primary uppercase mb-2">Navigation</h3>
+<a class="flex items-center gap-4 p-3 rounded-lg bg-surface-container-high text-primary transition-all" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-semibold">Overview</span>
+</a>
+<a class="flex items-center gap-4 p-3 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-primary transition-all group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">map</span>
+<span class="font-medium">View Map</span>
+</a>
+<a class="flex items-center gap-4 p-3 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-primary transition-all group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">history</span>
+<span class="font-medium">My History</span>
+</a>
+<a class="flex items-center gap-4 p-3 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-primary transition-all group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">contact_support</span>
+<span class="font-medium">Support</span>
+</a>
+</div>
+<div class="glass-panel p-6 rounded-lg relative overflow-hidden group cursor-pointer border-l-4 border-l-primary">
+<div class="relative z-10">
+<h4 class="text-headline-sm font-bold text-primary mb-1">Local Events</h4>
+<p class="text-body-sm text-on-surface-variant mb-4">Road maintenance scheduled in your area for Aug 15.</p>
+<span class="text-primary text-label-md font-bold flex items-center gap-1">Details <span class="material-symbols-outlined text-sm">arrow_forward</span></span>
+</div>
+<div class="absolute top-0 right-0 opacity-5 translate-x-1/4 -translate-y-1/4 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-[100px]">construction</span>
+</div>
+</div>
+</aside>
+<!-- ComplaintList (Center) -->
+<section class="md:col-span-6 flex flex-col gap-4">
+<div class="flex items-center justify-between mb-2">
+<h2 class="text-headline-sm font-bold text-on-surface">Recent Reports</h2>
+<div class="flex gap-2">
+<button class="p-2 glass-panel rounded-lg hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant">filter_list</span>
+</button>
+</div>
+</div>
+<!-- Complaint Card 1 -->
+<div class="glass-panel p-6 rounded-lg flex flex-col gap-6 border-l-4 border-l-error transition-all hover:shadow-md">
+<div class="flex justify-between items-start">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="text-error font-bold text-label-md flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">warning</span> SEVERE
+                            </span>
+<span class="text-on-surface-variant text-body-sm">• Case #RI-2093</span>
+</div>
+<h3 class="text-headline-sm font-bold text-on-surface">Deep Pothole Cluster</h3>
+<div class="flex items-center gap-1 text-on-surface-variant text-body-md mt-1">
+<span class="material-symbols-outlined text-sm">location_on</span>
+                            4th Avenue, Midtown Crossing
+                        </div>
+</div>
+<div class="px-3 py-1 rounded-lg bg-surface-container-highest text-primary text-label-md font-bold">
+                        Pending Audit
+                    </div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="rounded-lg overflow-hidden h-32 relative">
+<img class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDHPRKtPkNZdhdnjhML0eol-ICSNyn8q3PPikMiJUFpTtDXwJ84HLj8DMyAJIekHuXvV7UcS-yARMdr3qJnSKYeTo8S9eeL4AGEhX-omi0m9m5fzkgbzycXyzNQ4A8bGQ0EcHw4JeV0Kuv3fVv8oh4bpDazIKhPjJNgy_k9Ue4Ap-XvNs4mMLTBotQ0T76dE_7e07LVq4LwgzjslhZNtrQPQ_HjcQEOdsCmdn-FoByqhVhcLFrlCFTh3QSRiRMkUfxqcwt7OBWfSs4"/>
+</div>
+<div class="flex flex-col justify-center">
+<p class="text-body-md text-on-surface-variant line-clamp-3">Reported 2 hours ago. Major safety hazard for cyclists and small vehicles. Affecting traffic flow significantly during peak hours.</p>
+</div>
+</div>
+</div>
+<!-- Complaint Card 2 -->
+<div class="glass-panel p-6 rounded-lg flex flex-col gap-6 border-l-4 border-l-secondary transition-all hover:shadow-md">
+<div class="flex justify-between items-start">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="text-secondary font-bold text-label-md flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">info</span> MODERATE
+                            </span>
+<span class="text-on-surface-variant text-body-sm">• Case #RI-1982</span>
+</div>
+<h3 class="text-headline-sm font-bold text-on-surface">Faded Lane Markings</h3>
+<div class="flex items-center gap-1 text-on-surface-variant text-body-md mt-1">
+<span class="material-symbols-outlined text-sm">location_on</span>
+                            Expressway Link, North Exit
+                        </div>
+</div>
+<div class="px-3 py-1 rounded-lg bg-secondary-container text-on-secondary-container text-label-md font-bold">
+                        Work Assigned
+                    </div>
+</div>
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-lg bg-secondary-container flex items-center justify-center text-on-secondary-container">
+<span class="material-symbols-outlined">engineering</span>
+</div>
+<div>
+<p class="text-body-md font-bold text-on-surface">Scheduled for Repair</p>
+<p class="text-body-sm text-on-surface-variant">Technician crew dispatched for Aug 12th midnight shift.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- InsightPanel (Right Sidebar) -->
+<aside class="md:col-span-3 flex flex-col gap-4">
+<!-- Road Health Score -->
+<div class="glass-panel p-6 rounded-lg flex flex-col items-center text-center">
+<h3 class="text-label-md font-bold text-on-surface-variant uppercase tracking-widest mb-4">Local Road Health</h3>
+<div class="relative w-32 h-32 flex items-center justify-center mb-4">
+<svg class="w-full h-full -rotate-90">
+<circle class="text-surface-container-highest" cx="64" cy="64" fill="transparent" r="58" stroke="currentColor" stroke-width="8"></circle>
+<circle class="text-primary" cx="64" cy="64" fill="transparent" r="58" stroke="currentColor" stroke-dasharray="364.4" stroke-dashoffset="100" stroke-width="8"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="text-headline-md font-bold text-on-surface">74</span>
+<span class="text-body-sm text-on-surface-variant uppercase font-semibold">Index</span>
+</div>
+</div>
+<p class="text-body-md text-on-surface-variant">District: <span class="text-on-surface font-bold">Emerald Valley</span></p>
+<div class="mt-4 px-4 py-2 rounded-lg bg-surface-container-high text-primary text-label-md font-bold">
+                    Increasing from last month (↑ 4%)
+                </div>
+</div>
+<!-- Personal Impact Stats -->
+<div class="glass-panel p-6 rounded-lg">
+<h3 class="text-label-md font-bold text-primary uppercase mb-4">Your Impact</h3>
+<div class="space-y-6">
+<div class="flex justify-between items-end">
+<div>
+<p class="text-headline-md font-bold text-on-surface">12</p>
+<p class="text-body-sm text-on-surface-variant uppercase font-semibold">Issues Resolved</p>
+</div>
+<span class="material-symbols-outlined text-primary opacity-40 text-4xl">task_alt</span>
+</div>
+<div class="flex justify-between items-end">
+<div>
+<p class="text-headline-md font-bold text-on-surface">450</p>
+<p class="text-body-sm text-on-surface-variant uppercase font-semibold">Community Upvotes</p>
+</div>
+<span class="material-symbols-outlined text-primary opacity-40 text-4xl">thumb_up</span>
+</div>
+<div class="flex justify-between items-end">
+<div>
+<p class="text-headline-md font-bold text-on-surface">Top 5%</p>
+<p class="text-body-sm text-on-surface-variant uppercase font-semibold">Local Contributor</p>
+</div>
+<span class="material-symbols-outlined text-primary opacity-40 text-4xl">verified</span>
+</div>
+</div>
+<button class="w-full mt-6 py-2 border border-outline rounded-lg text-label-md font-bold text-primary hover:bg-surface-container transition-colors">
+                    View Public Profile
+                </button>
+</div>
+</aside>
+</div>
+</main>
+<!-- Footer -->
+<footer class="bg-primary text-white mt-16">
+<div class="flex flex-col md:flex-row justify-between items-center px-6 py-12 max-w-container-max mx-auto w-full">
+<div class="mb-6 md:mb-0">
+<div class="text-label-md font-bold text-white mb-2">Global Infrastructure Grievance Platform</div>
+<div class="text-body-sm text-on-primary-container max-w-xs">
+                Promoting Institutional Authority and Radical Transparency through decentralized infrastructure auditing.
+            </div>
+</div>
+<div class="flex flex-wrap gap-8 justify-center">
+<div class="flex flex-col gap-2">
+<span class="text-label-md font-bold text-white">Resources</span>
+<a class="text-body-sm text-on-primary-container hover:text-white transition-colors" href="#">Open Data</a>
+<a class="text-body-sm text-on-primary-container hover:text-white transition-colors" href="#">Privacy</a>
+<a class="text-body-sm text-on-primary-container hover:text-white transition-colors" href="#">Terms</a>
+</div>
+<div class="flex flex-col gap-2">
+<span class="text-label-md font-bold text-white">Connect</span>
+<a class="text-body-sm text-on-primary-container hover:text-white transition-colors" href="#">Government Contacts</a>
+<a class="text-body-sm text-on-primary-container hover:text-white transition-colors" href="#">API Documentation</a>
+<a class="text-body-sm text-on-primary-container hover:text-white transition-colors" href="#">Platform Status</a>
+</div>
+</div>
+</div>
+<div class="border-t border-white/10 py-6 text-center">
+<p class="text-body-sm text-on-primary-container">
+            © 2024 Global Infrastructure Grievance Platform. All Rights Reserved.
+        </p>
+</div>
+</footer>
+</body></html>

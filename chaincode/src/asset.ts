@@ -15,6 +15,9 @@ export class Complaint {
     @Property()
     public RoadID!: string;
 
+    @Property()
+    public ReportCount!: number;
+
     // Privacy: no direct PII on public ledger state.
     // Anchor an opaque commitment hash of off-ledger details (includes any PII).
     @Property()

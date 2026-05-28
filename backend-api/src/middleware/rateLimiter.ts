@@ -1,3 +1,11 @@
+// Provide a minimal ambient declaration to satisfy TypeScript when
+// the @types/express-rate-limit package is not installed.
+declare module 'express-rate-limit' {
+  type Options = any;
+  const rateLimit: (opts?: Options) => any;
+  export default rateLimit;
+}
+
 import rateLimit from 'express-rate-limit';
 
 export const rateLimiter = rateLimit({

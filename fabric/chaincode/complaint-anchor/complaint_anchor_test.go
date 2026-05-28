@@ -20,6 +20,7 @@ import (
 	"github.com/hyperledger/fabric-chaincode-go/pkg/cid"
 	"github.com/hyperledger/fabric-chaincode-go/shim"
 	"github.com/hyperledger/fabric-chaincode-go/shimtest"
+	"github.com/hyperledger/fabric-contract-api-go/contractapi"
 	"github.com/hyperledger/fabric-protos-go/ledger/queryresult"
 	msp "github.com/hyperledger/fabric-protos-go/msp"
 	peer "github.com/hyperledger/fabric-protos-go/peer"
@@ -204,7 +205,9 @@ func asInt64(v any) int64 {
 
 func newTestStub(t *testing.T, mspID string) *shimtest.MockStub {
 	t.Helper()
-	stub := shimtest.NewMockStub("complaint-anchor", new(ComplaintAnchorContract))
+	cc, err := contractapi.NewChaincode(new(ComplaintAnchorContract))
+	require.NoError(t, err)
+	stub := shimtest.NewMockStub("complaint-anchor", cc)
 	stub.Creator = mockCreator(mspID)
 	return stub
 }

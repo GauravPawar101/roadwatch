@@ -7,9 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hyperledger/fabric-chaincode-go/shim"
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
-	peer "github.com/hyperledger/fabric-protos-go/peer"
 )
 
 const (
@@ -32,16 +30,6 @@ var (
 // ComplaintAnchorContract immutably anchors complaint batches, escalation notifications, and resolutions.
 type ComplaintAnchorContract struct {
 	contractapi.Contract
-}
-
-// Init is a no-op shim entrypoint.
-func (c *ComplaintAnchorContract) Init(stub shim.ChaincodeStubInterface) peer.Response {
-	return peer.Response{Status: 200}
-}
-
-// Invoke is a no-op shim entrypoint.
-func (c *ComplaintAnchorContract) Invoke(stub shim.ChaincodeStubInterface) peer.Response {
-	return peer.Response{Status: 200}
 }
 
 // MerkleAnchor immutably stores the Merkle root for a complaint batch.

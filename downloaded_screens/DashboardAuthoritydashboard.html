@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Authority Dashboard - Infrastructure Governance Portal</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container": "#e5eeff",
+                        "on-secondary-container": "#00477f",
+                        "primary-container": "#002045",
+                        "background": "#f8f9ff",
+                        "inverse-surface": "#213145",
+                        "surface-container-high": "#dce9ff",
+                        "outline": "#74777f",
+                        "on-surface": "#0b1c30",
+                        "on-secondary": "#ffffff",
+                        "tertiary": "#000b04",
+                        "on-tertiary-container": "#43976a",
+                        "error": "#ba1a1a",
+                        "tertiary-fixed": "#9ff5c1",
+                        "on-background": "#0b1c30",
+                        "tertiary-fixed-dim": "#83d8a6",
+                        "primary-fixed": "#d6e3ff",
+                        "on-tertiary-fixed-variant": "#005231",
+                        "status-resolved-text": "#ffffff",
+                        "on-primary": "#ffffff",
+                        "surface-dim": "#cbdbf5",
+                        "on-error-container": "#93000a",
+                        "surface-container-lowest": "#ffffff",
+                        "status-pending": "#fff7ed",
+                        "surface-tint": "#465f87",
+                        "on-primary-container": "#7089b3",
+                        "secondary-fixed-dim": "#a2c9ff",
+                        "error-container": "#ffdad6",
+                        "surface-tint-blue": "#f8f9ff",
+                        "status-pending-text": "#7c2d12",
+                        "outline-variant": "#c4c6cf",
+                        "on-secondary-fixed": "#001c38",
+                        "surface-bright": "#f8f9ff",
+                        "surface-variant": "#d3e4fe",
+                        "primary-fixed-dim": "#aec7f5",
+                        "surface": "#f8f9ff",
+                        "on-secondary-fixed-variant": "#004881",
+                        "on-surface-variant": "#44474e",
+                        "on-tertiary-fixed": "#002111",
+                        "on-primary-fixed": "#001b3c",
+                        "secondary-fixed": "#d3e4ff",
+                        "secondary": "#1960a3",
+                        "inverse-primary": "#aec7f5",
+                        "status-resolved": "#003f25",
+                        "on-tertiary": "#ffffff",
+                        "inverse-on-surface": "#eaf1ff",
+                        "surface-container-low": "#eff4ff",
+                        "on-error": "#ffffff",
+                        "on-primary-fixed-variant": "#2e476e",
+                        "surface-container-highest": "#d3e4fe",
+                        "secondary-container": "#7db6ff",
+                        "tertiary-container": "#002614",
+                        "primary": "#00091b"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "gutter": "24px",
+                        "container-max": "1280px",
+                        "margin-mobile": "16px",
+                        "margin-desktop": "64px",
+                        "base": "8px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "display-lg-mobile": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-sm": ["Inter"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex">
+<!-- SideNavBar -->
+<aside class="hidden lg:flex flex-col fixed left-0 top-0 h-full z-40 p-base bg-surface-container-low dark:bg-inverse-surface shadow-md w-64">
+<div class="flex flex-col gap-4 mb-8 p-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined" data-icon="account_balance">account_balance</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Project Alpha</h2>
+<p class="font-label-md text-label-md text-on-surface-variant">Department of Works</p>
+</div>
+</div>
+<button class="w-full py-3 px-4 bg-primary text-on-primary rounded-xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+                New Report
+            </button>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 bg-secondary-container text-on-secondary-container font-bold rounded-xl active:scale-98 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+                Dashboard
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-xl" href="#">
+<span class="material-symbols-outlined" data-icon="report_problem">report_problem</span>
+                Complaints
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-xl" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+                Personnel
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-xl" href="#">
+<span class="material-symbols-outlined" data-icon="engineering">engineering</span>
+                Contractors
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-xl" href="#">
+<span class="material-symbols-outlined" data-icon="history_edu">history_edu</span>
+                Audit Logs
+            </a>
+</nav>
+<div class="mt-auto border-t border-outline-variant pt-4 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-xl" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+                Help Center
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-xl" href="#">
+<span class="material-symbols-outlined" data-icon="logout">logout</span>
+                Log Out
+            </a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-1 lg:ml-64 min-h-screen">
+<!-- TopNavBar -->
+<header class="bg-surface dark:bg-primary-container border-b border-outline-variant dark:border-outline shadow-sm sticky top-0 z-30">
+<div class="flex justify-between items-center w-full px-margin-desktop max-w-container-max mx-auto h-16">
+<div class="flex items-center gap-4">
+<h1 class="font-headline-md text-headline-md font-bold text-on-surface dark:text-on-primary-fixed">Authority Dashboard</h1>
+<span class="px-3 py-1 bg-surface-container text-on-secondary-container rounded-full text-label-md font-medium">District 4 Oversight</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="hidden md:flex items-center gap-4">
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="#">Municipal</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="#">City</a>
+<a class="text-secondary font-bold border-b-2 border-secondary pb-1" href="#">District</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="#">State</a>
+</div>
+<div class="flex items-center gap-3">
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary" data-icon="notifications">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary" data-icon="settings">settings</button>
+<img alt="Official Profile Avatar" class="w-8 h-8 rounded-full border border-outline-variant" data-alt="A professional headshot of a government official in a sharp navy suit, looking directly at the camera with a confident and trustworthy expression. The background is a blurred, high-end corporate office setting with cool, daylight lighting that emphasizes professional institutional authority and clarity." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAakCMc5klzzQNhGPvqx0_lDdaCr0SWLPMoVOHypRlz_c80MtbN73UiseNxErtKFxBiW_cJKjDq0rBrr1VFrWB4KVk3chAnhm9BITW1iEV7lNv0b_tsxHu30rprRJwa5bF1U9FyH2u39nZqedIrWJzeQp3NVeV2XFOdU3TE0LOxcY1IqhgDUk1NV6lFFxxMUMcwVcRT0NacVKEFxUGXyzEHSD5nBycWgyqXVy3nnE0V-6Qena4pTm7tmY_AfWNHu4FsE3DpxLd1pVs"/>
+</div>
+</div>
+</div>
+</header>
+<div class="px-margin-desktop py-base max-w-container-max mx-auto space-y-8">
+<!-- QueueSummary -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-gutter mt-8">
+<div class="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)]">
+<div class="flex items-center justify-between mb-4">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Open Cases</span>
+<span class="material-symbols-outlined text-secondary" data-icon="folder_open">folder_open</span>
+</div>
+<p class="font-display-lg text-display-lg text-on-surface">128</p>
+<div class="mt-2 h-1 bg-surface-container-high rounded-full">
+<div class="h-1 bg-secondary rounded-full w-3/4"></div>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)]">
+<div class="flex items-center justify-between mb-4">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Escalations</span>
+<span class="material-symbols-outlined text-error" data-icon="priority_high">priority_high</span>
+</div>
+<p class="font-display-lg text-display-lg text-on-surface">14</p>
+<div class="mt-2 h-1 bg-surface-container-high rounded-full">
+<div class="h-1 bg-error rounded-full w-1/4"></div>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)]">
+<div class="flex items-center justify-between mb-4">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">SLA Breaches</span>
+<span class="material-symbols-outlined text-error" data-icon="alarm_on">alarm_on</span>
+</div>
+<p class="font-display-lg text-display-lg text-on-surface">8</p>
+<div class="mt-2 h-1 bg-surface-container-high rounded-full">
+<div class="h-1 bg-error rounded-full w-[10%]"></div>
+</div>
+</div>
+</section>
+<!-- Split Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+<!-- Left Panel: JurisdictionProgressPanel -->
+<section class="lg:col-span-7 space-y-6">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] p-6">
+<div class="flex items-center justify-between mb-8">
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Jurisdiction Progress</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Real-time status tracking for District 4 Wards</p>
+</div>
+<div class="text-right">
+<span class="font-label-md text-label-md text-on-tertiary-container bg-tertiary-fixed-dim px-3 py-1 rounded-full">Trust Score</span>
+<p class="font-headline-lg text-headline-lg text-on-surface mt-1">88<span class="text-on-surface-variant font-normal text-headline-sm">/100</span></p>
+</div>
+</div>
+<!-- Bar Chart Progress Per Ward -->
+<div class="space-y-6">
+<div class="space-y-2">
+<div class="flex justify-between items-end">
+<span class="font-label-md text-label-md text-on-surface">Ward A - North District</span>
+<span class="font-label-md text-label-md font-bold text-secondary">92%</span>
+</div>
+<div class="h-3 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-secondary rounded-full" style="width: 92%"></div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between items-end">
+<span class="font-label-md text-label-md text-on-surface">Ward B - Commercial Hub</span>
+<span class="font-label-md text-label-md font-bold text-secondary">78%</span>
+</div>
+<div class="h-3 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-secondary rounded-full" style="width: 78%"></div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between items-end">
+<span class="font-label-md text-label-md text-on-surface">Ward C - Residential East</span>
+<span class="font-label-md text-label-md font-bold text-secondary">85%</span>
+</div>
+<div class="h-3 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-secondary rounded-full" style="width: 85%"></div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between items-end">
+<span class="font-label-md text-label-md text-on-surface">Ward D - Industrial Zone</span>
+<span class="font-label-md text-label-md font-bold text-on-tertiary-container">96%</span>
+</div>
+<div class="h-3 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-on-tertiary-container rounded-full" style="width: 96%"></div>
+</div>
+</div>
+</div>
+<!-- Map Placeholder -->
+<div class="mt-8 rounded-xl overflow-hidden aspect-video border border-outline-variant relative">
+<img class="w-full h-full object-cover grayscale" data-alt="A highly detailed and professional cartographic satellite map view showing a complex urban grid system of a modern city. The image features clear municipal boundaries, road networks, and infrastructure layers highlighted with subtle digital overlays in navy and teal. The aesthetic is clean, data-driven, and institutional, conveying a sense of high-level oversight and precision." data-location="Chicago" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBOHmw5e_zeOvP1fHaROP-5DCcJFO3FomZAbZPmM55gKqf08MKRBxNcWRTt-70YHA4lE9BoguAYDAiA-zi7yTiRKedS4RKO5VGdeyMqWQw139tnM7rFr-RhGffcXi8jV2zPi9mi8M8EgtKX4iHXzl3UM_gWNlQ1FkaAAk6Ck4-w8d_nGfTK6Y7FFFAqQ6f1hKpW77f7cQdcHb5BC6hgrQPT-lKJBEDgLjv9ic2dNu-4mNUlBl_HaCR07fno3VCR2agCREeA4Ql_vFo"/>
+<div class="absolute inset-0 bg-primary/10 pointer-events-none"></div>
+<div class="absolute top-4 right-4 bg-surface-container-lowest p-2 rounded shadow-sm border border-outline-variant text-label-md font-bold">
+                                GPS ACTIVE
+                            </div>
+</div>
+</div>
+</section>
+<!-- Right Panel: Personnel & Projects -->
+<section class="lg:col-span-5 space-y-gutter">
+<!-- JuniorDirectory -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] p-6">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-6">Field Personnel</h3>
+<div class="space-y-4">
+<div class="flex items-center gap-4 p-3 hover:bg-surface-container-low transition-colors rounded-lg group">
+<img class="w-12 h-12 rounded-full object-cover" data-alt="A portrait of a male infrastructure engineer wearing a bright yellow safety helmet and a professional vest. He is outdoors on a sunlit day, with a construction site blurred in the background. The mood is industrious and focused, adhering to a high-trust, institutional visual style with professional-grade lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBbjWJK5LJCagaE0ODCVMenqtGKik-qeob9IYcn65FZ3hax9DFZ9MUbGM5HpsVhAt6ynvwHXGD6RyPzIRG4bt4cPGWjwT9pVAjLXdUgiWcHzsHzMC799VGp3PdvcqyD6mS7rPfU8TIps_Vofo4gQEUZo5BvoXXEVEhouKAJoC7ygSoS93HGTmxRGZXnWFAyqX0tq2MabVRpRhfDBLQhx-GKXGhSfbwGjRIZS5GdZ1PTvcw8u8aOo6ucwm64jQoHpNhQJnimRWLv8MM"/>
+<div class="flex-1">
+<p class="font-label-md text-label-md text-on-surface font-bold">Marcus Thorne</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Lead Inspector</p>
+</div>
+<div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="call">call</span>
+</button>
+<button class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="mail">mail</span>
+</button>
+</div>
+</div>
+<div class="flex items-center gap-4 p-3 hover:bg-surface-container-low transition-colors rounded-lg group">
+<img class="w-12 h-12 rounded-full object-cover" data-alt="A professional portrait of a female project manager in a clean, modern urban environment. She is wearing a smart grey blazer and has a confident, approachable demeanor. The lighting is bright and natural, consistent with a digital-first governance platform focused on transparency and accountability." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBRKIHU6trg_RbWSEGqCBWiSbJAd2sF78khaQwW1cB0pttVXHvPPMk2xGLlbknE_OyfJ22c9XgcOaRUpJTbO9Xy7hTyDLJzjRUVR_TC6-74WBdDmfl5M8jldbvqSoMduu3kNOemQn6ml2nuT8tAZOuJ6h3xvf_exp3n_MjAwCm0z69b6nvIbwZ6eUNFwwhTVVxrFTmukjzniZOsie99qrP79he2eZNYPYAyR9c0ZVQIEaDW2Tkwqqqmb-eD9q-KjPTUw5Ri4uioH60"/>
+<div class="flex-1">
+<p class="font-label-md text-label-md text-on-surface font-bold">Elena Rodriguez</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Logistics Coordinator</p>
+</div>
+<div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="call">call</span>
+</button>
+<button class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="mail">mail</span>
+</button>
+</div>
+</div>
+<div class="flex items-center gap-4 p-3 hover:bg-surface-container-low transition-colors rounded-lg group">
+<img class="w-12 h-12 rounded-full object-cover" data-alt="A portrait of a male site supervisor with a serious, dedicated expression, wearing a reflective safety vest. The background shows a modern bridge infrastructure under construction during the golden hour, providing a warm yet professional atmospheric lighting. The image emphasizes reliability and hands-on governance." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCvqJhNu-MZPPM9K8sNp6QBLrggqCyaqaIjdZnovcS2jfLyy2bSwL9V3NF-oh1C8M2affbGEQEVHCORPQIQcqU9wdiAoUIS3S4r9ePQbvOQp5i-3qP20P07UzJH5sHY86ibyL6j_AXDjNwT74bn8HPE1qo45j3NvYMt54Rj8WgiXw8RFQRFc7hF6pHxH_lE0VU8a8AyVoiOv7HHTf-6z6cVZRakOYnVLgMymviHXeS4jUc8Ab81RHPyf5mRrj6u7aXde4ufH71TOQ8"/>
+<div class="flex-1">
+<p class="font-label-md text-label-md text-on-surface font-bold">Julian Chen</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Site Supervisor</p>
+</div>
+<div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="call">call</span>
+</button>
+<button class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="mail">mail</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- ProjectPortfolio -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] p-6">
+<div class="flex items-center justify-between mb-6">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Active Projects</h3>
+<button class="text-secondary font-label-md text-label-md hover:underline">View All</button>
+</div>
+<div class="space-y-6">
+<div class="p-4 border border-outline-variant rounded-xl hover:border-secondary transition-colors cursor-pointer">
+<div class="flex justify-between items-start mb-3">
+<div>
+<p class="font-label-md text-label-md text-on-surface font-bold">Main St Pothole Repair</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Priority: High</p>
+</div>
+<span class="px-2 py-1 bg-status-pending text-status-pending-text rounded text-[10px] font-bold uppercase">In Progress</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="flex-1 h-2 bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-secondary rounded-full" style="width: 65%"></div>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant">65%</span>
+</div>
+</div>
+<div class="p-4 border border-outline-variant rounded-xl hover:border-secondary transition-colors cursor-pointer">
+<div class="flex justify-between items-start mb-3">
+<div>
+<p class="font-label-md text-label-md text-on-surface font-bold">Bridge A1 Assessment</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Priority: Critical</p>
+</div>
+<span class="px-2 py-1 bg-error-container text-on-error-container rounded text-[10px] font-bold uppercase">Urgent</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="flex-1 h-2 bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-error rounded-full" style="width: 12%"></div>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant">12%</span>
+</div>
+</div>
+<div class="p-4 border border-outline-variant rounded-xl hover:border-secondary transition-colors cursor-pointer">
+<div class="flex justify-between items-start mb-3">
+<div>
+<p class="font-label-md text-label-md text-on-surface font-bold">Streetlight Upgrade - Sector 4</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Priority: Low</p>
+</div>
+<span class="px-2 py-1 bg-surface-container-high text-on-secondary-container rounded text-[10px] font-bold uppercase">Planning</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="flex-1 h-2 bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-secondary-container rounded-full" style="width: 90%"></div>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant">90%</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+<!-- Floating Action Button (FAB) -->
+<button class="fixed bottom-8 right-8 w-14 h-14 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center active:scale-90 transition-transform z-50">
+<span class="material-symbols-outlined text-[28px]" data-icon="add_road">add_road</span>
+</button>
+</main>
+<!-- Mobile Navigation -->
+<nav class="md:hidden fixed bottom-0 left-0 right-0 bg-surface border-t border-outline-variant flex justify-around items-center h-16 z-40">
+<button class="flex flex-col items-center gap-1 text-secondary font-bold">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="text-[10px]">Dashboard</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="report_problem">report_problem</span>
+<span class="text-[10px]">Complaints</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="engineering">engineering</span>
+<span class="text-[10px]">Projects</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="text-[10px]">Profile</span>
+</button>
+</nav>
+</body></html>

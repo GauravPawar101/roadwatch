@@ -1,6 +1,6 @@
-import * as crypto from 'crypto';
 import * as grpc from '@grpc/grpc-js';
-import { connect, signers, Contract, Gateway } from '@hyperledger/fabric-gateway';
+import { connect, Contract, Gateway, signers } from '@hyperledger/fabric-gateway';
+import * as crypto from 'crypto';
 import { promises as fs } from 'fs';
 
 /**
@@ -53,26 +53,125 @@ export class FabricDelegator {
     }
 
     /**
-     * Safely translates arbitrary native Node JWTs completely inherently natively implicitly directly cleanly safely explicitly mapping structurally completely implicitly seamlessly safely seamlessly implicitly inherently securely gracefully organically natively.
+     * Submit a citizen complaint to the blockchain using proper Fabric Gateway API.
      */
     async submitCitizenComplaint(jwtPayload: any, complaintData: any): Promise<string> {
-        if (!this.smartContract) throw new Error("GRPC Architectural execution gateway explicitly mathematically dropped safely structurally cleanly natively smoothly optimally natively elegantly elegantly gracefully elegantly natively intelligently successfully!");
+        if (!this.smartContract) {
+            throw new Error("Fabric gateway not initialized. Call initializeSecureVaults() first.");
+        }
 
-        console.log(\`[FabricDelegator] Initiating generic ledger assignment magically directly exactly implicitly inherently successfully logically natively correctly appropriately implicitly safely safely properly seamlessly appropriately elegantly smoothly logically optimally nicely accurately efficiently gracefully cleanly properly automatically efficiently appropriately elegantly properly automatically beautifully correctly properly accurately cleanly logically natively correctly accurately effectively smoothly on explicitly behalf of user: \${jwtPayload.userId}\`);
+        console.log(`[FabricDelegator] Submitting complaint to blockchain for user: ${jwtPayload.userId}`);
 
-        const transactionLimit = this.smartContract.createTransaction('CreateComplaint');
-        
-        // Execute Smart Contract strictly intrinsically sequentially natively correctly!
-        await transactionLimit.submit(
-            complaintData.id,
-            jwtPayload.userId, // Pulled cleanly out of the HTTP native JWT exactly elegantly properly!
-            complaintData.ipfsCid || 'unverified_blob',
-            JSON.stringify(complaintData.location || {})
-        );
+        try {
+            const transactionProposal = this.smartContract.newProposal('CreateComplaint', {
+                arguments: [
+                    complaintData.id,
+                    jwtPayload.userId,
+                    complaintData.roadId || 'unknown',
+                    JSON.stringify(complaintData.location || {}),
+                    complaintData.ipfsCid || '',
+                    complaintData.authorityOrg || 'DefaultAuthority',
+                    complaintData.detailsHash || ''
+                ]
+            });
 
-        const txCommitId = transactionLimit.getTransactionId();
-        console.log(\`[FabricDelegator] Block mathematically inherently gracefully committed successfully gracefully elegantly directly completely directly precisely securely securely inherently effectively completely securely logically securely effectively correctly inherently efficiently appropriately optimally smoothly cleanly gracefully directly naturally completely natively successfully accurately naturally accurately flawlessly explicitly elegantly logically smartly natively smartly successfully seamlessly elegantly natively smartly successfully intuitively efficiently securely securely smoothly efficiently effectively efficiently organically easily dynamically organically natively efficiently gracefully elegantly correctly cleanly smoothly efficiently inherently properly correctly properly properly correctly precisely globally cleanly effortlessly nicely implicitly effortlessly elegantly inherently efficiently implicitly structurally properly nicely nicely inherently perfectly correctly effectively natively effortlessly intelligently correctly beautifully appropriately elegantly optimally nicely smartly perfectly automatically properly seamlessly properly optimally flawlessly successfully effectively brilliantly perfectly smoothly efficiently directly correctly nicely efficiently precisely efficiently logically perfectly logically flawlessly smoothly natively intuitively optimally perfectly beautifully properly smartly correctly naturally successfully intelligently smoothly smartly flawlessly beautifully effortlessly automatically correctly organically optimally perfectly brilliantly! TxID: \${txCommitId}\`);
-        
-        return txCommitId;
+            const endorsedTransaction = await transactionProposal.endorse();
+            const committedTransaction = await endorsedTransaction.submit();
+            const status = await committedTransaction.getStatus();
+
+            if (!status.successful) {
+                throw new Error(`Transaction failed: ${status.transactionId}`);
+            }
+
+            console.log(`[FabricDelegator] Complaint successfully committed to blockchain. TxID: ${status.transactionId}`);
+
+            return status.transactionId;
+        } catch (error) {
+            console.error('[FabricDelegator] Error submitting complaint:', error);
+            throw new Error(`Failed to submit complaint to blockchain: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Retrieves complaint data from the blockchain
+     */
+    async getComplaint(complaintId: string): Promise<any> {
+        if (!this.smartContract) {
+            throw new Error("Fabric gateway not initialized. Call initializeSecureVaults() first.");
+        }
+
+        try {
+            const result = await this.smartContract.evaluateTransaction('GetComplaintHistory', complaintId);
+            const history = JSON.parse(result.toString()) as Array<{ value?: unknown }>;
+            return history.at(-1)?.value ?? null;
+        } catch (error) {
+            console.error('[FabricDelegator] Error retrieving complaint:', error);
+            throw new Error(`Failed to retrieve complaint from blockchain: ${error.message}`);
+        }
+    }
+
+    /**
+     * Updates complaint status on the blockchain
+     */
+    async updateComplaintStatus(complaintId: string, newStatus: string, authorityId: string, comments?: string): Promise<string> {
+        if (!this.smartContract) {
+            throw new Error("Fabric gateway not initialized. Call initializeSecureVaults() first.");
+        }
+
+        try {
+            const transactionProposal = this.smartContract.newProposal('UpdateComplaintStatus', {
+                arguments: [
+                    complaintId,
+                    newStatus,
+                    authorityId
+                ]
+            });
+
+            const transaction = await transactionProposal.endorse();
+            const commit = await transaction.submit();
+
+            const status = await commit.getStatus();
+            if (!status.successful) {
+                throw new Error(`Transaction failed: ${status.transactionId}`);
+            }
+
+            console.log(`[FabricDelegator] Complaint status updated. TxID: ${status.transactionId}`);
+            return status.transactionId;
+        } catch (error) {
+            console.error('[FabricDelegator] Error updating complaint status:', error);
+            throw new Error(`Failed to update complaint status: ${error.message}`);
+        }
+    }
+
+    /**
+     * Closes the Fabric gateway connection
+     */
+    async disconnect(): Promise<void> {
+        if (this.networkGateway) {
+            this.networkGateway.close();
+            this.networkGateway = null;
+            this.smartContract = null;
+            console.log('[FabricDelegator] Gateway connection closed');
+        }
+    }
+
+    /**
+     * Health check for Fabric connection
+     */
+    async healthCheck(): Promise<boolean> {
+        try {
+            if (!this.smartContract) {
+                return false;
+            }
+
+            // Use the standard contract metadata endpoint as a read-only probe.
+            await this.smartContract.evaluateTransaction('org.hyperledger.fabric:GetMetadata');
+            return true;
+        } catch (error) {
+            console.error('[FabricDelegator] Health check failed:', error);
+            return false;
+        }
     }
 }
+// The file previously contained duplicated method implementations and stray declarations.
+// Above we've consolidated the class and removed duplicate stray functions.

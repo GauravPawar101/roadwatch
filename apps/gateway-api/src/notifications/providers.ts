@@ -34,7 +34,10 @@ export async function sendViaChannel(params: SendParams): Promise<void> {
 async function sendFcm(params: SendParams): Promise<void> {
   const env = getEnv();
   const serverKey = env.FCM_SERVER_KEY;
-  if (!serverKey) throw new Error('FCM not configured (FCM_SERVER_KEY missing)');
+  if (!serverKey) {
+    console.warn('[notifications] FCM not configured (FCM_SERVER_KEY missing). Skipping FCM send.');
+    return;
+  }
 
   const topics = [fcmTopicForUser(params.userId)];
   if (params.district) topics.push(fcmTopicForJurisdiction({ district: params.district, zone: params.zone ?? undefined }));
@@ -58,7 +61,8 @@ async function sendFcm(params: SendParams): Promise<void> {
 
   if (!r.ok) {
     const t = await r.text();
-    throw new Error(`FCM send failed: ${r.status} ${t}`);
+    console.error(`[notifications] FCM send failed: ${r.status} ${t}`);
+    return;
   }
 }
 
@@ -67,14 +71,16 @@ async function sendSms(params: SendParams): Promise<void> {
   const provider = (env.SMS_PROVIDER ?? 'twilio').toLowerCase();
   if (provider === 'twilio') return sendTwilioSms(params);
   if (provider === 'msg91') return sendMsg91Sms(params);
-  throw new Error('SMS provider not configured (SMS_PROVIDER)');
+  console.warn('[notifications] SMS provider not configured (SMS_PROVIDER). Skipping SMS.');
+  return;
 }
 
 async function sendWhatsapp(params: SendParams): Promise<void> {
   const env = getEnv();
   const provider = (env.WHATSAPP_PROVIDER ?? 'twilio').toLowerCase();
   if (provider === 'twilio') return sendTwilioWhatsapp(params);
-  throw new Error('WhatsApp provider not configured (WHATSAPP_PROVIDER)');
+  console.warn('[notifications] WhatsApp provider not configured (WHATSAPP_PROVIDER). Skipping WhatsApp.');
+  return;
 }
 
 async function sendTwilioSms(params: SendParams): Promise<void> {
@@ -102,7 +108,8 @@ async function sendTwilioSms(params: SendParams): Promise<void> {
 
   if (!r.ok) {
     const t = await r.text();
-    throw new Error(`Twilio SMS failed: ${r.status} ${t}`);
+    console.error(`[notifications] Twilio SMS failed: ${r.status} ${t}`);
+    return;
   }
 }
 
@@ -131,7 +138,8 @@ async function sendTwilioWhatsapp(params: SendParams): Promise<void> {
 
   if (!r.ok) {
     const t = await r.text();
-    throw new Error(`Twilio WhatsApp failed: ${r.status} ${t}`);
+    console.error(`[notifications] Twilio WhatsApp failed: ${r.status} ${t}`);
+    return;
   }
 }
 
@@ -163,7 +171,8 @@ async function sendMsg91Sms(params: SendParams): Promise<void> {
 
   if (!r.ok) {
     const t = await r.text();
-    throw new Error(`MSG91 SMS failed: ${r.status} ${t}`);
+    console.error(`[notifications] MSG91 SMS failed: ${r.status} ${t}`);
+    return;
   }
 }
 

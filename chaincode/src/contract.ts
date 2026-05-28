@@ -2,6 +2,16 @@ import { Context, Contract } from 'fabric-contract-api';
 import { Complaint, ComplaintPII, ComplaintStatus, MerkleAnchorBatch } from './asset';
 
 export class ComplaintContract extends Contract {
+    private async markEventProcessed(ctx: Context, eventId: string): Promise<boolean> {
+        const key = ctx.stub.createCompositeKey('EVENT', [eventId]);
+        const existing = await ctx.stub.getState(key);
+        if (existing && existing.length > 0) {
+            return false;
+        }
+        await ctx.stub.putState(key, Buffer.from('1'));
+        return true;
+    }
+
     /**
      * Create a new Complaint asset on the ledger.
         * Only callable by CitizenOrgMSP (citizen-side backend delegator).
@@ -37,6 +47,7 @@ export class ComplaintContract extends Contract {
             ID: id,
             RoadID: roadId,
             DetailsHash: detailsHash ?? '',
+            ReportCount: 1,
             Status: ComplaintStatus.FILED,
             AuthorityOrg: authorityOrg,
             CreatedAt: now,
@@ -67,41 +78,99 @@ export class ComplaintContract extends Contract {
     }
 
     /**
+     * Create or merge a complaint submission idempotently.
+     */
+    public async UpsertComplaintSubmission(
+        ctx: Context,
+        id: string,
+        citizenId: string,
+        roadId: string,
+        location: string,
+        initialIPFSCid: string,
+        authorityOrg: string,
+        detailsHash: string,
+        eventId: string,
+        merged: string,
+        reportCount: string
+    ): Promise<void> {
+        const processed = await this.markEventProcessed(ctx, eventId);
+        if (!processed) {
+            return;
+        }
+
+        const exists = await ctx.stub.getState(id);
+        if (exists && exists.length > 0) {
+            const complaint = JSON.parse(exists.toString()) as Complaint;
+            complaint.ReportCount = Math.max(1, Number(reportCount) || (complaint.ReportCount ?? 1) + 1);
+            complaint.UpdatedAt = Date.now();
+            await ctx.stub.putState(id, Buffer.from(JSON.stringify(complaint)));
+            return;
+        }
+
+        const complaint: Complaint = {
+            ID: id,
+            RoadID: roadId,
+            DetailsHash: detailsHash ?? '',
+            ReportCount: Math.max(1, Number(reportCount) || 1),
+            Status: ComplaintStatus.FILED,
+            AuthorityOrg: authorityOrg,
+            CreatedAt: Date.now(),
+            UpdatedAt: Date.now()
+        };
+
+        await ctx.stub.putState(id, Buffer.from(JSON.stringify(complaint)));
+
+        const transient = ctx.stub.getTransient();
+        let pii: ComplaintPII;
+
+        const transientPii = transient.get('pii');
+        if (transientPii && transientPii.length > 0) {
+            pii = JSON.parse(Buffer.from(transientPii).toString('utf8')) as ComplaintPII;
+        } else {
+            pii = {
+                CitizenID: citizenId || undefined,
+                Location: location || undefined,
+                InitialIPFSCid: initialIPFSCid || undefined
+            };
+        }
+
+        if (pii && (pii.CitizenID || pii.Location || pii.InitialIPFSCid)) {
+            await ctx.stub.putPrivateData('citizenPIICollection', id, Buffer.from(JSON.stringify(pii)));
+        }
+    }
+
+    /**
      * Anchor a Merkle root representing a batch of off-ledger complaint events.
      * Stores only the root + batch metadata on the ledger (no PII).
      */
-    public async AnchorMerkleRoot(ctx: Context, batchId: string, merkleRoot: string, count: string): Promise<void> {
-        const mspId = ctx.clientIdentity.getMSPID();
-        const allowedCitizenMsps = (process.env.ALLOWED_CITIZEN_MSPS ?? 'CitizenOrgMSP')
-            .split(',')
-            .map(s => s.trim())
-            .filter(Boolean);
-
-        if (!allowedCitizenMsps.includes(mspId)) {
-            throw new Error(`MSP ${mspId} is not authorized to anchor Merkle roots.`);
+    public async SubmitMerkleRoot(ctx: Context, merkleRoot: string, regionCode: string, batchSize: string): Promise<void> {
+        const clientMSP = ctx.clientIdentity.getMSPID();
+        if (clientMSP !== 'NHAIMSP' && clientMSP !== 'RoadWatchMSP') {
+            throw new Error(`SubmitMerkleRoot: unauthorized MSP: ${clientMSP}`);
         }
+        if (!merkleRoot || merkleRoot.length !== 64) throw new Error('SubmitMerkleRoot: invalid merkleRoot');
+        if (!regionCode) throw new Error('SubmitMerkleRoot: regionCode required');
+        if (!Number.isInteger(Number(batchSize)) || Number(batchSize) < 1) throw new Error('SubmitMerkleRoot: invalid batchSize');
 
-        const now = Date.now();
-        const key = `ANCHOR_BATCH_${batchId}`;
-        const exists = await ctx.stub.getState(key);
-        if (exists && exists.length > 0) {
-            throw new Error(`Anchor batch with ID ${batchId} already exists.`);
-        }
+        const key = ctx.stub.createCompositeKey('ANCHOR', [merkleRoot]);
+        const existing = await ctx.stub.getState(key);
+        if (existing && existing.length > 0) return;
 
-        const batch: MerkleAnchorBatch = {
-            ID: batchId,
-            MerkleRoot: merkleRoot,
-            Count: Number(count),
-            CreatedAt: now
-        };
+        const tsObj = await ctx.stub.getTxTimestamp();
+        const ts = tsObj && tsObj.seconds ? Number(tsObj.seconds.low || tsObj.seconds) : Math.floor(Date.now() / 1000);
 
-        await ctx.stub.putState(key, Buffer.from(JSON.stringify(batch)));
-        await ctx.stub.setEvent('MerkleRootAnchored', Buffer.from(JSON.stringify({
-            batchId,
+        const record = {
+            anchorId: 'ANCHOR_' + merkleRoot.slice(0, 16),
             merkleRoot,
-            count: batch.Count,
-            anchoredAt: now
-        })));
+            batchSize: Number(batchSize),
+            regionCode,
+            submittedBy: clientMSP,
+            txId: ctx.stub.getTxID(),
+            timestamp: ts,
+        } as MerkleAnchorBatch & { anchorId: string; regionCode: string; submittedBy: string; txId: string; timestamp: number };
+
+        await ctx.stub.putState(key, Buffer.from(JSON.stringify(record)));
+        await ctx.stub.setEvent('MerkleRootAnchored', Buffer.from(JSON.stringify(record)));
     }
     /**
      * Update the status of a complaint (Authority only).
@@ -110,8 +179,16 @@ export class ComplaintContract extends Contract {
         ctx: Context,
         complaintId: string,
         newStatus: string,
-        officialEmployeeId: string
+        officialEmployeeId: string,
+        eventIdempotencyKey?: string
     ): Promise<void> {
+        if (eventIdempotencyKey) {
+            const processed = await this.markEventProcessed(ctx, eventIdempotencyKey);
+            if (!processed) {
+                return;
+            }
+        }
+
         const mspId = ctx.clientIdentity.getMSPID();
         if (mspId === 'CitizenOrgMSP') {
             throw new Error('Citizens cannot update complaint status.');
