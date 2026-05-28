@@ -37,6 +37,32 @@ export async function initDb(): Promise<void> {
   try {
     await client.query('SELECT NOW()');
     await client.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS phone_masked text');
+    await client.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS fabric_identity_id text');
+    await client.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS karma_score integer NOT NULL DEFAULT 0');
+    await client.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS karma_updated_at timestamptz NOT NULL DEFAULT NOW()');
+    await client.query('ALTER TABLE IF EXISTS complaints ADD COLUMN IF NOT EXISTS user_id uuid');
+    await client.query('CREATE INDEX IF NOT EXISTS complaints_user_id_idx ON complaints (user_id)');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS fabric_identities (
+        id text PRIMARY KEY,
+        user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+        role text NOT NULL,
+        org_name text NOT NULL,
+        cert_pem text NOT NULL,
+        msp_id text NOT NULL,
+        verified boolean NOT NULL DEFAULT false,
+        cert_subject text,
+        cert_issuer text,
+        cert_serial text,
+        cert_valid_from timestamptz,
+        cert_valid_to timestamptz,
+        created_at timestamptz NOT NULL DEFAULT NOW(),
+        updated_at timestamptz NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await client.query('CREATE UNIQUE INDEX IF NOT EXISTS fabric_identities_user_role_idx ON fabric_identities (user_id, role)');
 
     const missingMaskedPhones = await client.query<{ id: string; phone: string | null }>(
       `SELECT id, phone

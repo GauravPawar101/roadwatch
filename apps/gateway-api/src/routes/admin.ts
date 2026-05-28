@@ -1,18 +1,20 @@
 import express from 'express';
 import { z } from 'zod';
-import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult, type IdempotencyClaim } from '../idempotency.js';
+import { registerFabricIdentity, verifyFabricIdentity } from '../auth/fabric.js';
 import {
-  bulkUpsertRoads,
-  createContractor,
-  createRoadAssignment,
-  listUsers,
-  upsertAuthorityDirectory,
-  upsertCountry,
-  upsertDistrict,
-  upsertState,
-  upsertUser
+    bulkUpsertRoads,
+    createContractor,
+    createRoadAssignment,
+    listUsers,
+    upsertAuthorityDirectory,
+    upsertCountry,
+    upsertDistrict,
+    upsertState,
+    upsertUser
 } from '../db.js';
+import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult, type IdempotencyClaim } from '../idempotency.js';
 import { requireAuth, requireRole } from '../rbac.js';
+import { requireRegistrySecret } from '../services/discovery.js';
 
 const router = express.Router();
 
@@ -67,6 +69,40 @@ router.post('/users', requireAuth, requireRole(['CE']), async (req, res) => {
 
   await storeIdempotencyResult(claimed, 200, responseBody);
   res.json(responseBody);
+});
+
+router.post('/fabric-identities/seed', requireRegistrySecret, async (req, res) => {
+  const body = z
+    .object({
+      identities: z
+        .array(
+          z.object({
+            userId: z.string().min(1),
+            role: z.enum(['CE', 'EE', 'CONTRACTOR']),
+            orgName: z.string().min(1),
+            certPem: z.string().min(1),
+            mspId: z.string().min(1)
+          })
+        )
+        .min(1)
+    })
+    .parse(req.body);
+
+  const seeded: Array<{ userId: string; role: 'CE' | 'EE' | 'CONTRACTOR'; fabricIdentityId: string; verified: boolean }> = [];
+
+  for (const identity of body.identities) {
+    const registered = await registerFabricIdentity(identity);
+    const verified = await verifyFabricIdentity({ userId: identity.userId, role: identity.role, certPem: identity.certPem });
+
+    seeded.push({
+      userId: identity.userId,
+      role: identity.role,
+      fabricIdentityId: registered.id,
+      verified
+    });
+  }
+
+  res.json({ ok: true, seeded });
 });
 
 router.get('/users', requireAuth, requireRole(['CE']), async (req, res) => {

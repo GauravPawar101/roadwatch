@@ -195,6 +195,19 @@ function sha256Hex(input: string): string {
   return crypto.createHash('sha256').update(input, 'utf8').digest('hex');
 }
 
+function toFabricRegionCode(input: string | null | undefined): string {
+  const compact = String(input ?? '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^A-Za-z0-9-]/g, '');
+
+  if (compact.length === 0) {
+    return 'UNKNOWN';
+  }
+
+  return compact.length <= 10 ? compact : compact.slice(0, 10);
+}
+
 function merkleRoot(leaves: string[]): { root: string; proofs: ProofStep[][] } {
   if (leaves.length === 0) {
     return { root: sha256Hex(''), proofs: [] };
@@ -473,7 +486,9 @@ async function main(): Promise<void> {
         const { root, proofs } = merkleRoot(leaves);
         const batchId = crypto.randomUUID();
 
-        const regionCode = processedSubmitted[0]?.event.district || processedSubmitted[0]?.event.zone || 'UNKNOWN';
+        const regionCode = toFabricRegionCode(
+          processedSubmitted[0]?.event.district || processedSubmitted[0]?.event.zone || 'UNKNOWN'
+        );
         const proposal = contract.newProposal('SubmitMerkleRoot', {
           arguments: [root, regionCode, processedSubmitted.length.toString()]
         });

@@ -54,7 +54,9 @@ ALTER TABLE IF EXISTS users
   ADD COLUMN IF NOT EXISTS phone_enc text,
   ADD COLUMN IF NOT EXISTS phone_last4 text,
   ADD COLUMN IF NOT EXISTS clerk_user_id uuid,
-  ADD COLUMN IF NOT EXISTS govt_id text;
+  ADD COLUMN IF NOT EXISTS govt_id text,
+  ADD COLUMN IF NOT EXISTS karma_score integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS karma_updated_at timestamptz NOT NULL DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS users_role_idx ON users (role);
 
@@ -94,6 +96,9 @@ CREATE INDEX IF NOT EXISTS complaints_district_idx       ON complaints (district
 CREATE INDEX IF NOT EXISTS complaints_status_idx         ON complaints (status);
 CREATE INDEX IF NOT EXISTS complaints_damage_type_idx    ON complaints (damage_type);
 CREATE INDEX IF NOT EXISTS complaints_severity_idx       ON complaints (severity);
+ALTER TABLE IF EXISTS complaints
+  ADD COLUMN IF NOT EXISTS user_id uuid;
+CREATE INDEX IF NOT EXISTS complaints_user_id_idx        ON complaints (user_id);
 
 -- =============================================================
 --  Complaint attachments

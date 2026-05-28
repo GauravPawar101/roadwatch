@@ -1,5 +1,4 @@
 import express from 'express';
-import crypto from 'node:crypto';
 import { z } from 'zod';
 import { trackAnalyticsEvent } from '../analytics/service.js';
 import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
@@ -565,8 +564,8 @@ router.post('/', requireAuth, async (req, res) => {
         await client.query(
           `INSERT INTO complaints (
              id, road_id, status, description, lat, lng,
-             district, zone, metadata, created_at, updated_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())`,
+             district, zone, metadata, user_id, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
           [
             complaintId,
             data.roadId,
@@ -576,7 +575,8 @@ router.post('/', requireAuth, async (req, res) => {
             data.lng,
             user.districts?.[0] || 'Unknown',
             user.zones?.[0] || 'Unknown',
-            JSON.stringify(metadata)
+            JSON.stringify(metadata),
+            user.sub
           ]
         );
 

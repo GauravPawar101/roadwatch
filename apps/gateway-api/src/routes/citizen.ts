@@ -250,8 +250,8 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
       complaintId = uuidv7();
       await tx`
         INSERT INTO complaints
-           (id, district, zone, status, description, lat, lng, road_id, authority_id, report_count, created_at, updated_at)
-         VALUES (${complaintId}, ${districtCode}, ${authorityId}, 'FILED', ${body.description}, ${body.lat}, ${body.lng}, ${body.roadId}, ${authorityId}, 1, NOW(), NOW())
+           (id, district, zone, status, description, lat, lng, road_id, authority_id, user_id, report_count, created_at, updated_at)
+         VALUES (${complaintId}, ${districtCode}, ${authorityId}, 'FILED', ${body.description}, ${body.lat}, ${body.lng}, ${body.roadId}, ${authorityId}, ${user.sub}, 1, NOW(), NOW())
       `;
       reportCount = 1;
     }

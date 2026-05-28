@@ -1,13 +1,17 @@
 import bcrypt from 'bcryptjs';
 import { createHash } from 'crypto';
 import dotenv from 'dotenv';
-import { writeFile } from 'fs/promises';
+import { readFile, writeFile } from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { KafkaProducer } from '../../../providers/kafka/KafkaProducer.js';
 import { KafkaTopics, type ComplaintSubmittedEvent } from '../../../providers/kafka/topics.js';
 
 dotenv.config();
 process.env.ROADWATCH_SKIP_MINI_SEED = '1';
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(scriptDir, '../../../');
 
 let pool: {
   query: (text: string, params?: unknown[]) => Promise<{ rowCount?: number; rows?: Array<Record<string, unknown>> }>;
@@ -89,6 +93,12 @@ type SeedCredential = {
   identifiers: string[];
 };
 
+type FabricSeedIdentityConfig = {
+  certPem: string;
+  mspId: string;
+  orgName: string;
+};
+
 const seededComplaintTotal = 1000;
 
 function mulberry32(seed: number) {
@@ -111,6 +121,71 @@ function phoneFromIndex(base: string, index: number) {
 function deterministicUuid(seed: string) {
   const hash = createHash('sha256').update(seed).digest('hex');
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`;
+}
+
+function readEnvFileValue(envText: string, key: string): string | undefined {
+  const match = envText.match(new RegExp(`^${key}=(.*)$`, 'm'));
+  if (!match) return undefined;
+  return match[1]!.trim().replace(/^['"]|['"]$/g, '');
+}
+
+async function loadFabricSeedIdentityConfig(): Promise<FabricSeedIdentityConfig | null> {
+  const seedCertPath = process.env.FABRIC_X509_CERT_PATH ?? process.env.ROADWATCH_FABRIC_SEED_CERT_PATH;
+  const seedMspId = process.env.FABRIC_MSP_ID ?? process.env.ROADWATCH_FABRIC_SEED_MSP_ID;
+  const seedOrgName = process.env.ROADWATCH_FABRIC_SEED_ORG_NAME ?? 'RoadWatch Fabric';
+
+  let certPath = seedCertPath;
+  let mspId = seedMspId;
+
+  if (!certPath || !mspId) {
+    try {
+      const envPath = path.resolve(repoRoot, 'services/fabric-anchor-consumer/.env');
+      const envText = await readFile(envPath, 'utf8');
+      certPath = certPath ?? readEnvFileValue(envText, 'FABRIC_X509_CERT_PATH');
+      mspId = mspId ?? readEnvFileValue(envText, 'FABRIC_MSP_ID');
+    } catch {
+      // If the local Fabric env file is missing, continue without identity seeding.
+    }
+  }
+
+  if (!certPath || !mspId) {
+    return null;
+  }
+
+  const certPem = await readFile(certPath, 'utf8');
+  return { certPem, mspId, orgName: seedOrgName };
+}
+
+async function seedFabricIdentities(users: SeededUser[], config: FabricSeedIdentityConfig): Promise<void> {
+  for (const user of users) {
+    if (user.role === 'CITIZEN') continue;
+
+    const fabricIdentityId = `${config.mspId}-${user.dbId}`;
+    const now = new Date();
+
+    await pool.query(
+      `INSERT INTO fabric_identities (
+        id, user_id, role, org_name, cert_pem, msp_id, verified, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ON CONFLICT (id) DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        role = EXCLUDED.role,
+        org_name = EXCLUDED.org_name,
+        cert_pem = EXCLUDED.cert_pem,
+        msp_id = EXCLUDED.msp_id,
+        verified = EXCLUDED.verified,
+        updated_at = EXCLUDED.updated_at`,
+      [fabricIdentityId, user.dbId, user.role, config.orgName, config.certPem, config.mspId, true, now, now]
+    );
+
+    await pool.query(
+      `UPDATE users
+          SET fabric_verified = true,
+              fabric_identity_id = $2
+        WHERE id = $1`,
+      [user.dbId, fabricIdentityId]
+    );
+  }
 }
 
 function buildBoundingBox(center: { lat: number; lng: number }, spreadLat = 0.18, spreadLng = 0.22) {
@@ -395,97 +470,177 @@ const districtBlueprints: DistrictBlueprint[] = [
 
 const districtSeeds: DistrictSeed[] = districtBlueprints.map(buildDistrictSeed);
 
-const adminSeed: SeedUser = {
-  id: 'SEED-ADMIN-01',
-  phone: phoneFromIndex('990000', 1),
-  maskedPhone: '+91-99XXXX0001',
-  username: 'admin.ce',
-  email: 'admin.ce@roadwatch.local',
-  role: 'CE',
-  districts: ['ALL'],
-  zones: ['ALL'],
-  govtId: 'ADM-001',
-  label: 'Admin / CE'
-};
-
-const officerDistrictSets = [
-  ['New Delhi', 'South Delhi'],
-  ['East Delhi'],
-  ['Mumbai'],
-  ['Pune', 'Mumbai'],
-  ['Lucknow', 'Noida'],
-  ['Bengaluru Urban'],
-  ['Mysuru', 'Bengaluru Urban'],
-  ['Chennai'],
-  ['Hyderabad'],
-  ['Ahmedabad'],
-  ['Kolkata'],
-  ['Thiruvananthapuram'],
-  ['New Delhi', 'East Delhi'],
-  ['South Delhi', 'Ahmedabad']
+const superAdminSeeds: SeedUser[] = [
+  {
+    id: 'SEED-ADMIN-01',
+    phone: phoneFromIndex('990000', 1),
+    maskedPhone: '+91-99XXXX0001',
+    username: 'super.admin.01',
+    email: 'super.admin.01@roadwatch.local',
+    role: 'CE',
+    districts: ['ALL'],
+    zones: ['ALL'],
+    govtId: 'ADM-001',
+    label: 'Super Admin 1'
+  },
+  {
+    id: 'SEED-ADMIN-02',
+    phone: phoneFromIndex('990000', 2),
+    maskedPhone: '+91-99XXXX0002',
+    username: 'super.admin.02',
+    email: 'super.admin.02@roadwatch.local',
+    role: 'CE',
+    districts: ['ALL'],
+    zones: ['ALL'],
+    govtId: 'ADM-002',
+    label: 'Super Admin 2'
+  }
 ];
 
-const officerSeeds: SeedUser[] = officerDistrictSets.map((districts, index) => ({
-  id: `SEED-OFFICER-${String(index + 1).padStart(2, '0')}`,
-  phone: phoneFromIndex('991000', index + 1),
-  maskedPhone: `+91-99XXXX${String(index + 1).padStart(4, '0')}`,
-  username: `ee.${slugify(districts.join('-'))}.${String(index + 1).padStart(2, '0')}`,
-  email: index % 2 === 0 ? `ee.${slugify(districts.join('-'))}@roadwatch.local` : null,
-  role: 'EE',
-  districts,
-  zones: ['ALL'],
-  govtId: `OFF-${String(index + 1).padStart(3, '0')}`,
-  label: `District Officer ${index + 1}`
-}));
-
-const citizenSeeds: SeedUser[] = districtSeeds.flatMap((district, districtIndex) =>
-  Array.from({ length: 4 }, (_unused, localIndex) => {
-    const numericIndex = districtIndex * 4 + localIndex + 1;
-    const username = `citizen.${slugify(district.districtName)}.${String(localIndex + 1).padStart(2, '0')}`;
-    return {
-      id: `SEED-CITIZEN-${String(numericIndex).padStart(3, '0')}`,
-      phone: phoneFromIndex('992000', numericIndex),
-      maskedPhone: `+91-98XXXX${String(numericIndex).padStart(4, '0')}`,
-      username,
-      email: localIndex % 2 === 0 ? `${username}@roadwatch.local` : null,
-      role: 'CITIZEN',
-      districts: [district.districtName],
-      zones: [district.zones[localIndex % district.zones.length]!],
-      govtId: `CIT-${String(numericIndex).padStart(4, '0')}`,
-      label: `Citizen ${numericIndex} (${district.districtName})`
-    };
-  })
-);
-
-const contractorNames = [
-  'SuperBuild Infra',
-  'Delta Roads Pvt Ltd',
-  'Northline Infrastructure',
-  'Gomti Civil Works',
-  'Yamuna Buildcon',
-  'Metro Grid Works',
-  'Coromandel Roads',
-  'UrbanLift Infra',
-  'Peakline Projects',
-  'Delta East Maintenance',
-  'Harbor Arc Contractors',
-  'Crescent Surface Systems',
-  'Vertex Pavement Works',
-  'Monsoon Civil Group',
-  'Pinnacle Highway Services'
+const authoritySeeds: SeedUser[] = [
+  {
+    id: 'SEED-OFFICER-01',
+    phone: phoneFromIndex('991000', 1),
+    maskedPhone: '+91-99XXXX0001',
+    username: 'ee.new-delhi-south-delhi.01',
+    email: 'ee.new-delhi-south-delhi.01@roadwatch.local',
+    role: 'EE',
+    districts: ['New Delhi', 'South Delhi'],
+    zones: ['ALL'],
+    govtId: 'OFF-001',
+    label: 'Authority Official 1'
+  },
+  {
+    id: 'SEED-OFFICER-02',
+    phone: phoneFromIndex('991000', 2),
+    maskedPhone: '+91-99XXXX0002',
+    username: 'ee.east-delhi.02',
+    email: null,
+    role: 'EE',
+    districts: ['East Delhi'],
+    zones: ['ALL'],
+    govtId: 'OFF-002',
+    label: 'Authority Official 2'
+  },
+  {
+    id: 'SEED-OFFICER-03',
+    phone: phoneFromIndex('991000', 3),
+    maskedPhone: '+91-99XXXX0003',
+    username: 'ee.mumbai-pune.03',
+    email: 'ee.mumbai-pune.03@roadwatch.local',
+    role: 'EE',
+    districts: ['Mumbai', 'Pune'],
+    zones: ['ALL'],
+    govtId: 'OFF-003',
+    label: 'Authority Official 3'
+  },
+  {
+    id: 'SEED-OFFICER-04',
+    phone: phoneFromIndex('991000', 4),
+    maskedPhone: '+91-99XXXX0004',
+    username: 'ee.lucknow-noida.04',
+    email: null,
+    role: 'EE',
+    districts: ['Lucknow', 'Noida'],
+    zones: ['ALL'],
+    govtId: 'OFF-004',
+    label: 'Authority Official 4'
+  },
+  {
+    id: 'SEED-OFFICER-05',
+    phone: phoneFromIndex('991000', 5),
+    maskedPhone: '+91-99XXXX0005',
+    username: 'ee.bengaluru-urban-mysuru.05',
+    email: 'ee.bengaluru-urban-mysuru.05@roadwatch.local',
+    role: 'EE',
+    districts: ['Bengaluru Urban', 'Mysuru'],
+    zones: ['ALL'],
+    govtId: 'OFF-005',
+    label: 'Authority Official 5'
+  }
 ];
 
-const contractorSeeds: SeedContractor[] = districtSeeds.map((district, index) => {
-  const partnerDistrict = districtSeeds[(index + 1) % districtSeeds.length]!;
-  return {
-    id: deterministicUuid(`contractor:${index + 1}`),
-    name: contractorNames[index % contractorNames.length]!,
-    registrationNumber: `CTR-${String(index + 1).padStart(4, '0')}`,
-    contactPhoneMasked: `+91-98XXXX${String(2001 + index).padStart(4, '0')}`,
-    districts: [district.districtName, partnerDistrict.districtName],
-    zones: [district.zones[0]!, partnerDistrict.zones[0]!]
-  };
-});
+const citizenSeeds: SeedUser[] = [
+  {
+    id: 'SEED-CITIZEN-001',
+    phone: phoneFromIndex('992000', 1),
+    maskedPhone: '+91-98XXXX0001',
+    username: 'citizen.new-delhi.01',
+    email: 'citizen.new-delhi.01@roadwatch.local',
+    role: 'CITIZEN',
+    districts: ['New Delhi'],
+    zones: ['Central'],
+    govtId: 'CIT-0001',
+    label: 'Citizen 1 (New Delhi)'
+  },
+  {
+    id: 'SEED-CITIZEN-002',
+    phone: phoneFromIndex('992000', 2),
+    maskedPhone: '+91-98XXXX0002',
+    username: 'citizen.south-delhi.02',
+    email: null,
+    role: 'CITIZEN',
+    districts: ['South Delhi'],
+    zones: ['South'],
+    govtId: 'CIT-0002',
+    label: 'Citizen 2 (South Delhi)'
+  },
+  {
+    id: 'SEED-CITIZEN-003',
+    phone: phoneFromIndex('992000', 3),
+    maskedPhone: '+91-98XXXX0003',
+    username: 'citizen.mumbai.03',
+    email: 'citizen.mumbai.03@roadwatch.local',
+    role: 'CITIZEN',
+    districts: ['Mumbai'],
+    zones: ['West'],
+    govtId: 'CIT-0003',
+    label: 'Citizen 3 (Mumbai)'
+  }
+];
+
+const contractorSeeds: SeedContractor[] = [
+  {
+    id: deterministicUuid('contractor:1'),
+    name: 'SuperBuild Infra',
+    registrationNumber: 'CTR-0001',
+    contactPhoneMasked: '+91-98XXXX2001',
+    districts: ['New Delhi', 'South Delhi'],
+    zones: ['Central', 'South']
+  },
+  {
+    id: deterministicUuid('contractor:2'),
+    name: 'Delta Roads Pvt Ltd',
+    registrationNumber: 'CTR-0002',
+    contactPhoneMasked: '+91-98XXXX2002',
+    districts: ['East Delhi', 'Mumbai'],
+    zones: ['Shahdara', 'West']
+  },
+  {
+    id: deterministicUuid('contractor:3'),
+    name: 'Northline Infrastructure',
+    registrationNumber: 'CTR-0003',
+    contactPhoneMasked: '+91-98XXXX2003',
+    districts: ['Pune', 'Lucknow'],
+    zones: ['Hadapsar', 'Central']
+  },
+  {
+    id: deterministicUuid('contractor:4'),
+    name: 'Gomti Civil Works',
+    registrationNumber: 'CTR-0004',
+    contactPhoneMasked: '+91-98XXXX2004',
+    districts: ['Noida', 'Bengaluru Urban'],
+    zones: ['Expressway', 'East']
+  },
+  {
+    id: deterministicUuid('contractor:5'),
+    name: 'Yamuna Buildcon',
+    registrationNumber: 'CTR-0005',
+    contactPhoneMasked: '+91-98XXXX2005',
+    districts: ['Mysuru', 'Chennai'],
+    zones: ['Outer Ring', 'North']
+  }
+];
 
 const contractorUserSeeds: SeedUser[] = contractorSeeds.map((contractor, index) => ({
   id: `SEED-CTR-USER-${String(index + 1).padStart(2, '0')}`,
@@ -1691,6 +1846,13 @@ async function main() {
   await writeCredentialFile(seedPassword, [adminUser, ...officers, ...citizens, ...contractorUsers]);
 
   await seedUserSupportTables([adminUser, ...officers, ...citizens, ...contractorUsers], ['CE', 'EE', 'CONTRACTOR', 'CITIZEN']);
+
+  const fabricSeedIdentityConfig = await loadFabricSeedIdentityConfig();
+  if (fabricSeedIdentityConfig) {
+    await seedFabricIdentities([adminUser, ...officers, ...contractorUsers], fabricSeedIdentityConfig);
+  } else {
+    console.warn('[seed-demo] Fabric identity seeding skipped because FABRIC_X509_CERT_PATH/FABRIC_MSP_ID could not be resolved');
+  }
 
   for (const contractor of contractorSeeds) {
     await pool.query(

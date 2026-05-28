@@ -1,5 +1,4 @@
 import { getRedisClient } from '@roadwatch/redis';
-import crypto from 'crypto';
 import express from 'express';
 import { z } from 'zod';
 import { registerFabricIdentity, verifyFabricIdentity } from '../auth/fabric.js';
@@ -7,12 +6,12 @@ import { signAccessToken, signRefreshToken } from '../auth/jwt.js';
 import { requestOtp, verifyOtp } from '../auth/otp.js';
 import { hashPassword, validatePasswordStrength, verifyPassword } from '../auth/password.js';
 import {
-    clearRefreshCookie,
-    getRefreshTokenFromReq,
-    revokeRefreshTokenByHash,
-    setRefreshCookie,
-    storeRefreshToken,
-    verifyAndConsumeRefreshToken
+  clearRefreshCookie,
+  getRefreshTokenFromReq,
+  revokeRefreshTokenByHash,
+  setRefreshCookie,
+  storeRefreshToken,
+  verifyAndConsumeRefreshToken
 } from '../auth/refresh.js';
 import { getUserByIdentifier, getUserByPhone, upsertUser } from '../db.js';
 import { pool } from '../postgres.js';
@@ -25,6 +24,12 @@ function normalizeLoginIdentifier(identifier: string): string {
   if (!trimmed) return trimmed;
   if (/^\+?\d[\d\s\-()]+$/.test(trimmed)) return trimmed;
   return trimmed.toLowerCase();
+}
+
+async function issueRefreshSession(res: express.Response, userId: string): Promise<void> {
+  const refreshToken = signRefreshToken({ sub: userId });
+  await storeRefreshToken(refreshToken, userId);
+  setRefreshCookie(res, refreshToken);
 }
 
 async function resolveUserForLogin(
@@ -94,6 +99,8 @@ router.post('/authority/otp/verify', async (req, res) => {
     districts: user.districts,
     zones: user.zones
   });
+
+  await issueRefreshSession(res, user.id);
 
   res.json({
     token,
@@ -165,6 +172,8 @@ router.post('/contractor/otp/verify', async (req, res) => {
     districts: user.districts,
     zones: user.zones
   });
+
+  await issueRefreshSession(res, user.id);
 
   res.json({
     token,
@@ -376,6 +385,8 @@ router.post('/citizen/signup', async (req, res) => {
       zones: []
     });
 
+    await issueRefreshSession(res, userId);
+
     res.status(201).json({
       token,
       user: { id: userId, email: body.email ?? null, phone: body.phone ?? null, username: body.username ?? null, role: 'CITIZEN', fabricVerified: false }
@@ -433,6 +444,8 @@ router.post('/citizen/login', async (req, res) => {
       districts: [],
       zones: []
     });
+
+    await issueRefreshSession(res, user.id);
 
     res.json({
       token,
@@ -506,6 +519,8 @@ router.post('/authority/signup', async (req, res) => {
       zones: body.zones ?? []
     });
 
+    await issueRefreshSession(res, userId);
+
     res.status(201).json({
       token,
       user: { id: userId, email: body.email, username: body.username, role: 'CE', fabricVerified, districts: body.districts ?? [], zones: body.zones ?? [] }
@@ -553,6 +568,8 @@ router.post('/authority/login', async (req, res) => {
       districts: user.districts ?? [],
       zones: user.zones ?? []
     });
+
+    await issueRefreshSession(res, user.id);
 
     res.json({
       token,
@@ -627,6 +644,8 @@ router.post('/contractor/signup', async (req, res) => {
       zones: body.zones ?? []
     });
 
+    await issueRefreshSession(res, userId);
+
     res.status(201).json({
       token,
       user: { id: userId, email: body.email, username: body.username, company: body.companyName, role: 'CONTRACTOR', fabricVerified, districts: body.districts ?? [], zones: body.zones ?? [] }
@@ -674,6 +693,8 @@ router.post('/contractor/login', async (req, res) => {
       districts: user.districts ?? [],
       zones: user.zones ?? []
     });
+
+    await issueRefreshSession(res, user.id);
 
     res.json({
       token,

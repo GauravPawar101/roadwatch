@@ -110,8 +110,22 @@ async function canRecalculateKarmaScores(): Promise<boolean> {
     (await hasTable('complaints')) &&
     (await hasTable('karma_ledger')) &&
     (await hasColumn('complaints', 'user_id')) &&
-    (await hasColumn('users', 'karma_score'))
+    (await hasColumn('users', 'karma_score')) &&
+    (await hasColumn('users', 'karma_updated_at'))
   );
+}
+
+async function ensureSchedulerSchema(): Promise<void> {
+  await pool.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS karma_score integer NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS karma_updated_at timestamptz NOT NULL DEFAULT NOW()');
+  await pool.query('ALTER TABLE IF EXISTS complaints ADD COLUMN IF NOT EXISTS user_id uuid');
+  await pool.query('CREATE INDEX IF NOT EXISTS complaints_user_id_idx ON complaints (user_id)');
+
+  schemaExistsCache.delete('column:users.karma_score');
+  schemaExistsCache.delete('column:users.karma_updated_at');
+  schemaExistsCache.delete('column:complaints.user_id');
+  schemaExistsCache.delete('table:users');
+  schemaExistsCache.delete('table:complaints');
 }
 
 async function canCheckSlaBreaches(): Promise<boolean> {
@@ -194,6 +208,7 @@ async function recalculateKarmaScores(): Promise<void> {
        SET karma_score = LEAST(1000, GREATEST(0, 
          CAST(us.resolved_count * 10 + us.avg_verification - us.recent_count * 5 AS INT)
        )),
+           karma_updated_at = $2,
            updated_at = $2
        FROM user_stats us
        WHERE users.id = us.id
@@ -382,6 +397,7 @@ async function initializeScheduler(): Promise<void> {
   try {
     const result = await pool.query('SELECT version()');
     console.log(`[${config.serviceName}] PostgreSQL connected. Version:`, result.rows[0]?.version);
+    await ensureSchedulerSchema();
   } catch (error) {
     console.error(`[${config.serviceName}] Failed to connect to PostgreSQL:`, error);
     process.exit(1);

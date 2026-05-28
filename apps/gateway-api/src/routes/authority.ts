@@ -117,8 +117,8 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
 
   await pool.begin(async (tx: any) => {
     await tx`
-      INSERT INTO complaints (id, district, zone, status, description, lat, lng, created_at, updated_at)
-      VALUES (${id}, ${body.district}, ${body.zone}, 'FILED', ${body.description}, ${body.lat ?? null}, ${body.lng ?? null}, NOW(), NOW())
+      INSERT INTO complaints (id, district, zone, status, description, lat, lng, user_id, created_at, updated_at)
+      VALUES (${id}, ${body.district}, ${body.zone}, 'FILED', ${body.description}, ${body.lat ?? null}, ${body.lng ?? null}, ${user.sub}, NOW(), NOW())
       ON CONFLICT (id) DO NOTHING
     `;
 
