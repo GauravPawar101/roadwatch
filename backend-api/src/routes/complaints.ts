@@ -2,10 +2,9 @@ import express from 'express';
 import { z } from 'zod';
 import { pool } from '../../../apps/gateway-api/src/postgres.js';
 import { ensureAuthenticated } from '../middleware/auth';
-import { requireAuthority, requireAdmin } from '../middleware/rbac';
 import { rateLimiter } from '../middleware/rateLimiter';
-import { emitComplaintEvent } from '../services/kafka.js';
 import { enqueueComplaintSubmittedEvent } from '../services/complaintOutbox.js';
+import { emitComplaintEvent } from '../services/kafka.js';
 
 const router = express.Router();
 
@@ -26,8 +25,8 @@ const complaintSchema = z.object({
 
 const webhookSchema = z.object({
   complaintId: z.string().min(1),
-  eventType: z.enum(['complaint.submitted', 'complaint.anchored', 'complaint.status.changed']).optional(),
-  type: z.enum(['complaint.submitted', 'complaint.anchored', 'complaint.status.changed']).optional(),
+  eventType: z.enum(['complaint-submitted', 'complaint-anchored', 'complaint-status-changed']).optional(),
+  type: z.enum(['complaint-submitted', 'complaint-anchored', 'complaint-status-changed']).optional(),
   fabricTxId: z.string().min(1).optional(),
   txHash: z.string().min(1).optional(),
   newStatus: z.string().min(1).optional(),
@@ -387,10 +386,10 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
         );
       }
 
-      if (escalated) {
+        if (escalated) {
         await emitComplaintEvent(
           {
-            type: 'complaint.status.changed',
+            type: 'complaint-status-changed',
             idempotencyKey: `complaint:${complaintId}:status:${finalStatus}`,
             occurredAt: new Date().toISOString(),
             version: 1,
@@ -407,14 +406,14 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
               reassigned
             }
           },
-          'complaint.status.changed',
+          'complaint-status-changed',
           { key: complaintId }
         );
       }
 
       if (!merged) {
         await enqueueComplaintSubmittedEvent(client, {
-          type: 'complaint.submitted',
+          type: 'complaint-submitted',
           idempotencyKey: `complaint:${complaintId}:submitted`,
           occurredAt: new Date().toISOString(),
           version: 1,

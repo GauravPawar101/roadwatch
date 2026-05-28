@@ -3,7 +3,6 @@ const { pool } = require('./db.js')
 
 const HF_API_KEYS = (process.env.HF_API_KEYS || '').split(',').map(s => s.trim()).filter(Boolean)
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY
-const PINECONE_ENV = process.env.PINECONE_ENV
 const PINECONE_INDEX = process.env.PINECONE_INDEX || 'roadwatch-media'
 
 async function callHuggingFaceImageEmbedding(buffer) {
@@ -43,16 +42,28 @@ async function upsertToVectorDB(uploadId, vector) {
   }
   // store vector in Postgres pgvector extension (free alternative to Pinecone)
   try {
+    const vectorJson = JSON.stringify(vector)
     const vectorString = `[${vector.join(',')}]`
 
     await pool.query(
       `INSERT INTO embeddings (upload_id, embedding, created_at)
-       VALUES ($1, $2, NOW())
+       VALUES ($1, $2::jsonb, NOW())
        ON CONFLICT (upload_id) DO UPDATE 
          SET embedding = EXCLUDED.embedding,
              created_at = NOW()`,
-      [uploadId, vectorString]
+      [uploadId, vectorJson]
     )
+
+    // Try to populate the pgvector column if the extension is available.
+    try {
+      await pool.query(
+        `UPDATE embeddings SET embedding_vector = $2::vector WHERE upload_id = $1`,
+        [uploadId, vectorString]
+      )
+    } catch (err) {
+      // pgvector may not be installed on this DB; that's fine for now.
+      console.debug('pgvector update skipped or failed:', err.message || err)
+    }
     console.log(`Successfully stored vector embedding for upload_id: ${uploadId} in PostgreSQL`)
   } catch (err) {
     console.error('Failed storing vector in PostgreSQL:', err)

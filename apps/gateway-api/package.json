@@ -14,6 +14,8 @@
     "test:watch": "vitest --config vitest.config.ts"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.0",
+    "@hyperledger/fabric-gateway": "^1.10.1",
     "@roadwatch/kafka": "workspace:*",
     "@roadwatch/redis": "workspace:*",
     "@langchain/langgraph": "^0.4.3",

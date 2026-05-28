@@ -87,11 +87,11 @@ public async ResolveComplaint(
  * @param merkleRoot - Merkle tree root hash
  * @param count - Number of complaints in batch
  */
-public async AnchorMerkleRoot(
+public async SubmitMerkleRoot(
   ctx: Context,
-  batchId: string,
   merkleRoot: string,
-  count: string
+  regionCode: string,
+  batchSize: string
 ): Promise<void>
 ```
 

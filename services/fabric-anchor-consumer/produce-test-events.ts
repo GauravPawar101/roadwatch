@@ -37,10 +37,9 @@ async function main(): Promise<void> {
     };
   });
 
-  await producer.send({ topic: 'complaint.submitted', messages });
+  await producer.send({ topic: 'complaint-submitted', messages });
   await producer.disconnect();
-
-  console.log(`[produce-test-events] sent ${count} complaint.submitted messages to ${brokers.join(',')}`);
+  console.log(`[produce-test-events] sent ${count} complaint-submitted messages to ${brokers.join(',')}`);
 }
 
 main().catch(err => {

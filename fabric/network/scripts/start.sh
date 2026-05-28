@@ -20,10 +20,59 @@ source "$NETWORK_DIR/scripts/env.sh"
 
 CHANNEL="${FABRIC_CHANNEL:-$FABRIC_CHANNEL_NAME}"
 
-# Prefer repo-local Fabric binaries if present.
+# Determine required fabric peer version from docker-compose (fallback to 2.5.15)
+REQUIRED_FABRIC_VERSION="$(sed -n '1,120p' "$NETWORK_DIR/docker/docker-compose.yaml" | grep -m1 'image:.*hyperledger/fabric-peer' | sed 's/.*://; s/[^0-9.]//g' || true)"
+if [ -z "$REQUIRED_FABRIC_VERSION" ]; then
+  REQUIRED_FABRIC_VERSION="2.5.15"
+fi
+
+# Prefer repo-local Fabric binaries if present. If local `peer` exists but
+# mismatches the required runtime version, try to download matching binaries
+# into `ROOT_DIR/bin` so CLI and containers are in parity and lifecycle
+# operations don't hit ReadSet/WriteSet version errors.
+install_matching_binaries() {
+  if ! command -v peer >/dev/null 2>&1; then
+    return 1
+  fi
+
+  LOCAL_VER_RAW=$(peer version 2>/dev/null | sed -ne 's/^ Version: //p' || true)
+  LOCAL_VER="${LOCAL_VER_RAW#v}"
+  if [ -z "$LOCAL_VER" ] || [ "$LOCAL_VER" = "$REQUIRED_FABRIC_VERSION" ]; then
+    return 0
+  fi
+
+  echo "==> Detected local peer version ${LOCAL_VER}, required ${REQUIRED_FABRIC_VERSION}. Installing matching binaries into $ROOT_DIR/bin"
+  TMPDIR=$(mktemp -d)
+  (cd "$TMPDIR" && \
+    curl -sSL https://raw.githubusercontent.com/hyperledger/fabric/main/scripts/install-fabric.sh -o install-fabric.sh && \
+    chmod +x install-fabric.sh && \
+    ./install-fabric.sh binary "$REQUIRED_FABRIC_VERSION") || {
+    echo "WARN: failed to download/install Fabric binaries in $TMPDIR; continuing with existing peer binary" >&2
+    rm -rf "$TMPDIR"
+    return 1
+  }
+
+  mkdir -p "$ROOT_DIR/bin"
+  if [ -d "$TMPDIR/bin" ]; then
+    cp -a "$TMPDIR/bin/." "$ROOT_DIR/bin/" || true
+    rm -rf "$TMPDIR"
+    export PATH="$ROOT_DIR/bin:$PATH"
+    echo "==> Installed matching Fabric binaries to $ROOT_DIR/bin"
+    return 0
+  else
+    echo "WARN: install script did not produce bin/ directory; leaving local binaries untouched" >&2
+    rm -rf "$TMPDIR"
+    return 1
+  fi
+}
+
 if [ -d "$ROOT_DIR/bin" ]; then
   export PATH="$ROOT_DIR/bin:$PATH"
 fi
+
+# If local peer exists but doesn't match required version, attempt to install
+# matching binaries to repo `bin/` for parity.
+install_matching_binaries || true
 
 DOCKER_COMPOSE=(docker compose)
 if ! docker compose version >/dev/null 2>&1; then
@@ -96,6 +145,29 @@ waitForPort() {
   exit 1
 }
 
+waitForChannelReadiness() {
+  local ORG="$1"
+  local LABEL="$2"
+  local ATTEMPTS=20
+  local SLEEP_SECONDS=3
+
+  echo "==> Waiting for ${LABEL} channel RPC readiness"
+  setPeerContext "$ORG"
+
+  for i in $(seq 1 "$ATTEMPTS"); do
+    if peer channel list >/dev/null 2>&1; then
+      echo "==> ${LABEL} channel RPC is ready"
+      return 0
+    fi
+
+    echo "==> ${LABEL} channel RPC attempt ${i}/${ATTEMPTS} not ready yet; retrying..."
+    sleep "$SLEEP_SECONDS"
+  done
+
+  echo "ERROR: Timed out waiting for ${LABEL} channel RPC readiness" >&2
+  exit 1
+}
+
 retryCommand() {
   local LABEL="$1"
   shift
@@ -138,7 +210,7 @@ createAnchorPeerUpdate() {
   local CURRENT_CONFIG_JSON="channel-artifacts/${CORE_PEER_LOCALMSPID}config.json"
   local MODIFIED_CONFIG_JSON="channel-artifacts/${CORE_PEER_LOCALMSPID}modified_config.json"
 
-  fetchChannelConfig "$CURRENT_CONFIG_JSON"
+  retryCommand "peer channel fetch config" fetchChannelConfig "$CURRENT_CONFIG_JSON"
 
   jq --arg mspid "$CORE_PEER_LOCALMSPID" --arg host "$ANCHOR_HOST" --argjson port "$ANCHOR_PORT" '
     .channel_group.groups.Application.groups[$mspid].values += {
@@ -309,38 +381,95 @@ else
   echo "==> Channel artifacts already exist - skipping generation"
 fi
 
+# Ensure channel artifacts reflect current config templates. If the
+# config files changed since artifacts were generated, re-generate to
+# avoid using stale config blocks which can cause version mismatches.
+CONFIG_HASH_FILE="channel-artifacts/.configtx_hash"
+CUR_HASH=$(sha1sum ../config/configtx.yaml | awk '{print $1}')
+PREV_HASH=""
+if [ -f "$CONFIG_HASH_FILE" ]; then
+  PREV_HASH=$(cat "$CONFIG_HASH_FILE")
+fi
+if [ "$CUR_HASH" != "$PREV_HASH" ]; then
+  echo "==> Detected configtx.yaml change (or missing hash). Regenerating channel artifacts to avoid stale config blocks"
+  configtxgen \
+    -profile RoadWatchOrdererGenesis \
+    -channelID system-channel \
+    -outputBlock channel-artifacts/genesis.block \
+    -configPath ../config
+
+  configtxgen \
+    -profile RoadWatchIndiaChannel \
+    -outputCreateChannelTx channel-artifacts/${CHANNEL}.tx \
+    -channelID "$CHANNEL" \
+    -configPath ../config
+  echo "$CUR_HASH" > "$CONFIG_HASH_FILE"
+fi
+
 echo "==> Starting docker containers"
-"${DOCKER_COMPOSE[@]}" -f docker/docker-compose.yaml up -d
+# If FABRIC_LEDGER_STATE_DB is set to CouchDB, enable the couchdb compose profile
+PROFILE_ARGS=()
+if [ "${FABRIC_LEDGER_STATE_DB:-goleveldb}" = "CouchDB" ]; then
+  PROFILE_ARGS+=(--profile couchdb)
+  echo "==> Enabling Docker Compose profile: couchdb"
+fi
+"${DOCKER_COMPOSE[@]}" -f docker/docker-compose.yaml "${PROFILE_ARGS[@]}" up -d
 
 waitForPort localhost "$FABRIC_ORDERER_PORT" "orderer"
 waitForPort localhost "$FABRIC_NHAI_PEER_PORT" "peer0.nhai"
 waitForPort localhost "$FABRIC_ROADWATCH_PEER_PORT" "peer0.roadwatch"
+waitForChannelReadiness nhai "NHAI peer"
+waitForChannelReadiness roadwatch "RoadWatch peer"
 
 echo "==> Creating channel"
 setPeerContext nhai
 
-if peer channel fetch 0 ${CHANNEL}.block \
+if retryCommand "peer channel fetch 0" peer channel fetch 0 ${CHANNEL}.block \
   -o localhost:$FABRIC_ORDERER_PORT \
   -c "$CHANNEL" \
   --tls \
   --cafile organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem; then
   echo "==> Channel $CHANNEL already exists; reusing fetched genesis block"
 else
-  retryCommand "peer channel create" peer channel create \
-    -o localhost:$FABRIC_ORDERER_PORT \
-    -c "$CHANNEL" \
-    -f channel-artifacts/${CHANNEL}.tx \
-    --tls \
-    --cafile organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem
+  if [ -f "${CHANNEL}.block" ]; then
+    echo "==> Channel $CHANNEL block already exists locally; reusing ${CHANNEL}.block"
+  else
+    retryCommand "peer channel create" peer channel create \
+      -o localhost:$FABRIC_ORDERER_PORT \
+      -c "$CHANNEL" \
+      -f channel-artifacts/${CHANNEL}.tx \
+      --tls \
+      --cafile organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem
+  fi
 fi
 
 echo "==> Joining NHAI peer to channel"
 setPeerContext nhai
-peer channel join -b ${CHANNEL}.block
+if peer channel list 2>/dev/null | grep -q "${CHANNEL}"; then
+  echo "==> NHAI peer already joined to channel ${CHANNEL}; skipping"
+else
+  retryCommand "peer channel join (NHAI)" peer channel join -b ${CHANNEL}.block || {
+    if peer channel list 2>/dev/null | grep -q "${CHANNEL}"; then
+      echo "==> NHAI peer already joined to channel ${CHANNEL}; skipping"
+    else
+      return 1
+    fi
+  }
+fi
 
 echo "==> Joining RoadWatch peer to channel"
 setPeerContext roadwatch
-peer channel join -b ${CHANNEL}.block
+if peer channel list 2>/dev/null | grep -q "${CHANNEL}"; then
+  echo "==> RoadWatch peer already joined to channel ${CHANNEL}; skipping"
+else
+  retryCommand "peer channel join (RoadWatch)" peer channel join -b ${CHANNEL}.block || {
+    if peer channel list 2>/dev/null | grep -q "${CHANNEL}"; then
+      echo "==> RoadWatch peer already joined to channel ${CHANNEL}; skipping"
+    else
+      return 1
+    fi
+  }
+fi
 
 echo "==> Setting anchor peers"
 setAnchorPeerForOrg nhai localhost "$FABRIC_NHAI_PEER_PORT"

@@ -1,8 +1,44 @@
 import 'dotenv/config';
 
+import axios from 'axios';
+import crypto from 'crypto';
 import { Kafka } from 'kafkajs';
 import pg from 'pg';
-import { registerServiceWithGateway } from '../../apps/gateway-api/src/services/discovery.js';
+
+type NotificationSendEvent = {
+  idempotencyKey: string;
+  channels: Array<'sms' | 'push' | 'email'>;
+  template: string;
+  to: { phone?: string; deviceToken?: string; email?: string };
+  params: Record<string, string>;
+  priority?: 'low' | 'normal' | 'high';
+};
+
+type ServiceRegistrationInput = {
+  name: string;
+  address: string;
+  description?: string;
+};
+
+async function registerServiceWithGateway(input: {
+  gatewayUrl: string;
+  service: ServiceRegistrationInput;
+  registrySecret?: string;
+}): Promise<void> {
+  const response = await fetch(`${input.gatewayUrl.replace(/\/$/, '')}/services/register`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(input.registrySecret ? { 'x-service-registry-secret': input.registrySecret } : {})
+    },
+    body: JSON.stringify(input.service)
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Service registration failed (${response.status}): ${body}`);
+  }
+}
 
 const { Pool } = pg;
 const pool = new Pool({
@@ -12,9 +48,23 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
+const transientKafkaErrorPatterns = [
+  /There is no leader for this topic-partition as we are in the middle of a leadership election/i,
+  /The group coordinator is not available/i,
+  /Response GroupCoordinator\(key: 10, version: 2\).*localhost:9094/i
+];
+
 pool.on('error', (err) => {
   console.error('[postgres] Unexpected error on idle client:', err instanceof Error ? err.message : String(err));
 });
+
+// DDL centralized in docker/postgres/init.sql; skip creating notification_inbox at runtime.
+async function ensureNotificationInbox(): Promise<void> {
+  console.info('Skipping runtime creation of notification_inbox; ensure docker/postgres/init.sql has been applied');
+}
+
+// Trigger a lightweight check at startup (best-effort)
+ensureNotificationInbox().catch((e) => console.warn('[webhook] ensureNotificationInbox failed:', e instanceof Error ? e.message : String(e)));
 
 
 interface Config {
@@ -26,7 +76,7 @@ interface Config {
 }
 
 function getConfig(): Config {
-  const brokers = (process.env.KAFKA_BROKERS || 'localhost:29092').split(',');
+  const brokers = (process.env.KAFKA_BROKERS || '127.0.0.1:9094').split(',');
   return {
     kafkaBrokers: brokers,
     kafkaGroupId: process.env.KAFKA_GROUP_ID || 'webhook-handler',
@@ -41,10 +91,54 @@ const config = getConfig();
 const kafka = new Kafka({
   clientId: 'roadwatch-webhook-handler',
   brokers: config.kafkaBrokers,
-  logLevel: 1 // Info level
+  logLevel: 1, // Info level
+  logCreator: () => ({ namespace, level, label, log }: any) => {
+    const messageParts = [log?.message, log?.error?.message, log?.error?.stack, log?.broker, log?.groupId]
+      .filter((part) => typeof part === 'string' && part.trim().length > 0);
+    const message = messageParts.join(' ');
+
+    if (level === 1 && transientKafkaErrorPatterns.some((pattern: RegExp) => pattern.test(message))) {
+      return;
+    }
+
+    const output = `[kafkajs]${namespace ? ` ${namespace}` : ''}${label ? ` ${label}` : ''}${message ? ` ${message}` : ''}`;
+
+    switch (level) {
+      case 1:
+        console.error(output);
+        break;
+      case 2:
+        console.warn(output);
+        break;
+      default:
+        console.info(output);
+        break;
+    }
+  }
 });
 
 const consumer = kafka.consumer({ groupId: config.kafkaGroupId });
+
+async function sendInternalNotification(payload: Record<string, unknown>): Promise<boolean> {
+  const gatewayUrl = process.env.GATEWAY_URL ?? 'http://127.0.0.1:3100';
+  const token = process.env.INTERNAL_SERVICE_TOKEN || process.env.SERVICE_TOKEN || '';
+
+  if (!token) return false;
+
+  try {
+    const response = await axios.post(`${gatewayUrl}/internal/notifications/create`, payload, {
+      headers: {
+        'content-type': 'application/json',
+        'x-service-token': token
+      },
+      validateStatus: () => true,
+      timeout: 5000
+    });
+    return response.status >= 200 && response.status < 300;
+  } catch {
+    return false;
+  }
+}
 
 interface KafkaMessage {
   topic: string;
@@ -57,13 +151,13 @@ interface KafkaMessage {
 }
 
 /**
- * Handle complaint.submitted events
+ * Handle complaint-submitted events
  * Triggered when a citizen submits a new complaint
  */
 async function handleComplaintSubmitted(message: KafkaMessage): Promise<void> {
   try {
     const event = JSON.parse(message.value || '{}');
-    console.log('[webhook] Processing complaint.submitted:', event.complaintId);
+    console.log('[webhook] Processing complaint-submitted:', event.complaintId);
 
     // Update complaint with event status
     await pool.query(
@@ -77,23 +171,23 @@ async function handleComplaintSubmitted(message: KafkaMessage): Promise<void> {
     await pool.query(
       `INSERT INTO event_logs (event_type, entity_id, entity_type, event_data, created_at)
        VALUES ($1, $2, $3, $4, NOW())`,
-      ['complaint.submitted', event.complaintId, 'complaint', JSON.stringify(event)]
+      ['complaint-submitted', event.complaintId, 'complaint', JSON.stringify(event)]
     );
 
-    console.log('[webhook] ✓ Processed complaint.submitted:', event.complaintId);
+    console.log('[webhook] ✓ Processed complaint-submitted:', event.complaintId);
   } catch (error) {
-    console.error('[webhook] Error handling complaint.submitted:', error);
+    console.error('[webhook] Error handling complaint-submitted:', error);
   }
 }
 
 /**
- * Handle complaint.anchored events
+ * Handle complaint-anchored events
  * Triggered when complaint is anchored to Fabric blockchain
  */
 async function handleComplaintAnchored(message: KafkaMessage): Promise<void> {
   try {
     const event = JSON.parse(message.value || '{}');
-    console.log('[webhook] Processing complaint.anchored:', event.complaintId);
+    console.log('[webhook] Processing complaint-anchored:', event.complaintId);
 
     // Update complaint with anchoring details
     await pool.query(
@@ -103,33 +197,54 @@ async function handleComplaintAnchored(message: KafkaMessage): Promise<void> {
       [event.txHash, event.complaintId]
     );
 
-    // Send notification to authorities
-    await pool.query(
-      `INSERT INTO notifications (user_id, type, title, body, data, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [
-        'ALL_AUTHORITIES',
-        'complaint_anchored',
-        'Complaint Anchored to Blockchain',
-        `Complaint #${event.complaintId} has been anchored to blockchain`,
-        JSON.stringify({ complaintId: event.complaintId, txHash: event.txHash })
-      ]
-    );
+    // Send notification through gateway; fall back to local inserts if the gateway is unavailable.
+    const handledByGateway = await sendInternalNotification({
+      recipient_role: 'ALL_AUTHORITIES',
+      type: 'complaint_anchored',
+      title: 'Complaint Anchored to Blockchain',
+      body: `Complaint #${event.complaintId} has been anchored to blockchain`,
+      data: { complaintId: event.complaintId, txHash: event.txHash }
+    });
 
-    console.log('[webhook] ✓ Processed complaint.anchored:', event.complaintId, 'TX:', event.txHash);
+    if (!handledByGateway) {
+      const insertRes = await pool.query(
+        `INSERT INTO notifications (recipient_role, type, title, body, data, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id`,
+        [
+          'ALL_AUTHORITIES',
+          'complaint_anchored',
+          'Complaint Anchored to Blockchain',
+          `Complaint #${event.complaintId} has been anchored to blockchain`,
+          JSON.stringify({ complaintId: event.complaintId, txHash: event.txHash })
+        ]
+      );
+
+      const notificationId = insertRes.rows[0]?.id;
+      if (notificationId) {
+        const roles = ['CE', 'EE'];
+        const users = await pool.query(`SELECT id FROM users WHERE role = ANY($1)`, [roles]);
+        for (const u of users.rows) {
+          const inboxId = crypto.randomUUID();
+          await pool.query(`INSERT INTO notification_inbox (id, user_id, notification_id, created_at) VALUES ($1,$2,$3,NOW())`, [inboxId, u.id, notificationId]);
+          await pool.query(`INSERT INTO notification_deliveries (id, user_id, notification_id, channel, created_at) VALUES ($1,$2,$3,$4,NOW())`, [crypto.randomUUID(), u.id, notificationId, 'IN_APP']);
+        }
+      }
+    }
+
+    console.log('[webhook] ✓ Processed complaint-anchored:', event.complaintId, 'TX:', event.txHash);
   } catch (error) {
-    console.error('[webhook] Error handling complaint.anchored:', error);
+    console.error('[webhook] Error handling complaint-anchored:', error);
   }
 }
 
 /**
- * Handle complaint.status.changed events
+ * Handle complaint-status-changed events
  * Triggered when complaint status changes
  */
 async function handleComplaintStatusChanged(message: KafkaMessage): Promise<void> {
   try {
     const event = JSON.parse(message.value || '{}');
-    console.log('[webhook] Processing complaint.status.changed:', event.complaintId, 'to', event.newStatus);
+    console.log('[webhook] Processing complaint-status-changed:', event.complaintId, 'to', event.newStatus);
 
     // Update complaint status
     await pool.query(
@@ -150,55 +265,111 @@ async function handleComplaintStatusChanged(message: KafkaMessage): Promise<void
 
     const notifyRole = roleMap[event.newStatus] || 'authority';
 
-    // Create notification for the appropriate role
-    await pool.query(
-      `INSERT INTO notifications (user_id, type, title, body, data, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [
-        notifyRole,
-        'complaint_status_changed',
-        'Complaint Status Updated',
-        `Complaint #${event.complaintId} status is now: ${event.newStatus}`,
-        JSON.stringify({ complaintId: event.complaintId, status: event.newStatus })
-      ]
-    );
+    // Fan out through the gateway first. If the gateway is unavailable, fall back locally.
+    const roleIsUuid = typeof notifyRole === 'string' && /^[0-9a-fA-F-]{36}$/.test(notifyRole);
+    const handledByGateway = roleIsUuid
+      ? await sendInternalNotification({
+          message: {
+            type: 'complaint_status_changed',
+            title: 'Complaint Status Updated',
+            body: `Complaint #${event.complaintId} status is now: ${event.newStatus}`,
+            audience: { kind: 'user', userId: notifyRole },
+            data: { complaintId: event.complaintId, status: event.newStatus }
+          }
+        })
+      : await sendInternalNotification({
+          recipient_role: notifyRole,
+          type: 'complaint_status_changed',
+          title: 'Complaint Status Updated',
+          body: `Complaint #${event.complaintId} status is now: ${event.newStatus}`,
+          data: { complaintId: event.complaintId, status: event.newStatus }
+        });
 
-    console.log('[webhook] ✓ Processed complaint.status.changed:', event.complaintId);
+    if (!handledByGateway) {
+      if (roleIsUuid) {
+        const insertRes2 = await pool.query(
+          `INSERT INTO notifications (user_id, type, title, body, data, created_at)
+           VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id`,
+          [
+            notifyRole,
+            'complaint_status_changed',
+            'Complaint Status Updated',
+            `Complaint #${event.complaintId} status is now: ${event.newStatus}`,
+            JSON.stringify({ complaintId: event.complaintId, status: event.newStatus })
+          ]
+        );
+        const nid = insertRes2.rows[0]?.id;
+        if (nid) {
+          await pool.query(`INSERT INTO notification_inbox (id, user_id, notification_id, created_at) VALUES ($1,$2,$3,NOW())`, [crypto.randomUUID(), notifyRole, nid]);
+          await pool.query(`INSERT INTO notification_deliveries (id, user_id, notification_id, channel, created_at) VALUES ($1,$2,$3,$4,NOW())`, [crypto.randomUUID(), notifyRole, nid, 'IN_APP']);
+        }
+      } else {
+        const insertRes3 = await pool.query(
+          `INSERT INTO notifications (recipient_role, type, title, body, data, created_at)
+           VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id`,
+          [
+            notifyRole,
+            'complaint_status_changed',
+            'Complaint Status Updated',
+            `Complaint #${event.complaintId} status is now: ${event.newStatus}`,
+            JSON.stringify({ complaintId: event.complaintId, status: event.newStatus })
+          ]
+        );
+        const nid = insertRes3.rows[0]?.id;
+        if (nid) {
+          const roleMapLookup: Record<string, string[]> = {
+            authority: ['CE','EE'],
+            contractor: ['CONTRACTOR'],
+            citizen: ['CITIZEN']
+          };
+          const targetRoles = roleMapLookup[notifyRole] || ['CE','EE'];
+          const users = await pool.query(`SELECT id FROM users WHERE role = ANY($1)`, [targetRoles]);
+          for (const u of users.rows) {
+            await pool.query(`INSERT INTO notification_inbox (id, user_id, notification_id, created_at) VALUES ($1,$2,$3,NOW())`, [crypto.randomUUID(), u.id, nid]);
+            await pool.query(`INSERT INTO notification_deliveries (id, user_id, notification_id, channel, created_at) VALUES ($1,$2,$3,$4,NOW())`, [crypto.randomUUID(), u.id, nid, 'IN_APP']);
+          }
+        }
+      }
+    }
+
+    console.log('[webhook] ✓ Processed complaint-status-changed:', event.complaintId);
   } catch (error) {
-    console.error('[webhook] Error handling complaint.status.changed:', error);
+    console.error('[webhook] Error handling complaint-status-changed:', error);
   }
 }
 
 /**
- * Handle notification.send events
+ * Handle notification-send events
  * Triggered when notifications need to be sent
  */
 async function handleNotificationSend(message: KafkaMessage): Promise<void> {
   try {
-    const event = JSON.parse(message.value || '{}');
-    console.log('[webhook] Processing notification.send:', event.notificationId);
+    const event = JSON.parse(message.value || '{}') as NotificationSendEvent;
+    const primaryChannel = event.channels[0] ?? 'push';
+    const notificationKey = event.idempotencyKey || event.template;
+    console.log('[webhook] Processing notification-send:', event.template, 'channels:', event.channels.join(','));
 
     // Log notification delivery
     await pool.query(
       `INSERT INTO notification_delivery_logs (notification_id, channel, status, created_at)
        VALUES ($1, $2, $3, NOW())`,
-      [event.notificationId || 'unknown', event.channel || 'push', 'sent']
+      [notificationKey, primaryChannel, 'sent']
     );
 
-    console.log('[webhook] ✓ Processed notification.send:', event.notificationId);
+    console.log('[webhook] ✓ Processed notification-send:', event.template);
   } catch (error) {
-    console.error('[webhook] Error handling notification.send:', error);
+    console.error('[webhook] Error handling notification-send:', error);
   }
 }
 
 /**
- * Handle authority.action events
+ * Handle authority-action events
  * Triggered when authority takes actions (verification, approval, rejection)
  */
 async function handleAuthorityAction(message: KafkaMessage): Promise<void> {
   try {
     const event = JSON.parse(message.value || '{}');
-    console.log('[webhook] Processing authority.action:', event.actionType, 'on', event.complaintId);
+    console.log('[webhook] Processing authority-action:', event.actionType, 'on', event.complaintId);
 
     // Log the authority action
     await pool.query(
@@ -223,22 +394,34 @@ async function handleAuthorityAction(message: KafkaMessage): Promise<void> {
 
     const citizenId = result.rows.length > 0 ? result.rows[0].user_id : 'unknown';
 
-    // Notify citizen about the action
-    await pool.query(
-      `INSERT INTO notifications (user_id, type, title, body, data, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [
-        citizenId,
-        'authority_action',
-        'Authority Action on Your Complaint',
-        `Authority action: ${event.actionType} on complaint #${event.complaintId}`,
-        JSON.stringify({ complaintId: event.complaintId, actionType: event.actionType })
-      ]
-    );
+    // Notify citizen via gateway first; fallback to local insert if needed.
+    const handledByGateway = await sendInternalNotification({
+      message: {
+        type: 'authority_action',
+        title: 'Authority Action on Your Complaint',
+        body: `Authority action: ${event.actionType} on complaint #${event.complaintId}`,
+        audience: { kind: 'user', userId: citizenId },
+        data: { complaintId: event.complaintId, actionType: event.actionType }
+      }
+    });
 
-    console.log('[webhook] ✓ Processed authority.action:', event.actionType);
+    if (!handledByGateway) {
+      await pool.query(
+        `INSERT INTO notifications (user_id, type, title, body, data, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [
+          citizenId,
+          'authority_action',
+          'Authority Action on Your Complaint',
+          `Authority action: ${event.actionType} on complaint #${event.complaintId}`,
+          JSON.stringify({ complaintId: event.complaintId, actionType: event.actionType })
+        ]
+      );
+    }
+
+    console.log('[webhook] ✓ Processed authority-action:', event.actionType);
   } catch (error) {
-    console.error('[webhook] Error handling authority.action:', error);
+    console.error('[webhook] Error handling authority-action:', error);
   }
 }
 
@@ -248,19 +431,19 @@ async function handleAuthorityAction(message: KafkaMessage): Promise<void> {
 async function processMessage(message: KafkaMessage): Promise<void> {
   try {
     switch (message.topic) {
-      case 'complaint.submitted':
+      case 'complaint-submitted':
         await handleComplaintSubmitted(message);
         break;
-      case 'complaint.anchored':
+      case 'complaint-anchored':
         await handleComplaintAnchored(message);
         break;
-      case 'complaint.status.changed':
+      case 'complaint-status-changed':
         await handleComplaintStatusChanged(message);
         break;
-      case 'notification.send':
+      case 'notification-send':
         await handleNotificationSend(message);
         break;
-      case 'authority.action':
+      case 'authority-action':
         await handleAuthorityAction(message);
         break;
       default:
@@ -293,11 +476,11 @@ async function initializeWebhookHandler(): Promise<void> {
 
     // Subscribe to topics
     const topics = [
-      'complaint.submitted',
-      'complaint.anchored',
-      'complaint.status.changed',
-      'notification.send',
-      'authority.action'
+      'complaint-submitted',
+      'complaint-anchored',
+      'complaint-status-changed',
+      'notification-send',
+      'authority-action'
     ];
 
     await consumer.subscribe({ topics, fromBeginning: false });

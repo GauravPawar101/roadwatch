@@ -141,7 +141,13 @@ peer:
         propagatePeerNum: 3
         # Determines frequency of pull phases(unit: second)
         # Must be greater than digestWaitTime + responseWaitTime
-        pullInterval: 4s
+        pullInterval: 2s
+
+        # Tuned for lower latency: reduce digest / pull intervals to improve propagation
+        digestWaitTime: 500ms
+        requestWaitTime: 1000ms
+        responseWaitTime: 1s
+
         # Number of peers to pull from
         pullPeerNum: 3
         # Determines frequency of pulling state info messages from peers(unit: second)
@@ -162,14 +168,6 @@ peer:
         recvBuffSize: 20
         # Buffer size of sending messages
         sendBuffSize: 200
-        # Time to wait before pull engine processes incoming digests (unit: second)
-        # Should be slightly smaller than requestWaitTime
-        digestWaitTime: 1s
-        # Time to wait before pull engine removes incoming nonce (unit: milliseconds)
-        # Should be slightly bigger than digestWaitTime
-        requestWaitTime: 1500ms
-        # Time to wait before pull engine ends pull (unit: second)
-        responseWaitTime: 2s
         # Alive check interval(unit: second)
         aliveTimeInterval: 5s
         # Alive expiration timeout(unit: second)
@@ -666,7 +664,7 @@ ledger:
     # stateDatabase - options are "goleveldb", "CouchDB"
     # goleveldb - default state database stored in goleveldb.
     # CouchDB - store state database in CouchDB
-    stateDatabase: goleveldb
+    stateDatabase: CouchDB
     # Limit on the number of records to return per query
     totalQueryLimit: 100000
     couchDBConfig:

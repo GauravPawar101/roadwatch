@@ -24,7 +24,7 @@ Kafka consumer service that processes complaint events, batches them into Merkle
 
 ### Kafka Consumer
 - `LocalKafkaPollConsumer` - Local Kafka consumer implementation
-- `UpstashPollConsumer` - Upstash Kafka consumer implementation
+- `KafkaConsumer` - local Kafka consumer implementation
 - `ConsumerManager` - Consumer lifecycle management
 - `MessageProcessor` - Event processing logic
 

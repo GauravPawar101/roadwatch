@@ -1,0 +1,49 @@
+{
+  "kafka": {
+    "bootstrapServer": "localhost:29092",
+    "replicationFactor": 1,
+    "topics": [
+      { "name": "complaint-submitted", "partitions": 3 },
+      { "name": "complaint-anchored", "partitions": 3 },
+      { "name": "complaint-status-changed", "partitions": 3 },
+      { "name": "media-captured", "partitions": 3 },
+      { "name": "media-compressed", "partitions": 3 },
+      { "name": "media-uploaded", "partitions": 3 },
+      { "name": "media-analyzed", "partitions": 3 },
+      { "name": "escalation-due", "partitions": 2 },
+      { "name": "escalation-sent", "partitions": 2 },
+      { "name": "fabric-events", "partitions": 2 },
+      { "name": "authority-action", "partitions": 2 },
+      { "name": "notification-send", "partitions": 2 },
+      { "name": "dlq-events", "partitions": 1 },
+      { "name": "roadwatch-ingestion-complaints", "partitions": 3 },
+      { "name": "roadwatch-ingestion-media-vectors", "partitions": 3 },
+      { "name": "roadwatch-ingestion-system-telemetry", "partitions": 1 },
+      { "name": "roadwatch-complaints-backbone", "partitions": 3 }
+    ]
+  },
+  "redis": {
+    "databases": [
+      {
+        "index": 0,
+        "purpose": "Gateway auth, OTP, and idempotency cache"
+      },
+      {
+        "index": 1,
+        "purpose": "Webhook handler transient processing cache"
+      },
+      {
+        "index": 2,
+        "purpose": "Fabric anchor consumer transient processing cache"
+      }
+    ],
+    "keyPrefixes": [
+      "otp:*",
+      "otp_rate:*",
+      "idempotency:*",
+      "idempotency:result:*",
+      "complaints:*",
+      "tag:*"
+    ]
+  }
+}

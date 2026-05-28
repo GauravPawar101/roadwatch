@@ -4,7 +4,7 @@ Summary
 - Package: `@roadwatch/redis` — thin wrapper around `@upstash/redis` for cache and ephemeral storage.
 
 Why these choices
-- **Upstash Redis**: serverless Redis offering that removes operational overhead for small deployments and provides HTTP-friendly clients. Rationale: easy to manage during development and small production footprints.
+- **Local Redis**: Docker-backed Redis for development and repeatable local deployments. Rationale: keeps the runtime simple and matches the repo's local-first setup.
 
 Pros
 - Minimal operational overhead, straightforward API, good fit for caching and short-lived state.

@@ -196,7 +196,7 @@ class KafkaMessagingAdapter implements MessagingAdapter {
   }
 }
 
-// Upstash Kafka implementation
+// Local Kafka implementation
 class UpstashMessagingAdapter implements MessagingAdapter {
   private client: Kafka;
   
@@ -643,7 +643,7 @@ class ComplaintService {
     });
     
     // Publish event
-    await this.messaging.publish('complaint.submitted', {
+    await this.messaging.publish('complaint-submitted', {
       complaintId,
       district: complaintData.district,
       zone: complaintData.zone

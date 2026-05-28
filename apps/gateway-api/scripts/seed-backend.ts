@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import pg from 'pg';
 import { z } from 'zod';
-import { randomUUID } from 'crypto';
+import { uuidv7 } from '../src/uuid.js';
 
 dotenv.config();
 
@@ -162,7 +162,7 @@ async function upsertDistrict(
 ): Promise<string> {
   const zoomMin = input.zoom?.min ?? 10;
   const zoomMax = input.zoom?.max ?? 16;
-  const id = input.id ?? randomUUID();
+  const id = input.id ?? uuidv7();
 
   await pool.query(
     `INSERT INTO districts (id, country_code, state_code, code, name,
@@ -290,7 +290,7 @@ async function createRoadAssignment(
   pool: pg.Pool,
   input: { roadId: string; contractorId?: string; engineerUserId?: string; startsOn?: string; endsOn?: string }
 ) {
-  const id = randomUUID();
+  const id = uuidv7();
   await pool.query(
     `INSERT INTO road_assignments (id, road_id, contractor_id, engineer_user_id, starts_on, ends_on, assigned_at)
      VALUES ($1, $2, $3, $4, $5, $6, NOW())
@@ -335,12 +335,12 @@ async function main() {
 
     for (const c of seed.contractors) {
       await upsertContractor(pool, c);
-      contractorCount++;
+      ++contractorCount;
     }
 
     for (const a of seed.authorityDirectory) {
       await upsertAuthorityDirectory(pool, a);
-      authorityCount++;
+      ++authorityCount;
     }
 
     let countryCount = 0;

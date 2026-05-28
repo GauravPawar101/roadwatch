@@ -36,22 +36,8 @@ function stable(value: unknown): string {
 async function ensureIdempotencyTable(): Promise<void> {
   if (!ensureTablePromise) {
     ensureTablePromise = (async () => {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS api_idempotency_keys (
-          scope text NOT NULL,
-          idempotency_key text NOT NULL,
-          request_hash text NOT NULL,
-          response_code integer,
-          response_body jsonb,
-          created_at timestamptz NOT NULL DEFAULT NOW(),
-          updated_at timestamptz NOT NULL DEFAULT NOW(),
-          PRIMARY KEY (scope, idempotency_key)
-        )
-      `);
-
-      await pool.query(
-        'CREATE INDEX IF NOT EXISTS api_idempotency_keys_created_at_idx ON api_idempotency_keys (created_at)'
-      );
+      // DDL centralized in docker/postgres/init.sql; skip runtime idempotency table creation.
+      console.info('Skipping runtime creation of api_idempotency_keys; ensure docker/postgres/init.sql has been applied');
     })();
   }
 

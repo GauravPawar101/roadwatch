@@ -2,7 +2,8 @@
 
 ## Overview
 
-All docker-compose files have been rewritten for **lightweight operation** with **zero port conflicts**.
+All docker-compose files have been rewritten for **lightweight operation** and to remove common port conflicts on developer machines.
+This repo now centralizes host port mappings in a single `.env` and uses a consistent container-naming convention `roadwatch_servicename` so containers are predictable and easier to manage.
 
 ### Key Improvements
 
@@ -20,11 +21,14 @@ All docker-compose files have been rewritten for **lightweight operation** with 
 | CouchDB profile | "local-redis" | "redis" (simpler) |
 | Stub API | ❌ Broken service | ✅ Removed |
 
-**Port mapping (no conflicts):**
-- `5432:5432` → Postgres (always enabled)
-- `2181:2181` → Zookeeper (profile: kafka)
-- `9094:9092` → Kafka (profile: kafka)
-- `6379:6379` → Redis (profile: redis)
+Note: Host port values are now defined in the repository root `.env` (see `TOP_*` and `MEDIA_*` variables). Default mappings have been chosen to avoid collisions with locally installed DBs and services. Example mappings (defaults):
+- `TOP_POSTGRES_HOST_PORT` -> container `5432` (default 5433)
+- `TOP_PGBOUNCER_HOST_PORT` -> container `6432` (default 16432)
+- `TOP_ZOOKEEPER_HOST_PORT` -> container `2181` (default 2181)
+- `TOP_KAFKA_HOST_PORT` -> container `9094` (default 9094)
+- `TOP_REDIS_HOST_PORT` -> container `6379` (default 16379)
+
+Per-service stacks (e.g. `services/media-ingest`) have their own `MEDIA_*` defaults. You can override any value in `.env` before starting the stacks.
 
 **Usage:**
 ```bash
@@ -49,8 +53,8 @@ docker compose --profile kafka --profile redis up
 |---------|--------|-------|
 | Compose version | 3.7 | 3.9 |
 | CA images | hyperledger/fabric-ca:1.5.7 | hyperledger/fabric-ca:1.5.7-alpine |
-| Peer images | hyperledger/fabric-peer:2.5.4 | hyperledger/fabric-peer:2.5.4-alpine |
-| Orderer images | hyperledger/fabric-orderer:2.5.4 | hyperledger/fabric-orderer:2.5.4-alpine |
+| Peer images | hyperledger/fabric-peer:2.5.15 | hyperledger/fabric-peer:2.5.15-alpine |
+| Orderer images | hyperledger/fabric-orderer:2.5.15 | hyperledger/fabric-orderer:2.5.15-alpine |
 | CouchDB | ❌ Always enabled (heavy) | ✅ Optional profile (goleveldb default) |
 | CouchDB image | couchdb:3.3.2 | couchdb:3.3.2-alpine |
 | Peer state DB | CouchDB | LevelDB (goleveldb) — 10x lighter |
@@ -60,16 +64,7 @@ docker compose --profile kafka --profile redis up
 | Volume perms | ❌ RW | ✅ Read-only where safe |
 | Metrics | Enabled | Disabled (saves memory) |
 
-**Port mapping (no conflicts):**
-- `7050:7050` → Orderer
-- `7051:7051` → NHAI Peer
-- `7052:7052` → NHAI Peer (chaincode listen)
-- `7054:7054` → NHAI CA
-- `8054:8054` → RoadWatch CA
-- `9051:9051` → RoadWatch Peer
-- `9052:9052` → RoadWatch Peer (chaincode listen)
-- `5984:5984` → CouchDB NHAI (profile: couchdb)
-- `15984:5984` → CouchDB RoadWatch (profile: couchdb)
+These Fabric ports are still configured in `fabric/network/.env`. They follow the `roadwatch_servicename` convention and are namespaced under the Fabric compose project. If you prefer to also manage Fabric ports from the repo root `.env`, see the final section "Include Fabric ports in root .env".
 
 **Usage:**
 ```bash
@@ -234,21 +229,108 @@ docker compose up
 
 ```bash
 # 1. Start core infrastructure
+Make sure you have the repo root `.env` populated (default values are included). Docker Compose will automatically read `.env` from the repository root.
+
+Start the top-level stack (reads `TOP_*` values):
+```powershell
 docker compose up -d postgres
+```
 
 # 2. Verify Postgres is ready
 docker compose exec postgres pg_isready -U roadwatch_admin
 
 # 3. Start Fabric network (separate terminal)
-cd fabric/network/docker
-docker compose up -d
+Fabric uses `fabric/network/.env` by default. Run from that folder to respect Fabric-specific variables:
+```powershell
+cd fabric/network
+docker compose --env-file .env up -d
+```
 
 # 4. Verify Fabric is ready
 docker compose logs -f peer0.nhai.roadwatch.com | grep "Starting peer"
 
-# 5. List all running containers
-docker ps --filter "label=com.docker.compose.project=roadwatch"
+# 5. List all running containers (project-scoped)
+Use a predictable compose project name to keep container names stable (recommended):
+```powershell
+docker compose --project-name roadwatch ps
 ```
+
+Or list by the repo naming convention:
+```powershell
+docker ps --filter "name=roadwatch_"
+```
+
+---
+
+## Naming & Port-management notes
+
+- Container names: we use `roadwatch_<servicename>` (or `roadwatch_servicename` in Fabric envs) for infra services that are singletons (databases, pgbouncer, fabric peers). Application services keep Compose-generated names (prefixed by project) unless a stable singleton is required.
+- Centralized ports: change host ports by editing `.env` at the repository root. Example: set `MEDIA_POSTGRES_HOST_PORT=15432` to move the media stack Postgres host port.
+- Avoid publishing DB ports to host unless you need to connect from your host. Prefer to access DBs via service hostnames on the Docker network (e.g., `postgres:5432` or `pgbouncer:6432`).
+
+If you want me to move Fabric port variables into the repo root `.env`, reply "include fabric" and I'll centralize them and update `fabric/network/.env` to read from the root file.
+```
+
+---
+
+## Multi‑Host / Production Deployment
+
+This repository's Compose files are optimized for local development (bridge networks, convenience `container_name` values, and host port overrides). For deploying services to different servers (one service per host) you must not assume the same local docker-compose behavior — follow the checklist and recommendations below.
+
+- Top-level guidance:
+  - Use an orchestrator for multi-host: **Docker Swarm** (simple) or **Kubernetes** (recommended for production). Plain `docker compose` does not create multi-host networks.
+  - Replace bridge networks with overlay networks when using Swarm, or translate Compose to Kubernetes manifests/Helm charts for K8s.
+  - Avoid publishing internal-only ports to host unless the service must be reachable from outside the host. Prefer service discovery inside the orchestrator.
+
+- Networks:
+  - Local dev: keep `driver: bridge`. These networks are host-local and cannot route across servers.
+  - Swarm: create an **overlay** network and mark it `external: true` in your stack file so each host attaches to the same network. Example:
+
+```yaml
+networks:
+  roadwatch:
+    external: true
+```
+
+  - Kubernetes: use `Service` objects (ClusterIP, NodePort, LoadBalancer) and let K8s handle networking.
+
+- Container names & scaling:
+  - `container_name` makes container names predictable but prevents scaling and can cause name collisions. For multi‑host deployments prefer the orchestrator's service naming and remove `container_name` entries from production manifests.
+
+- Ports & exposure checklist (per host):
+  - Expose only ports required by external clients (APIs, admin portals). Internal services (Postgres, Redis, Kafka internals) should be reachable via the overlay/network and not bound to the host.
+  - Use NodePort/LoadBalancer (K8s) or published ports on a specific gateway host for external access.
+  - When mapping host ports, use the centralized `.env` to keep mappings consistent; on different servers the same host port can be reused because hosts are independent, but avoid scheduling multiple services that publish the same host port on the same host.
+
+- Example: Docker Swarm steps
+  1. Initialize Swarm on manager: `docker swarm init --advertise-addr <MANAGER_IP>`
+  2. Create overlay: `docker network create -d overlay roadwatch`
+  3. Join workers with the token from `docker swarm join-token worker`.
+  4. Deploy stack (remove `container_name` for production):
+
+```powershell
+docker stack deploy --compose-file docker-compose.yml roadwatch
+```
+
+  5. Verify placement: `docker service ls` and `docker service ps <service>`.
+
+- Example: Kubernetes notes
+  - Convert Compose to K8s manifests (tools: Kompose, compose2k8s) or write Helm charts.
+  - Use `Deployment` + `Service` for each component and an Ingress controller for HTTP traffic.
+
+- Firewall & host OS
+  - Open required TCP ports only. For example, open backend API ports on hosts running APIs, and open Fabric ports only on hosts that need to communicate externally.
+
+- Validation checklist before go‑live:
+  - [ ] Overlay network exists on all nodes and services join it.
+  - [ ] `container_name` removed from production manifests or names are unique per host.
+  - [ ] Only externally required ports are exposed via LoadBalancer/Ingress or published ports.
+  - [ ] No two services scheduled to the same host publish the same host port.
+  - [ ] Services are running on intended hosts (`docker service ps` / `kubectl get pods`).
+
+If you want, I can:
+ - generate a Swarm-ready version of the top-level Compose (overlay network + removed `container_name`) and a short script to create the overlay network; OR
+ - generate Kubernetes manifests (Deployment + Service) for a subset of services (e.g., `postgres`, `pgbouncer`, `gateway-api`) so you can review the multi-host setup.
 
 ---
 

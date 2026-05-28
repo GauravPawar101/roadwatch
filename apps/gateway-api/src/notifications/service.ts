@@ -15,6 +15,7 @@ import {
   minutesUntilNextDigest,
   minutesUntilQuietEnds
 } from './domain.js';
+import { uuidv7 } from '../uuid.js';
 
 type PrefRow = {
   user_id: string;
@@ -216,7 +217,7 @@ export async function createAndFanoutNotification(params: {
   message: NotificationMessage;
 }): Promise<{ notificationId: string; userIds: string[] }> {
   const m = params.message;
-  const notificationId = crypto.randomUUID();
+  const notificationId = uuidv7();
   const userIds = await resolveAudienceUsers(m.audience);
 
   const client = await pool.connect();
@@ -239,7 +240,7 @@ export async function createAndFanoutNotification(params: {
     );
 
     for (const uid of userIds) {
-      const inboxId = crypto.randomUUID();
+      const inboxId = uuidv7();
       await client.query(
         `INSERT INTO notification_inbox (id, user_id, notification_id, created_at) 
          VALUES ($1, $2, $3, NOW())`,
@@ -255,7 +256,7 @@ export async function createAndFanoutNotification(params: {
         await client.query(
           `INSERT INTO notification_deliveries (id, user_id, notification_id, channel, scheduled_for, batch_key, created_at) 
            VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-          [crypto.randomUUID(), uid, notificationId, ch, scheduledFor, batchKey({ prefs, channel: ch, audience: m.audience })]
+          [uuidv7(), uid, notificationId, ch, scheduledFor, batchKey({ prefs, channel: ch, audience: m.audience })]
         );
       }
 

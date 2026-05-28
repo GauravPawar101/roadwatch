@@ -34,9 +34,29 @@ Write-Host "🌐 Stopping Frontend..." -ForegroundColor Blue
 Stop-ServiceByPid -Name "Frontend" -PidFile ".pids\frontend.pid" -Color "Magenta"
 Write-Host ""
 
+# Stop Backend API
+Write-Host "🔧 Stopping Backend API..." -ForegroundColor Blue
+Stop-ServiceByPid -Name "Backend API" -PidFile ".pids\backend-api.pid" -Color "Blue"
+Write-Host ""
+
 # Stop Gateway API
 Write-Host "🔌 Stopping Gateway API..." -ForegroundColor Blue
 Stop-ServiceByPid -Name "Gateway API" -PidFile ".pids\gateway-api.pid" -Color "Cyan"
+Write-Host ""
+
+# Stop Scheduler
+Write-Host "🗓️  Stopping Scheduler..." -ForegroundColor Blue
+Stop-ServiceByPid -Name "Scheduler" -PidFile ".pids\scheduler.pid" -Color "Yellow"
+Write-Host ""
+
+# Stop Webhook Handler
+Write-Host "🪝 Stopping Webhook Handler..." -ForegroundColor Blue
+Stop-ServiceByPid -Name "Webhook Handler" -PidFile ".pids\webhook-handler.pid" -Color "DarkYellow"
+Write-Host ""
+
+# Stop Fabric Anchor Consumer
+Write-Host "⛓️  Stopping Fabric Anchor Consumer..." -ForegroundColor Blue
+Stop-ServiceByPid -Name "Fabric Anchor Consumer" -PidFile ".pids\fabric-anchor-consumer.pid" -Color "Green"
 Write-Host ""
 
 # Stop Fabric window (the WSL script runs to completion on its own,

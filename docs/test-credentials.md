@@ -37,9 +37,7 @@ LLM (choose one):
 
 Optional:
 - Kafka (enables publishing events):
-  - `UPSTASH_KAFKA_REST_URL`
-  - `UPSTASH_KAFKA_REST_USERNAME`
-  - `UPSTASH_KAFKA_REST_PASSWORD`
+  - Use local Kafka broker(s) with `KAFKA_BROKER` / `KAFKA_BROKERS`
 
 ### Getting an auth token (for authority tool calls)
 

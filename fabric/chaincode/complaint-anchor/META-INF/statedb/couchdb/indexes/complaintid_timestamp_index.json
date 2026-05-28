@@ -1,0 +1,8 @@
+{
+  "index": {
+    "fields": ["complaintId", "timestamp"]
+  },
+  "ddoc": "idxComplaintIdTimestamp",
+  "name": "idxComplaintIdTimestamp",
+  "type": "json"
+}

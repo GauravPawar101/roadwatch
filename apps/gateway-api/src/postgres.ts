@@ -5,7 +5,7 @@ import pg from 'pg';
 const workspaceRoot = resolve(new URL(import.meta.url).pathname, '..', '..', '..', '..');
 loadEnv({ path: resolve(workspaceRoot, 'apps/gateway-api/.env'), override: false });
 
-const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@127.0.0.1:6432/roadwatch';
+const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@127.0.0.1:16432/roadwatch';
 
 const { Pool } = pg;
 
@@ -164,6 +164,14 @@ export async function connect(): Promise<void> {
     try {
       await client.query('SELECT NOW()');
       console.log('[postgres] connected successfully');
+      // Ensure notification_inbox exists to avoid runtime errors when DB was not
+      // initialized with the repo's init.sql (e.g., when connecting to an existing DB).
+      try {
+        // DDL centralized in docker/postgres/init.sql; skip runtime creation of notification_inbox here.
+        console.info('[postgres] skipping runtime creation of notification_inbox; ensure docker/postgres/init.sql has been applied');
+      } catch (err) {
+        console.warn('[postgres] connect warning when checking notification_inbox:', err instanceof Error ? err.message : String(err));
+      }
     } finally {
       client.release();
     }

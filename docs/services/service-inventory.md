@@ -110,16 +110,16 @@ This document provides a comprehensive inventory of all services in the RoadWatc
 - **Health Check:** `kafka-broker-api-versions.sh` every 10s
 - **Resource Limits:** 1 CPU, 512MB RAM (reserved: 0.5 CPU, 256MB)
 - **Topics Created:**
-  - `complaint.submitted` — New complaints from citizens
-  - `complaint.anchored` — HLF blockchain anchoring confirmation
-  - `complaint.status.changed` — Status updates (submitted→assigned→resolved)
-  - `media.captured` — Photo capture events
-  - `media.uploaded` — Pinata upload completion
-  - `media.analyzed` — AI verification results
-  - `escalation.due` — SLA breach alerts
-  - `notification.send` — Notification dispatch events
-  - `authority.action` — Authority verifications/rejections
-  - `dlq.events` — Dead letter queue for failed messages
+  - `complaint-submitted` — New complaints from citizens
+  - `complaint-anchored` — HLF blockchain anchoring confirmation
+  - `complaint-status-changed` — Status updates (submitted→assigned→resolved)
+  - `media-captured` — Photo capture events
+  - `media-uploaded` — Supabase Storage upload completion
+  - `media-analyzed` — AI verification results
+  - `escalation-due` — SLA breach alerts
+  - `notification-send` — Notification dispatch events
+  - `authority-action` — Authority verifications/rejections
+  - `dlq-events` — Dead letter queue for failed messages
 - **Configuration:**
   ```
   KAFKA_BROKER_ID: 1
@@ -132,7 +132,7 @@ This document provides a comprehensive inventory of all services in the RoadWatc
   ```
 
 **Switching from Upstash to Local Kafka:**
-- Previously: `UPSTASH_KAFKA_REST_URL` + polling
+- Previously: local Kafka broker polling
 - Now: Native Kafka broker (faster, lower latency, no HTTP overhead)
 - Connection string (container-to-container): `kafka:29092`
 - Connection string (localhost): `localhost:9094`
@@ -213,11 +213,11 @@ This document provides a comprehensive inventory of all services in the RoadWatc
   - Sends notifications to affected users
   - Logs all authority actions
 - **Subscribed Topics:**
-  - `complaint.submitted` → Updates metadata, logs event
-  - `complaint.anchored` → Updates anchored_at, anchored_tx_hash
-  - `complaint.status.changed` → Propagates status, notifies users
-  - `notification.send` → Marks notification as sent
-  - `authority.action` → Logs action, notifies citizen
+  - `complaint-submitted` → Updates metadata, logs event
+  - `complaint-anchored` → Updates anchored_at, anchored_tx_hash
+  - `complaint-status-changed` → Propagates status, notifies users
+  - `notification-send` → Marks notification as sent
+  - `authority-action` → Logs action, notifies citizen
 - **Dependencies:** Postgres, Kafka (health checks)
 - **Resource Limits:** 0.5 CPU, 256MB RAM
 - **Health Check:** Process alive
@@ -245,13 +245,13 @@ This document provides a comprehensive inventory of all services in the RoadWatc
 - **Type:** Node.js + kafkajs + hyperledger/fabric-gateway
 - **Status:** Always running ✅
 - **Responsibilities:**
-  - Consumes `complaint.submitted` events from Kafka
+  - Consumes `complaint-submitted` events from Kafka
   - Anchors complaint hash to Hyperledger Fabric blockchain
   - Verifies anchor transaction
-  - Publishes `complaint.anchored` event with transaction hash
+  - Publishes `complaint-anchored` event with transaction hash
   - Handles errors and dead-letter queue
-- **Input Event:** Complaint submitted by citizen
-- **Output Event:** complaint.anchored (with HLF txHash)
+**Input Event:** Complaint submitted by citizen
+**Output Event:** complaint-anchored (with HLF txHash)
 **Dependencies:** Postgres, Kafka, Fabric network (health checks)
 - **Resource Limits:** 1 CPU, 512MB RAM (largest due to HLF SDK overhead)
 - **Health Check:** Process alive
@@ -522,7 +522,7 @@ docker-compose -f fabric/network/docker/docker-compose.yaml up
    - Alert if sync job > 30 seconds
 
 4. **Complaint Anchoring Latency**
-   - Measure time from `complaint.submitted` to `complaint.anchored`
+  - Measure time from `complaint-submitted` to `complaint-anchored`
    - Target: < 5 seconds (currently Fabric SOLO consensus)
 
 5. **Memory Usage**
@@ -593,7 +593,7 @@ docker-compose -f fabric/network/docker/docker-compose.yaml up
    - Contractor assignments
    - Authority directory
    - Test complaints and verifications
-   - Pinata media uploads
+  - Supabase Storage media uploads
    - HLF anchoring of all test data
 
 2. **Integration Testing** (pending)

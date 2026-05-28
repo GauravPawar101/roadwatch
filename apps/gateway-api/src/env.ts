@@ -5,7 +5,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().optional().default(3100),
 
   // PostgreSQL (use a PgBouncer-backed pooled endpoint)
-  DATABASE_URL: z.string().optional().default('postgresql://postgres:postgres@127.0.0.1:6432/roadwatch'),
+  DATABASE_URL: z.string().optional().default('postgresql://postgres:postgres@127.0.0.1:16432/roadwatch'),
   POSTGRES_HOST: z.string().optional().default('127.0.0.1'),
   POSTGRES_PORT: z.coerce.number().int().positive().optional().default(5432),
   POSTGRES_DB: z.string().optional().default('roadwatch'),
@@ -62,9 +62,10 @@ const envSchema = z.object({
   LLAMACPP_BASE_URL: z.string().optional(),
   LLAMACPP_MODEL: z.string().optional().default('llama'),
 
-  // Pinata / IPFS
-  PINATA_JWT: z.string().optional(),
-  PINATA_GATEWAY: z.string().optional().default('https://gateway.pinata.cloud/ipfs'),
+  // Supabase Storage
+  SUPABASE_URL: z.string().optional(),
+  SUPABASE_ANON_KEY: z.string().optional(),
+  SUPABASE_STORAGE_BUCKET: z.string().optional().default('roadwatch-media'),
 
   // Comma-separated priority list, e.g. "gemini,ollama,llamacpp"
   LLM_FALLBACK_ORDER: z.string().optional().default('gemini,ollama,llamacpp')
@@ -80,21 +81,14 @@ export function getEnv(): Env {
 export function assertRequiredInfrastructure(): void {
   const env = process.env;
 
-  const redisConfigured = Boolean(env.UPSTASH_REDIS_REST_URL?.trim() && env.UPSTASH_REDIS_REST_TOKEN?.trim());
+  const redisConfigured = Boolean((env.REDIS_URL ?? env.REDIS_URI ?? env.REDIS_HOST)?.toString().trim());
   if (!redisConfigured) {
-    throw new Error('Redis is required but UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN is missing');
+    throw new Error('Redis is required but not configured. Set REDIS_URL or REDIS_HOST/REDIS_PORT');
   }
 
-  const upstashKafkaConfigured = Boolean(
-    env.UPSTASH_KAFKA_REST_URL?.trim() &&
-      ((env.UPSTASH_KAFKA_REST_USERNAME?.trim() && env.UPSTASH_KAFKA_REST_PASSWORD?.trim()) ||
-        env.UPSTASH_KAFKA_REST_TOKEN?.trim())
-  );
   const localKafkaConfigured = Boolean((env.KAFKA_BROKERS ?? env.KAFKA_BROKER ?? '').trim());
 
-  if (!upstashKafkaConfigured && !localKafkaConfigured) {
-    throw new Error(
-      'Kafka is required but neither Upstash Kafka REST credentials nor KAFKA_BROKER/KAFKA_BROKERS are configured'
-    );
+  if (!localKafkaConfigured) {
+    throw new Error('Kafka is required but KAFKA_BROKER or KAFKA_BROKERS is missing');
   }
 }

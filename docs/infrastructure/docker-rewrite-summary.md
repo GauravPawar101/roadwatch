@@ -13,6 +13,7 @@
 | `docker-compose.yml` | Complete rewrite | ✅ Lightweight, profiled, no conflicts |
 | `fabric/network/docker/docker-compose.yaml` | Complete rewrite | ✅ LevelDB default, CouchDB optional |
 | `DOCKER_SETUP.md` | **NEW** | 📖 Comprehensive guide |
+| `.env` | **UPDATED** | 🎛 Centralized host port mappings (`TOP_*`, `MEDIA_*`) |
 | `.env.template` | **NEW** | 📝 All required env vars |
 | `SETUP_CHECKLIST.md` | **NEW** | ✅ Step-by-step setup |
 
@@ -39,6 +40,8 @@
 - ✅ Clearer profile names (kafka, redis)
 - ✅ Explicit network definition
 - ✅ JVM heap configuration for Kafka/Zookeeper
+ - ✅ Centralized host port variables in repo root `.env` so host mappings are easy to inspect and change
+ - ✅ Consistent container naming convention for singleton infra: `roadwatch_<servicename>`
 
 **Memory impact:**
 - Postgres only: 256 MB → stays 256 MB
@@ -77,12 +80,12 @@
 
 ## 🔌 Port Audit (Zero Conflicts)
 
-### Root Compose Ports
+### Root Compose Ports (defaults, controlled from root `.env`)
 ```
-5433:5432    ← PostgreSQL (always)
-2181:2181    ← Zookeeper (profile: kafka)
-9094:9092    ← Kafka (profile: kafka)
-6379:6379    ← Redis (profile: redis)
+${TOP_POSTGRES_HOST_PORT:-5433}:5432    ← PostgreSQL (always)
+${TOP_ZOOKEEPER_HOST_PORT:-2181}:2181    ← Zookeeper (profile: kafka)
+${TOP_KAFKA_HOST_PORT:-9094}:9092    ← Kafka (profile: kafka)
+${TOP_REDIS_HOST_PORT:-16379}:6379    ← Redis (profile: redis)
 ```
 
 ### Fabric Compose Ports
@@ -98,7 +101,7 @@
 15984:5984   ← CouchDB RoadWatch (profile: couchdb)
 ```
 
-✅ **No port overlaps between root and fabric stacks**
+✅ **No port overlaps between root and fabric stacks when using the provided defaults**
 
 ---
 
@@ -193,8 +196,8 @@ docker compose down --volumes
 | cp-kafka | 7.6.1 (700 MB) | 7.7-alpine (400 MB) | -300 MB |
 | cp-zookeeper | 7.6.1 (550 MB) | 7.7-alpine (250 MB) | -300 MB |
 | fabric-ca | 1.5.7 (250 MB) | 1.5.7-alpine (150 MB) | -100 MB |
-| fabric-peer | 2.5.4 (500 MB) | 2.5.4-alpine (350 MB) | -150 MB |
-| fabric-orderer | 2.5.4 (450 MB) | 2.5.4-alpine (300 MB) | -150 MB |
+| fabric-peer | 2.5.15 (500 MB) | 2.5.15-alpine (350 MB) | -150 MB |
+| fabric-orderer | 2.5.15 (450 MB) | 2.5.15-alpine (300 MB) | -150 MB |
 | couchdb | 3.3.2 (300 MB) | 3.3.2-alpine (150 MB) | -150 MB |
 
 **Total image size reduction: ~1.2 GB** (lighter pulls, faster builds)
@@ -268,7 +271,7 @@ docker compose down --volumes
 docker image rm \
   postgres:15-alpine \
   confluentinc/cp-kafka:7.6.1 \
-  hyperledger/fabric-peer:2.5.4 \
+   hyperledger/fabric-peer:2.5.15 \
   couchdb:3.3.2
 
 # 3. Start fresh with new files

@@ -146,7 +146,7 @@ REQUIRED for Gateway API (Postgres preferred):
 OPTIONAL:
   - GEMINI_API_KEY (get from aistudio.google.com)
   - KAFKA_BROKER (if running local Kafka)
-  - PINATA_JWT (for media uploads)
+  - SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_STORAGE_BUCKET (for media uploads)
 ```
 
 ---

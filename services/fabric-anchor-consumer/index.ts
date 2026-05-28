@@ -8,9 +8,10 @@ import { Kafka as KafkaJS } from 'kafkajs';
 import { Pool } from 'pg';
 
 import { registerServiceWithGateway } from '../../apps/gateway-api/src/services/discovery.js';
+import { fabricLedgerService } from '../../apps/gateway-api/src/services/fabric-ledger.js';
 import { getLocalKafkaBrokers } from '../../providers/kafka/index.js';
 import { KafkaProducer } from '../../providers/kafka/KafkaProducer.js';
-import { KafkaTopics, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '../../providers/kafka/topics.js';
+import { KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '../../providers/kafka/topics.js';
 
 type DbClient = Pool;
 
@@ -41,6 +42,10 @@ type PollConsumer = {
   disconnect?: () => Promise<void>;
 };
 
+type ComplaintLedgerEvent =
+  | { topic: typeof KafkaTopics.complaintSubmitted; event: ComplaintSubmittedEvent }
+  | { topic: typeof KafkaTopics.complaintStatusChanged; event: ComplaintStatusChangedEvent };
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -59,16 +64,37 @@ class LocalKafkaPollConsumer implements PollConsumer {
   }
 
   private async ensureRunning(fromBeginning: boolean, topics: string[]): Promise<void> {
-    if (!this.running) {
-      await this.consumer.connect();
-      this.running = true;
-    }
+    // Attempt to connect and subscribe with exponential backoff because the
+    // Kafka group coordinator may not be ready immediately after broker start.
+    let attempt = 0;
+    let delay = 100; // ms
+    const maxAttempts = 12; // caps total backoff ~ 40s
+    while (true) {
+      try {
+        if (!this.running) {
+          await this.consumer.connect();
+          this.running = true;
+        }
 
-    if (!this.subscribed) {
-      for (const topic of topics) {
-        await this.consumer.subscribe({ topic, fromBeginning });
+        if (!this.subscribed) {
+          for (const topic of topics) {
+            await this.consumer.subscribe({ topic, fromBeginning });
+          }
+          this.subscribed = true;
+        }
+
+        break;
+      } catch (e) {
+        attempt++;
+        if (attempt >= maxAttempts) {
+          // rethrow the last error after exhausting attempts
+          throw e;
+        }
+        // sleep with jitter
+        const jitter = Math.floor(Math.random() * Math.min(1000, delay));
+        await sleep(delay + jitter);
+        delay = Math.min(5000, delay * 2);
       }
-      this.subscribed = true;
     }
 
     if (this.runStarted) return;
@@ -270,52 +296,8 @@ async function connectPostgres(env: Env = process.env): Promise<DbClient> {
 }
 
 async function ensureTables(db: DbClient): Promise<void> {
-  // Processed events table: track which idempotency keys have been processed
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS processed_events (
-      consumer_id TEXT NOT NULL,
-      key TEXT NOT NULL,
-      processed_at TIMESTAMP DEFAULT NOW(),
-      PRIMARY KEY (consumer_id, key)
-    )
-  `);
-
-  // Event failures table: track retry count and last error
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS event_failures (
-      consumer_id TEXT NOT NULL,
-      key TEXT NOT NULL,
-      failure_count INT DEFAULT 0,
-      last_error TEXT,
-      updated_at TIMESTAMP DEFAULT NOW(),
-      PRIMARY KEY (consumer_id, key)
-    )
-  `);
-
-  // Complaint merkle proofs table: denormalized for fast lookups
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS complaint_merkle_proofs (
-      complaint_id TEXT PRIMARY KEY,
-      merkle_root TEXT,
-      merkle_proof TEXT,
-      fabric_txid TEXT,
-      batch_id TEXT,
-      anchored_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
-
-  // Secondary index on batch_id for batch-based queries
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS complaint_merkle_proofs_by_batch (
-      batch_id TEXT NOT NULL,
-      complaint_id TEXT NOT NULL,
-      merkle_root TEXT,
-      merkle_proof TEXT,
-      fabric_txid TEXT,
-      anchored_at TIMESTAMP DEFAULT NOW(),
-      PRIMARY KEY (batch_id, complaint_id)
-    )
-  `);
+  // DDL centralized in docker/postgres/init.sql; runtime table creation removed.
+  console.info('Skipping creation of processed_events/event_failures/complaint_merkle_proofs tables; ensure docker/postgres/init.sql has been applied');
 }
 
 async function isProcessed(db: DbClient, consumerId: string, key: string): Promise<boolean> {
@@ -378,7 +360,7 @@ async function main(): Promise<void> {
   const consumer: PollConsumer = (() => {
     const brokers = getLocalKafkaBrokers(env);
     if (!brokers) {
-      throw new Error('Kafka consumer requires either Upstash Kafka env vars or local KAFKA_BROKER(S)');
+      throw new Error('Kafka consumer requires local KAFKA_BROKER(S)');
     }
     const consumerGroupId = (env.KAFKA_CONSUMER_GROUP_ID ?? 'fabric-anchor-consumer-v1').trim();
     const instanceId = (env.KAFKA_CONSUMER_INSTANCE_ID ?? `fabric-anchor-${process.pid}`).trim();
@@ -393,14 +375,14 @@ async function main(): Promise<void> {
   if (!consumerGroupId) throw new Error('KAFKA_CONSUMER_GROUP_ID cannot be empty');
   if (!instanceId) throw new Error('KAFKA_CONSUMER_INSTANCE_ID cannot be empty');
 
-  const batch: Array<{ raw: any; event: ComplaintSubmittedEvent }> = [];
+  const batch: Array<{ raw: any; event: ComplaintSubmittedEvent | ComplaintStatusChangedEvent; topic: string }> = [];
   let lastFlushAt = Date.now();
   let flushing = false;
   let shutdown = false;
 
   async function sendDlq(rawMessage: unknown, attempts: number, error: string): Promise<void> {
     const dlq: DlqEvent = {
-      type: 'dlq.events',
+      type: 'dlq-events',
       idempotencyKey: crypto.randomUUID(),
       occurredAt: nowIso(),
       version: 1,
@@ -415,7 +397,7 @@ async function main(): Promise<void> {
 
   async function alertOps(template: string, params: Record<string, string>): Promise<void> {
     const evt: NotificationSendEvent = {
-      type: 'notification.send',
+      type: 'notification-send',
       idempotencyKey: crypto.randomUUID(),
       occurredAt: nowIso(),
       version: 1,
@@ -437,7 +419,7 @@ async function main(): Promise<void> {
     flushing = true;
 
     try {
-      const unique: Array<{ raw: any; event: ComplaintSubmittedEvent }> = [];
+      const unique: Array<{ raw: any; event: ComplaintSubmittedEvent | ComplaintStatusChangedEvent; topic: string }> = [];
       for (const item of batch) {
         const key = item.event.idempotencyKey;
         if (await isProcessed(db, consumerId, key)) {
@@ -453,66 +435,100 @@ async function main(): Promise<void> {
         return;
       }
 
-      const leaves = unique.map(u => stableStringify({ complaintId: u.event.complaintId, idempotencyKey: u.event.idempotencyKey }));
-      const { root, proofs } = merkleRoot(leaves);
-      const batchId = crypto.randomUUID();
+      const submittedEvents = unique.filter((item): item is { raw: any; event: ComplaintSubmittedEvent; topic: string } => item.topic === KafkaTopics.complaintSubmitted);
+      const statusEvents = unique.filter((item): item is { raw: any; event: ComplaintStatusChangedEvent; topic: string } => item.topic === KafkaTopics.complaintStatusChanged);
 
-      // Use Fabric Gateway API to submit a transaction and capture its tx ID.
-      const proposal = contract.newProposal('AnchorMerkleRoot', {
-        arguments: [batchId, root, unique.length.toString()]
-      });
-      const fabricTxId = proposal.getTransactionId();
-      const endorsed = await proposal.endorse();
-      const submitted = await endorsed.submit();
-      await submitted.getStatus();
+      const processedSubmitted = new Array<{ event: ComplaintSubmittedEvent; proof?: ProofStep[] }>();
 
-      for (let i = 0; i < unique.length; i++) {
-        const { event } = unique[i]!;
-        const proof = proofs[i]!;
-        const now = new Date();
-
-        // Insert into primary table
-        await db.query(
-          `INSERT INTO complaint_merkle_proofs 
-             (complaint_id, merkle_root, merkle_proof, fabric_txid, batch_id, anchored_at)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (complaint_id) DO UPDATE SET
-             merkle_root = $2, merkle_proof = $3, fabric_txid = $4, batch_id = $5, anchored_at = $6`,
-          [event.complaintId, root, JSON.stringify(proof), fabricTxId, batchId, now]
-        );
-
-        // Insert into batch index table
-        await db.query(
-          `INSERT INTO complaint_merkle_proofs_by_batch 
-             (batch_id, complaint_id, merkle_root, merkle_proof, fabric_txid, anchored_at)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (batch_id, complaint_id) DO UPDATE SET
-             merkle_root = $3, merkle_proof = $4, fabric_txid = $5, anchored_at = $6`,
-          [batchId, event.complaintId, root, JSON.stringify(proof), fabricTxId, now]
-        );
-
-        await markProcessed(db, consumerId, event.idempotencyKey);
-
-        await producer.publish(KafkaTopics.complaintAnchored, {
-          type: 'complaint.anchored',
-          idempotencyKey: crypto.randomUUID(),
-          occurredAt: nowIso(),
-          version: 1,
+      for (const item of submittedEvents) {
+        const event = item.event;
+        const location = event.location && typeof event.location === 'object' ? event.location : { lat: event.lat ?? null, lng: event.lng ?? null };
+        await fabricLedgerService.createComplaint({
           complaintId: event.complaintId,
-          merkleRoot: root,
-          merkleProof: proof,
-          fabricTxId,
-          batchId
+          citizenId: event.citizenId ?? event.complaintId,
+          roadId: event.roadId ?? `${event.district}:${event.zone}`,
+          location: location as Record<string, unknown>,
+          initialIPFSCid: event.initialIPFSCid ?? '',
+          authorityOrg: event.authorityOrg ?? event.zone,
+          detailsHash: event.detailsHash,
+          merged: event.merged,
+          reportCount: event.reportCount,
+          eventIdempotencyKey: event.idempotencyKey
         });
+        processedSubmitted.push({ event });
+      }
+
+      for (const item of statusEvents) {
+        const event = item.event;
+        await fabricLedgerService.updateComplaintStatus(
+          event.complaintId,
+          event.toStatus,
+          event.changedBy.actorId ?? 'system',
+          event.idempotencyKey
+        );
+      }
+
+      if (processedSubmitted.length > 0) {
+        const leaves = processedSubmitted.map(u => stableStringify({ complaintId: u.event.complaintId, idempotencyKey: u.event.idempotencyKey }));
+        const { root, proofs } = merkleRoot(leaves);
+        const batchId = crypto.randomUUID();
+
+        const regionCode = processedSubmitted[0]?.event.district || processedSubmitted[0]?.event.zone || 'UNKNOWN';
+        const proposal = contract.newProposal('SubmitMerkleRoot', {
+          arguments: [root, regionCode, processedSubmitted.length.toString()]
+        });
+        const fabricTxId = proposal.getTransactionId();
+        const endorsed = await proposal.endorse();
+        const submitted = await endorsed.submit();
+        await submitted.getStatus();
+
+        for (let i = 0; i < processedSubmitted.length; i++) {
+          const { event } = processedSubmitted[i]!;
+          const proof = proofs[i]!;
+          const now = new Date();
+
+          await db.query(
+            `INSERT INTO complaint_merkle_proofs 
+               (complaint_id, merkle_root, merkle_proof, fabric_txid, batch_id, anchored_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (complaint_id) DO UPDATE SET
+               merkle_root = $2, merkle_proof = $3, fabric_txid = $4, batch_id = $5, anchored_at = $6`,
+            [event.complaintId, root, JSON.stringify(proof), fabricTxId, batchId, now]
+          );
+
+          await db.query(
+            `INSERT INTO complaint_merkle_proofs_by_batch 
+               (batch_id, complaint_id, merkle_root, merkle_proof, fabric_txid, anchored_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (batch_id, complaint_id) DO UPDATE SET
+               merkle_root = $3, merkle_proof = $4, fabric_txid = $5, anchored_at = $6`,
+            [batchId, event.complaintId, root, JSON.stringify(proof), fabricTxId, now]
+          );
+
+            await producer.publish(KafkaTopics.complaintAnchored, {
+            type: 'complaint-anchored',
+            idempotencyKey: crypto.randomUUID(),
+            occurredAt: nowIso(),
+            version: 1,
+            complaintId: event.complaintId,
+            merkleRoot: root,
+            merkleProof: proof,
+            fabricTxId,
+            batchId
+          });
+        }
+
+        console.log(`[${consumerId}] Anchored batch of ${processedSubmitted.length} complaints; root=${root} tx=${fabricTxId}`);
+      }
+
+      for (const item of unique) {
+        await markProcessed(db, consumerId, item.event.idempotencyKey);
       }
 
       // Commit only after Fabric confirms + DB writes complete.
       await consumer.commit({ consumerGroupId, instanceId });
       batch.length = 0;
       lastFlushAt = Date.now();
-      if (reason === 'size') {
-        console.log(`[${consumerId}] Anchored batch of ${unique.length} complaints; root=${root} tx=${fabricTxId}`);
-      }
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
 
@@ -574,7 +590,7 @@ async function main(): Promise<void> {
     const messages = await consumer.consume({
       consumerGroupId,
       instanceId,
-      topics: [KafkaTopics.complaintSubmitted],
+      topics: [KafkaTopics.complaintSubmitted, KafkaTopics.complaintStatusChanged],
       timeout: 5_000,
       autoCommit: false,
       autoOffsetReset: 'earliest'
@@ -584,11 +600,15 @@ async function main(): Promise<void> {
     let malformedOnly = messages.length > 0;
     for (const msg of messages) {
       try {
-        const parsed = JSON.parse(msg.value) as ComplaintSubmittedEvent;
+        const parsed = JSON.parse(msg.value) as ComplaintSubmittedEvent | ComplaintStatusChangedEvent;
         if (!parsed?.idempotencyKey || !parsed?.complaintId) {
-          throw new Error('Invalid complaint.submitted payload');
+          throw new Error(`Invalid ${msg.topic} payload`);
         }
-        batch.push({ raw: msg, event: parsed });
+
+        if (msg.topic !== KafkaTopics.complaintSubmitted && msg.topic !== KafkaTopics.complaintStatusChanged) {
+          throw new Error(`Unsupported topic ${msg.topic}`);
+        }
+        batch.push({ raw: msg, event: parsed, topic: msg.topic });
         addedToBatch++;
         malformedOnly = false;
       } catch (e) {

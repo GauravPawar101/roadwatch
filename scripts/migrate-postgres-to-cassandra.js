@@ -78,7 +78,7 @@ async function main() {
     );
 
     // Image submissions
-    await migrateTable(pg, cassandraClient, 'image_submissions', 'SELECT id, request_id, uploader_id_encrypted, uploader_pseudonym, server_received_at, exif_timestamp, exif_latitude, exif_longitude, device_latitude, device_longitude, nonce, phash, verified_status, storage_path, metadata, created_by_id FROM image_submissions',
+    await migrateTable(pg, cassandraClient, 'image_submissions', 'SELECT id, request_id, uploader_id_encrypted, uploader_pseudonym, server_received_at, exif_timestamp, exif_lat AS exif_latitude, exif_lng AS exif_longitude, device_lat AS device_latitude, device_lng AS device_longitude, nonce, phash, verified_status, storage_path, metadata, created_by_id FROM image_submissions',
       (r) => r,
       'INSERT INTO image_submissions (id, request_id, uploader_id_encrypted, uploader_pseudonym, server_received_at, exif_timestamp, exif_latitude, exif_longitude, device_latitude, device_longitude, nonce, phash, verified_status, storage_path, metadata, created_by_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       (r) => [r.id, r.request_id || null, r.uploader_id_encrypted || null, r.uploader_pseudonym || null, r.server_received_at || null, r.exif_timestamp || null, r.exif_latitude || null, r.exif_longitude || null, r.device_latitude || null, r.device_longitude || null, r.nonce || null, r.phash || null, r.verified_status || null, r.storage_path || null, r.metadata ? JSON.stringify(r.metadata) : null, r.created_by_id || null]

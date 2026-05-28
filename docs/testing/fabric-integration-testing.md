@@ -36,17 +36,15 @@ Chaincode restricts `CreateComplaint` by MSP.
 
 This keeps production defaults strict while enabling testing on standard dev networks.
 
-## Suggested local workflow (using fabric-samples test-network)
+## Suggested local workflow (using RoadWatch Fabric)
 
-1) Bring up a local network using Hyperledger Fabric samples:
-- Clone `hyperledger/fabric-samples`
-- `cd test-network`
-- `./network.sh up createChannel -ca`
+1) Bring up the RoadWatch Fabric network:
+- `cd fabric/network`
+- `./scripts/start.sh`
 
-2) Deploy chaincode from this repo (Node chaincode):
-- Ensure chaincode builds: `pnpm -F roadwatch-chaincode run build`
-- In the test-network folder, deploy:
-  - `./network.sh deployCC -ccn roadwatch -ccp /absolute/path/to/roadWatch/chaincode -ccl javascript`
+2) Deploy chaincode from this repo:
+- Ensure the chaincode package builds: `peer lifecycle chaincode package complaint-anchor.tar.gz --path ./fabric/chaincode/complaint-anchor --lang golang --label complaint-anchor_0.0.1`
+- Use `./scripts/deploy-chaincode.sh` to install, approve, and commit it on `roadwatch-india`
 
 3) Export env vars for the Fabric gateway connection.
 
@@ -55,5 +53,4 @@ This keeps production defaults strict while enabling testing on standard dev net
 
 If you want this to be fully one-command, we can add a dedicated bootstrap script once you confirm:
 - target Fabric version
-- whether to standardize on `fabric-samples` test-network
 - expected MSP IDs + channel/chaincode names

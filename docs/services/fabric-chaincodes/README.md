@@ -314,16 +314,16 @@ peer lifecycle chaincode package global-routing.tar.gz \
     --lang golang \
     --label global-routing_1.0
 
-peer lifecycle chaincode package complaint-anchor-go.tar.gz \
+peer lifecycle chaincode package complaint-anchor.tar.gz \
     --path ./fabric/chaincode/complaint-anchor \
     --lang golang \
-    --label complaint-anchor-go_1.0
+    --label complaint-anchor_0.0.1
 ```
 
 ### Installation and Approval
 ```bash
 # Install on all peers
-for chaincode in authority-registry budget-registry road-registry global-routing complaint-anchor-go; do
+for chaincode in authority-registry budget-registry road-registry global-routing complaint-anchor; do
     peer lifecycle chaincode install ${chaincode}.tar.gz
     
     # Approve for organization
@@ -339,7 +339,7 @@ done
 ### Commit to Channel
 ```bash
 # Commit each chaincode to channel
-for chaincode in authority-registry budget-registry road-registry global-routing complaint-anchor-go; do
+for chaincode in authority-registry budget-registry road-registry global-routing complaint-anchor; do
     peer lifecycle chaincode commit \
         --channelID roadwatch-india \
         --name ${chaincode} \

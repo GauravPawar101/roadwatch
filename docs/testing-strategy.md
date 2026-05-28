@@ -74,7 +74,7 @@ This gives “2G-ish behavior” without OS-specific `tc netem`.
 
 We provide a **harness** to run chaincode against a local Fabric network:
 - Start network (docker-based)
-- Deploy chaincode from `chaincode/`
+- Deploy chaincode from `fabric/chaincode/complaint-anchor`
 - Run gateway client tests (invoke + query)
 
 Entry points:

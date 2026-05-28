@@ -29,7 +29,7 @@ export default function MediaUpload() {
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: 18 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>Upload Media (Pinata-backed)</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>Upload Media (Supabase-backed)</h2>
       <form onSubmit={upload}>
         <FormGroup label="Choose file">
           <Input type="file" accept="image/*,video/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />

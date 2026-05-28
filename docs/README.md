@@ -106,7 +106,7 @@ This documentation provides comprehensive information about all services in the 
 1. **Submission**: Citizen submits complaint via mobile app
 2. **Validation**: Gateway API validates location and data
 3. **Storage**: Complaint stored in Postgres (normalized tables)
-4. **Event Publishing**: `complaint.submitted` event sent to Kafka
+4. **Event Publishing**: `complaint-submitted` event sent to Kafka
 5. **Blockchain Anchoring**: Fabric consumer batches and anchors to blockchain
 6. **Authority Assignment**: Complaint routed to appropriate authority
 7. **Status Updates**: Authority updates status via web portal

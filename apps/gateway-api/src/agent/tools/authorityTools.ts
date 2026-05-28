@@ -4,6 +4,7 @@ import { createAndFanoutNotification } from '../../notifications/service.js';
 import { pool } from '../../postgres.js'; // Migrated from execute wrapper to postgres.js instance
 import { assertDistrictAccess, assertZoneAccess } from '../../rbac.js';
 import { broadcastComplaintEvent } from '../../realtime/sse.js';
+import { uuidv7 } from '../../uuid.js';
 import type { ChatMessage, ToolCall, ToolDefinition } from '../llm/types.js';
 
 function tool(name: string, description: string, parameters: Record<string, any>): ToolDefinition {
@@ -128,7 +129,7 @@ async function updateComplaintStatus(params: {
         target_type, target_id, details, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
       [
-        actor.sub, 
+          uuidv7(),
         actor.phoneHash, 
         actor.phone, 
         'COMPLAINT_STATUS_CHANGED', 
@@ -358,7 +359,7 @@ async function assignInspector(params: {
         target_type, target_id, details, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
       [
-        actor.sub, 
+          uuidv7(),
         actor.phoneHash, 
         actor.phone, 
         'COMPLAINT_ASSIGNED', 
@@ -446,7 +447,7 @@ async function uploadRepairProof(params: {
         target_type, target_id, details, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
       [
-        actor.sub, 
+          uuidv7(),
         actor.phoneHash, 
         actor.phone, 
         'REPAIR_PROOF_UPLOADED', 

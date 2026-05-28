@@ -1,4 +1,5 @@
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import * as crypto from 'node:crypto';
 import { pool } from '../../../apps/gateway-api/src/postgres.js';
 import {

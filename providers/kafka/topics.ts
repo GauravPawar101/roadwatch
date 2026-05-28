@@ -1,22 +1,22 @@
 export const KafkaTopics = {
-  complaintSubmitted: 'complaint.submitted',
-  complaintAnchored: 'complaint.anchored',
-  complaintStatusChanged: 'complaint.status.changed',
+  complaintSubmitted: 'complaint-submitted',
+  complaintAnchored: 'complaint-anchored',
+  complaintStatusChanged: 'complaint-status-changed',
 
-  mediaCaptured: 'media.captured',
-  mediaCompressed: 'media.compressed',
-  mediaUploaded: 'media.uploaded',
-  mediaAnalyzed: 'media.analyzed',
+  mediaCaptured: 'media-captured',
+  mediaCompressed: 'media-compressed',
+  mediaUploaded: 'media-uploaded',
+  mediaAnalyzed: 'media-analyzed',
 
-  escalationDue: 'escalation.due',
-  escalationSent: 'escalation.sent',
+  escalationDue: 'escalation-due',
+  escalationSent: 'escalation-sent',
 
-  fabricEvents: 'fabric.events',
-  authorityAction: 'authority.action',
+  fabricEvents: 'fabric-events',
+  authorityAction: 'authority-action',
 
-  notificationSend: 'notification.send',
+  notificationSend: 'notification-send',
 
-  dlq: 'dlq.events'
+  dlq: 'dlq-events'
 } as const;
 
 export type KafkaTopic = (typeof KafkaTopics)[keyof typeof KafkaTopics];
@@ -28,17 +28,25 @@ export type BaseEvent = {
 };
 
 export type ComplaintSubmittedEvent = BaseEvent & {
-  type: 'complaint.submitted';
+  type: 'complaint-submitted';
   complaintId: string;
   district: string;
   zone: string;
   lat?: number;
   lng?: number;
   description: string;
+  roadId?: string;
+  authorityOrg?: string;
+  citizenId?: string;
+  initialIPFSCid?: string;
+  detailsHash?: string;
+  location?: Record<string, unknown>;
+  merged?: boolean;
+  reportCount?: number;
 };
 
 export type ComplaintAnchoredEvent = BaseEvent & {
-  type: 'complaint.anchored';
+  type: 'complaint-anchored';
   complaintId: string;
   merkleRoot: string; // hex
   merkleProof: Array<{ direction: 'left' | 'right'; hash: string }>;
@@ -47,22 +55,23 @@ export type ComplaintAnchoredEvent = BaseEvent & {
 };
 
 export type ComplaintStatusChangedEvent = BaseEvent & {
-  type: 'complaint.status.changed';
+  type: 'complaint-status-changed';
   complaintId: string;
   fromStatus: string;
   toStatus: string;
   changedBy: { actorType: 'authority' | 'system'; actorId?: string };
+  resolutionIPFSCid?: string;
 };
 
 export type MediaCapturedEvent = BaseEvent & {
-  type: 'media.captured';
+  type: 'media-captured';
   complaintId: string;
   mediaId: string;
   mimeType: string;
 };
 
 export type MediaCompressedEvent = BaseEvent & {
-  type: 'media.compressed';
+  type: 'media-compressed';
   complaintId: string;
   mediaId: string;
   codec: string;
@@ -70,15 +79,15 @@ export type MediaCompressedEvent = BaseEvent & {
 };
 
 export type MediaUploadedEvent = BaseEvent & {
-  type: 'media.uploaded';
+  type: 'media-uploaded';
   complaintId: string;
   mediaId: string;
-  storageProvider: 'pinata' | 'unknown';
+  storageProvider: 'supabase-storage' | 'unknown';
   cid: string;
 };
 
 export type MediaAnalyzedEvent = BaseEvent & {
-  type: 'media.analyzed';
+  type: 'media-analyzed';
   complaintId: string;
   mediaId: string;
   model: string;
@@ -87,27 +96,27 @@ export type MediaAnalyzedEvent = BaseEvent & {
 };
 
 export type EscalationDueEvent = BaseEvent & {
-  type: 'escalation.due';
+  type: 'escalation-due';
   complaintId: string;
   reason: string;
 };
 
 export type EscalationSentEvent = BaseEvent & {
-  type: 'escalation.sent';
+  type: 'escalation-sent';
   complaintId: string;
   channel: 'sms' | 'push' | 'email' | 'unknown';
   target: string;
 };
 
 export type FabricEventsEvent = BaseEvent & {
-  type: 'fabric.events';
+  type: 'fabric-events';
   fabricTxId: string;
   eventName: string;
   payload?: unknown;
 };
 
 export type NotificationSendEvent = BaseEvent & {
-  type: 'notification.send';
+  type: 'notification-send';
   channels: Array<'sms' | 'push' | 'email'>;
   template: string;
   to: { phone?: string; deviceToken?: string; email?: string };
@@ -116,7 +125,7 @@ export type NotificationSendEvent = BaseEvent & {
 };
 
 export type AuthorityActionEvent = BaseEvent & {
-  type: 'authority.action';
+  type: 'authority-action';
   action: string;
   complaintId?: string;
   actorId?: string;
@@ -124,7 +133,7 @@ export type AuthorityActionEvent = BaseEvent & {
 };
 
 export type DlqEvent = BaseEvent & {
-  type: 'dlq.events';
+  type: 'dlq-events';
   originalTopic: string;
   consumerId: string;
   attempts: number;

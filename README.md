@@ -100,6 +100,13 @@ If you change chaincode code and want to redeploy, bump at least one of:
 Optional (seeds some test data):
 - `FABRIC_CC_INVOKE_INIT_LEDGER=1 ./scripts/deploy-chaincode.sh`
 
+Notes about CouchDB (rich queries):
+
+- This repository now defaults the Fabric peer state database to CouchDB so chaincode can use Mango rich queries (used by `complaint-anchor` for `GetEscalationHistory`).
+- Control the ledger state DB with `FABRIC_LEDGER_STATE_DB` in `fabric/network/.env` (values: `CouchDB` or `goleveldb`). The default is `CouchDB`.
+- The network `start.sh` script automatically enables the Docker Compose `couchdb` profile when `FABRIC_LEDGER_STATE_DB=CouchDB` so CouchDB containers are started. To force LevelDB, set `FABRIC_LEDGER_STATE_DB=goleveldb` before running the start script.
+- Ensure the chaincode package includes `META-INF/statedb/couchdb/indexes/*.json` index files for any Mango selectors; an index for `complaintId`/`timestamp` is provided at `fabric/chaincode/complaint-anchor/META-INF/statedb/couchdb/indexes/complaintid_timestamp_index.json`.
+
 Local env/credentials mapping (incl. dev OTP → JWT for authority tool calls): `docs/test-credentials.md`
 
 ## Fabric anchor consumer
@@ -223,23 +230,10 @@ Set these env vars for `apps/gateway-api`:
 - `LLAMACPP_MODEL` (default: `llama`)
 - `LLM_FALLBACK_ORDER` (default: `gemini,ollama,llamacpp`)
 
-### 2. Cloudflare R2 arrays (S3-Compatible Web Media Edge Storage)
-*R2 securely maps physical video queues completely globally cleanly bypassing rigid Postgres blobs magically effectively natively.*
+### 2. Supabase Storage and Auth
+*Supabase now handles the media bucket and auth client settings for the mobile app and upload paths.*
 
-1. Navigate to your **[Cloudflare Dashboard](https://dash.cloudflare.com)** dynamically inherently natively.
-2. Select **R2** from the left-hand control array intuitively safely, and mathematically initialize a bucket named `roadwatch-media-matrices`.
-3. Locate and click **"Manage R2 API Tokens"** structurally inherently.
-4. Click **Create API Token**, select **Read & Write** bounds explicitly gracefully cleanly, and dynamically natively commit.
-5. Cloudflare will instantaneously explicitly globally expose exactly two secrets gracefully natively. **Extract solely the S3-compatible tokens**: the `Access Key ID` and the physical `Secret Access Key`.
-6. Embed these securely structurally exactly inside `docker/.env` physically natively! *(Never expose these globally inside the mobile application).*
-
-### 3. Supabase Caches (PostgreSQL Authentications logically implicitly)
-*While the Custom Express API natively serves your structural logic, Supabase mechanically serves globally structural mathematical auth matrices strictly cleanly cleanly.*
-
-1. Head directly to the **[Supabase Dashboard](https://supabase.com/dashboard/)**.
-2. Mathematically map purely initializing a generic new Free Project structurally. 
-   *(**Crucial**: Memorize the precise "Database Password" you physically type here globally natively! This must cleanly universally explicitly map sequentially identically into your `docker/.env` secret `POSTGRES_PASSWORD` variable!)*
-3. Navigate structurally purely explicitly over into **Project Settings -> API** mechanically automatically.
-4. Collect the standard geometric string boundaries perfectly natively implicitly:
-   * Copy the **Project URL** cleanly across into both `.env` matrices safely globally inherently natively.
-   * Copy the **`anon` / `public` Key** uniquely down completely flawlessly implicitly into your `apps/mobile-host/.env` configuration structurally mapping local RBAC inherently cleanly smoothly dynamically!
+1. Create or reuse a **Supabase Project** and a public bucket for complaint media.
+2. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the app env files.
+3. Set `SUPABASE_STORAGE_BUCKET` to the bucket name used for uploads.
+4. If your bucket is public, clients can derive the public URL from `SUPABASE_URL` plus the bucket name.

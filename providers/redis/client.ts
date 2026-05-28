@@ -1,11 +1,14 @@
-import { Redis } from '@upstash/redis';
-import { getUpstashRedisConfig } from './config.js';
+import Redis from 'ioredis';
+import { getRedisConfig } from './config.js';
 
-let cached: Redis | null = null;
+let cached: any = null;
 
-export function getRedisClient(): Redis {
+// Returns a local Redis client for Docker/dev environments.
+export function getRedisClient(): any {
   if (cached) return cached;
-  const { url, token } = getUpstashRedisConfig();
-  cached = new Redis({ url, token });
+
+  const { url } = getRedisConfig();
+  const RedisClient = Redis as unknown as new (redisUrl: string) => any;
+  cached = new RedisClient(url);
   return cached;
 }

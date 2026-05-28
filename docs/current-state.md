@@ -24,7 +24,7 @@ This document is the current source of truth for what is in the repository now, 
 
 ### Background and integration services
 
-- `services/fabric-anchor-consumer`: consumes `complaint.submitted`, batches Merkle roots, and anchors them to Fabric.
+-- `services/fabric-anchor-consumer`: consumes `complaint-submitted`, batches Merkle roots, and anchors them to Fabric.
 - `services/webhook-handler`: consumes Kafka topics and applies state changes, notification writes, and audit logging.
 - `services/scheduler`: cron-based maintenance and housekeeping service.
 - `services/media-ingest`: legacy/prototype media submission backend, not wired into the main root runtime.
@@ -44,12 +44,12 @@ This document is the current source of truth for what is in the repository now, 
 | `frontend` | React `18.2.0`, Vite `5.4.21`, `@vitejs/plugin-react` `5.1.4`, React Router `6.14.1`, TanStack Query `5.100.10`, Recharts `2.15.4`, Zustand `5.0.13` | Browser dashboard / citizen web app | Active |
 | `apps/mobile-host` | React Native `0.73.0`, React Navigation `6.1.18`/`6.11.0`, `react-native-quick-sqlite` `8.1.0`, `react-native-keychain` `9.2.0` | Mobile host shell | Active |
 | `backend-api` | Express `4.21.2`, `express-rate-limit` `7.5.1`, JWT `9.0.2`, Pg `8.13.1` | Complaint, analytics, webhook and image submission support | Active / auxiliary |
-| `services/fabric-anchor-consumer` | Fabric Gateway `1.9.1`, KafkaJS `2.2.4`, Upstash Kafka `1.3.5`, Pg `8.13.1` | Batch anchor complaints to Fabric | Active |
+| `services/fabric-anchor-consumer` | Fabric Gateway `1.9.1`, KafkaJS `2.2.4`, Pg `8.13.1` | Batch anchor complaints to Fabric | Active |
 | `services/webhook-handler` | KafkaJS `2.2.4`, Axios `1.7.7`, Pg `8.13.1` | Kafka topic consumer and side-effect writer | Active |
 | `services/scheduler` | `node-cron` `3.0.3`, Pg `8.13.1` | Scheduled maintenance and SLAs | Active |
 | `chaincode` | Fabric Contract API `2.5.8`, Fabric Shim `2.5.8` | On-ledger complaint lifecycle and query logic | Active |
-| `providers/kafka` | Upstash Kafka `1.3.5`, KafkaJS `2.2.4` | Kafka abstraction | Active |
-| `providers/redis` | Upstash Redis `1.34.9` | Redis abstraction | Active |
+| `providers/kafka` | KafkaJS `2.2.4` | Kafka abstraction | Active |
+| `providers/redis` | ioredis `5.10.1` | Redis abstraction | Active |
 | `packages/core` | internal `0.0.0` | Shared business logic | Active |
 | `packages/config` | internal `0.0.0` | Shared configuration | Active |
 | `packages/features/*` | `feature-complaint` `1.0.0`, others `0.0.0` | Reusable UI feature modules | Active |
@@ -79,8 +79,8 @@ This document is the current source of truth for what is in the repository now, 
 
 1. A citizen uses `frontend` or `apps/mobile-host` to submit a complaint.
 2. The client authenticates through the gateway auth flow and obtains a JWT.
-3. `apps/gateway-api` validates the request, checks road geometry and distance, stores the complaint, and publishes `complaint.submitted`.
-4. `services/fabric-anchor-consumer` batches submissions, builds a Merkle tree, submits `AnchorMerkleRoot` to Fabric, stores the proof, and emits `complaint.anchored`.
+3. `apps/gateway-api` validates the request, checks road geometry and distance, stores the complaint, and publishes `complaint-submitted`.
+4. `services/fabric-anchor-consumer` batches submissions, builds a Merkle tree, submits `SubmitMerkleRoot` to Fabric, stores the proof, and emits `complaint-anchored`.
 5. `services/webhook-handler` receives the Kafka event and updates complaint state, notification records, and audit logs.
 6. The web and mobile clients show the updated complaint state through API reads and SSE.
 
@@ -144,7 +144,7 @@ This document is the current source of truth for what is in the repository now, 
 1. `services/fabric-anchor-consumer` reads complaint submissions from Kafka.
 2. It stores idempotency state and proof tables in PostgreSQL.
 3. It sends the anchor transaction to Fabric using the `complaint-anchor` chaincode.
-4. After commit confirmation, it publishes `complaint.anchored` with the Fabric transaction id and proof data.
+4. After commit confirmation, it publishes `complaint-anchored` with the Fabric transaction id and proof data.
 
 ## Service Responsibilities In One Line
 

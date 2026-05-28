@@ -101,8 +101,9 @@ export class FabricDelegator {
         }
 
         try {
-            const result = await this.smartContract.evaluateTransaction('GetComplaint', complaintId);
-            return JSON.parse(result.toString());
+            const result = await this.smartContract.evaluateTransaction('GetComplaintHistory', complaintId);
+            const history = JSON.parse(result.toString()) as Array<{ value?: unknown }>;
+            return history.at(-1)?.value ?? null;
         } catch (error) {
             console.error('[FabricDelegator] Error retrieving complaint:', error);
             throw new Error(`Failed to retrieve complaint from blockchain: ${error.message}`);

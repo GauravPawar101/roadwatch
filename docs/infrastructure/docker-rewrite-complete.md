@@ -20,6 +20,7 @@
 ✅ Clearer service profiles (kafka, redis)  
 ✅ Better JVM configuration  
 ✅ Explicit network definition  
+✅ Centralized host port mappings in the repo root `.env` using `TOP_*` and `MEDIA_*` prefixes
 
 **Result:** 18% memory reduction (512 MB → 768 MB with Kafka)
 

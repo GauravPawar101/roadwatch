@@ -8,7 +8,7 @@ const requiredEnvVars = [
   'SUPABASE_URL',
   'SUPABASE_ANON_KEY',
   'API_GATEWAY_URL',
-  'CLOUDFLARE_R2_PUBLIC_URL'
+  'SUPABASE_STORAGE_BUCKET'
 ] as const;
 
 // TypeScript explicitly enforces type inferences across these values natively

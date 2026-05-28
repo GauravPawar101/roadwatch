@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.0",
+    "@hyperledger/fabric-gateway": "^1.10.1",
     "@roadwatch/sidecar-auth": "workspace:*",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
@@ -17,6 +19,8 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts"
   }
 }

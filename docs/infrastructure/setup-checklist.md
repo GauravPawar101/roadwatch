@@ -87,8 +87,9 @@ cd fabric/network
 # - Generate channel artifacts (genesis.block, channel config TX)
 # - Start Docker containers (orderer, 2 peers, 2 CAs)
 # - Create channel (roadwatch-india)
-# - Join peers to channel
-# - Deploy chaincode
+# - Join both peers to the channel
+# - Set anchor peers for both orgs
+# - Deploy the complaint-anchor chaincode
 
 # Verify all containers are running
 docker ps | grep -E "(orderer|peer|ca)"
@@ -113,6 +114,27 @@ docker compose up -d
 # run the Fabric start script with the explicit reset flag:
 ./scripts/start.sh --reset
 ```
+
+### Optional parity check: RoadWatch peer join + anchor peer
+
+If you want to re-run the second-peer path explicitly, use the RoadWatch admin context after the network is up:
+
+```bash
+cd fabric/network
+
+export FABRIC_CFG_PATH=.
+export CORE_PEER_TLS_ENABLED=true
+export CORE_PEER_LOCALMSPID=RoadWatchMSP
+export CORE_PEER_TLS_ROOTCERT_FILE=organizations/peerOrganizations/roadwatch.roadwatch.com/peers/peer0.roadwatch.roadwatch.com/tls/ca.crt
+export CORE_PEER_MSPCONFIGPATH=organizations/peerOrganizations/roadwatch.roadwatch.com/users/Admin@roadwatch.roadwatch.com/msp
+export CORE_PEER_ADDRESS=localhost:19051
+
+peer channel list
+peer channel join -b roadwatch-india.block
+peer channel list
+```
+
+The default `./scripts/start.sh` path already performs this join and the anchor-peer update for both orgs, so this block is only for explicit parity verification.
 
 ---
 

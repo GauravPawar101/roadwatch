@@ -1,7 +1,7 @@
 # Redis Provider Service
 
 ## Overview
-Redis-based caching and idempotency provider that supports both local Redis and Upstash Redis Cloud. Provides high-performance caching, session management, and duplicate request prevention across the RoadWatch system.
+Redis-based caching and idempotency provider for local Redis. Provides high-performance caching, session management, and duplicate request prevention across the RoadWatch system.
 
 ## Architecture
 - **Runtime**: Node.js with TypeScript
@@ -53,7 +53,7 @@ class LocalRedisClient implements RedisClient {
   }
 }
 
-// Upstash Redis client
+// Local Redis client
 class UpstashRedisClient implements RedisClient {
   private client: Redis;
   
@@ -231,13 +231,12 @@ function getLocalRedisConfig(): LocalRedisConfig {
 
 function getUpstashRedisConfig(): UpstashRedisConfig {
   return {
-    restUrl: process.env.UPSTASH_REDIS_REST_URL!,
-    restToken: process.env.UPSTASH_REDIS_REST_TOKEN!
+    url: process.env.REDIS_URL!
   };
 }
 
 function isUpstashRedisConfigured(): boolean {
-  return !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+  return !!process.env.REDIS_URL;
 }
 ```
 
