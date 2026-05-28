@@ -73,4 +73,17 @@ export class KafkaProducer implements IEventBus {
       )
     );
   }
+
+  async disconnect(): Promise<void> {
+    if (!this.localProducer) {
+      return;
+    }
+
+    if (this.localConnected) {
+      await this.localProducer.disconnect();
+    }
+
+    this.localConnected = false;
+    this.localProducer = null;
+  }
 }

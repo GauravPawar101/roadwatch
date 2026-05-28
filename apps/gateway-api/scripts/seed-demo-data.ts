@@ -3,6 +3,8 @@ import { createHash } from 'crypto';
 import dotenv from 'dotenv';
 import { writeFile } from 'fs/promises';
 import path from 'path';
+import { KafkaProducer } from '../../../providers/kafka/KafkaProducer.js';
+import { KafkaTopics, type ComplaintSubmittedEvent } from '../../../providers/kafka/topics.js';
 
 dotenv.config();
 process.env.ROADWATCH_SKIP_MINI_SEED = '1';
@@ -1723,6 +1725,8 @@ async function main() {
   const complaintPattern = Array.from({ length: complaintCountSummary() }, (_, index) => deterministicUuid(`complaint:${index + 1}`));
   const rng = mulberry32(0x524f4144);
   const complaints: SeedComplaint[] = [];
+  const complaintSubmittedEvents: Array<{ topic: string; event: ComplaintSubmittedEvent; key: string }> = [];
+  const kafkaProducer = new KafkaProducer();
   const baseDate = new Date('2026-03-01T08:00:00.000Z');
 
   const citizensByDistrict = new Map<string, SeededUser[]>();
@@ -1815,6 +1819,31 @@ async function main() {
     const officerPhoneHash = createHash('sha256').update(officer.phone).digest('hex');
 
     await seedComplaintRecord({ complaint, user: citizen, officer, contractor, officerPhoneHash });
+
+    complaintSubmittedEvents.push({
+      topic: KafkaTopics.complaintSubmitted,
+      key: complaint.id,
+      event: {
+        type: 'complaint-submitted',
+        idempotencyKey: `complaint:${complaint.id}:submitted`,
+        occurredAt: complaint.createdAt.toISOString(),
+        version: 1,
+        complaintId: complaint.id,
+        district: complaint.district,
+        zone: complaint.zone,
+        description: complaint.description,
+        roadId: complaint.roadId,
+        authorityOrg: complaint.authorityId,
+        citizenId: citizen.dbId,
+        location: {
+          lat: complaint.lat,
+          lng: complaint.lng,
+          capturedAt: complaint.createdAt.toISOString()
+        },
+        merged: false,
+        reportCount: 1
+      }
+    });
 
     await seedNotificationBundle({
       notificationId: deterministicUuid(`notification:${complaint.id}:created`),
@@ -1980,9 +2009,16 @@ async function main() {
     );
   }
 
+  try {
+    await kafkaProducer.publishMany(complaintSubmittedEvents);
+  } finally {
+    await kafkaProducer.disconnect();
+  }
+
   console.log(
     `[seed-demo] seeded: complaints=${complaints.length} citizens=${citizens.length} officers=${officers.length} contractorUsers=${contractorUsers.length} contractors=${contractorSeeds.length} districts=${districtSeeds.length}`
   );
+  console.log(`[seed-demo] queued fabric-bound complaint-submitted events=${complaintSubmittedEvents.length}`);
   console.table([
     { account: adminSeed.label, username: adminSeed.username, phone: adminSeed.phone, role: adminSeed.role, districts: adminSeed.districts.join(', '), seedKarma: 200 },
     ...officers.slice(0, 4).map((officer) => ({ account: officer.label, username: officer.username, phone: officer.phone, role: officer.role, districts: officer.districts.join(', '), seedKarma: 145 })),
