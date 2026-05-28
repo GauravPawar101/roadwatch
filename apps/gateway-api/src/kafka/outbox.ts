@@ -1,5 +1,5 @@
-import { getKafkaProducer } from './producer.js';
 import { pool } from '../postgres.js';
+import { getKafkaProducer } from './producer.js';
 
 type DbLike = {
   query: (text: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>;
@@ -24,28 +24,28 @@ let relayTimer: ReturnType<typeof setInterval> | null = null;
 let relayRunning = false;
 
 async function ensureOutboxTable(): Promise<void> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS kafka_event_outbox (
-      id UUID PRIMARY KEY,
-      topic TEXT NOT NULL,
-      message_key TEXT,
-      headers JSONB,
-      payload JSONB NOT NULL,
-      idempotency_key TEXT,
-      status TEXT NOT NULL DEFAULT 'PENDING',
-      attempts INT NOT NULL DEFAULT 0,
-      last_error TEXT,
-      available_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      sent_at TIMESTAMP
-    )
-  `);
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS kafka_event_outbox (
+       id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+       topic           text        NOT NULL,
+       message_key     text,
+       headers         jsonb,
+       payload         jsonb       NOT NULL,
+       idempotency_key text,
+       status          text        NOT NULL DEFAULT 'PENDING',
+       attempts        integer     NOT NULL DEFAULT 0,
+       available_at    timestamptz NOT NULL DEFAULT NOW(),
+       sent_at         timestamptz,
+       last_error      text,
+       created_at      timestamptz NOT NULL DEFAULT NOW(),
+       updated_at      timestamptz NOT NULL DEFAULT NOW()
+     )`
+  );
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_kafka_event_outbox_pending
-    ON kafka_event_outbox (status, available_at, created_at)
-  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS kafka_event_outbox_status_available_idx
+       ON kafka_event_outbox (status, available_at, created_at)`
+  );
 }
 
 export async function enqueueKafkaEvent(

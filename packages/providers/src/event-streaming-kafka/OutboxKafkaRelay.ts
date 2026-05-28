@@ -58,10 +58,10 @@ export class OutboxKafkaRelay {
    * Pure native routing map linking internal Mobile Action intents to broad physical Kafka Partitions.
    */
   private mapTaskToTopic(type: string): string {
-    switch (type) {
-       case 'CREATE_COMPLAINT': return 'roadwatch.ingestion.complaints';
-       case 'SYNC_MEDIA': return 'roadwatch.ingestion.media_vectors';
-       default: return 'roadwatch.ingestion.system_telemetry';
-    }
+     switch (type) {
+       case 'CREATE_COMPLAINT': return 'roadwatch-ingestion-complaints';
+       case 'SYNC_MEDIA': return 'roadwatch-ingestion-media-vectors';
+       default: return 'roadwatch-ingestion-system-telemetry';
+     }
   }
 }

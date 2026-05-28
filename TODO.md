@@ -12,7 +12,7 @@
 - ✅ **Analytics Service** - Comprehensive reporting and dashboard data
 - ✅ **Fabric Anchor Consumer** - Merkle tree anchoring to blockchain
 - ✅ **Storage Providers** - SQLite, encrypted agent memory
-- ✅ **Media Providers** - Pinata IPFS, Cloudflare R2 integration
+- ✅ **Media Providers** - Supabase Storage integration
 - ✅ **Map Integration** - MapLibre provider with offline tile support
 - ✅ **Privacy & RBAC** - Role-based access control and field-level privacy
 - ✅ **Verification Service** - EXIF extraction, geofence validation, perceptual hashing
@@ -43,7 +43,7 @@
 - ✅ **Fabric Delegator** - Fixed deprecated API usage, implemented proper Gateway API
 - ✅ **Agent Tools** - Fixed SQL queries, completed authority tool implementations
 - ✅ **Storage Providers** - Completed SQLite implementation with full CRUD operations
-- ✅ **Media Providers** - Enhanced Pinata and R2 providers with retry logic and error handling
+- ✅ **Media Providers** - Enhanced Supabase Storage provider with retry logic and error handling
 - ✅ **MapLibre Provider** - Added comprehensive map functionality with error handling
 
 ### Enhanced Implementations

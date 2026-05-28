@@ -99,11 +99,11 @@ Orderer: &OrdererDefaults
         Port: 7050
         ClientTLSCert: ../network/organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/tls/server.crt
         ServerTLSCert: ../network/organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/tls/server.crt
-  BatchTimeout: 2s
+  BatchTimeout: 500ms
   BatchSize:
-    MaxMessageCount:      100     # max txs per block
-    AbsoluteMaxBytes:     99 MB
-    PreferredMaxBytes:    512 KB
+    MaxMessageCount:      500     # max txs per block
+    AbsoluteMaxBytes:     256 MB
+    PreferredMaxBytes:    4 MB
   Policies:
     Readers:
       Type: ImplicitMeta

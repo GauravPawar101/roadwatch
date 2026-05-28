@@ -14,11 +14,11 @@
 
 ## Topics Consumed
 
-- `complaint.submitted`
-- `complaint.anchored`
-- `complaint.status.changed`
-- `notification.send`
-- `authority.action`
+ `complaint-submitted`
+ `complaint-anchored`
+ `complaint-status-changed`
+ `notification-send`
+ `authority-action`
 
 ## Main Flow
 

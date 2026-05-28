@@ -1,3 +1,44 @@
+# Gateway API
+
+**Package:** `apps/gateway-api`
+
+**Role:** Primary HTTP gateway and user-facing API. Handles authentication, complaint search and creation (frontend flow), notifications, reports, and integrations (LLM agents, discovery, and Supabase Storage uploads).
+
+## Key Stack
+
+- Express, PostgreSQL (shared), Redis for OTP, Kafka for events, sidecar auth for service-to-service calls.
+
+## Main Route prefixes
+
+- `/auth` — Authentication and account management (OTP flows, signup/login for `citizen`, `authority`, `contractor`, refresh/logout)
+- `/complaints` — Complaint listing, retrieval, creation (idempotent create), heatmap and related endpoints
+- `/public` — Public endpoints (open data, static pages)
+- `/services` — Service discovery and utility endpoints
+- `/notifications` — Notification management and dispatch
+- `/reports` — Report generation (PDF exports, ministry/district reports)
+- `/agent` — Agent and LLM related endpoints (agent creation, prompts)
+- `/admin` — Admin-only operations
+- `/proxy` — Proxy / passthrough routes to external services
+
+## Authentication notes
+
+- Most user-facing endpoints require JWT-based `requireAuth` middleware (access tokens issued by the gateway `auth` endpoints).
+- Service-to-service calls and internal auxiliary services use the sidecar auth client (registered services with the gateway) and `permissiveSidecarAuth` / service JWT validation.
+
+## OTP subsystem
+
+- OTP flows are documented in `docs/otp-system.md` (request, verify, status endpoints for `citizen`, `authority`, `contractor`).
+
+## Where to look in code
+
+- Route implementations: `apps/gateway-api/src/routes/*.ts` (e.g. `auth.ts`, `complaints.ts`, `notifications.ts`, `reports.ts`)
+- Environment and bootstrap: `apps/gateway-api/src/index.ts` and `src/env.ts`
+- DB helpers and shared models are under `packages/core` and `apps/gateway-api/src/postgres.ts`.
+
+## Notes & discrepancies
+
+- The gateway implements more endpoints than the top-level docs previously listed; prefer reading the route files for accurate payload schemas and authorization rules.
+- If you want, I can generate a machine-readable OpenAPI spec from the route files or add example payloads for the most-used endpoints.
 # Gateway API Service
 
 ## Overview
@@ -174,11 +215,11 @@ type Complaint = {
 1. Citizen submits complaint via `POST /citizen/complaints`
 2. Validate location against road catalog
 3. Insert complaint into PostgreSQL
-4. Publish `complaint.submitted` event to Kafka
+4. Publish `complaint-submitted` event to Kafka
 5. Return complaint ID to client
 6. Fabric anchor consumer processes event asynchronously
 7. Merkle root anchored to blockchain
-8. `complaint.anchored` event published
+8. `complaint-anchored` event published
 9. Real-time update sent via SSE
 
 ### Status Update Flow
@@ -186,7 +227,7 @@ type Complaint = {
 2. Validate authority permissions
 3. Update complaint status in database
 4. Insert audit log entry
-5. Publish `complaint.status.changed` event
+5. Publish `complaint-status-changed` event
 6. Trigger notifications to relevant users
 7. Broadcast real-time update via SSE
 

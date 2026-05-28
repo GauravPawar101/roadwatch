@@ -25,7 +25,7 @@ class APIGateway {
     const complaint = await this.complaintService.create(req.body);
     
     // 3. Trigger async processes
-    await this.eventBus.publish('complaint.submitted', complaint);
+    await this.eventBus.publish('complaint-submitted', complaint);
     
     // 4. Return immediate response
     return this.successResponse(201, { complaintId: complaint.id });
@@ -119,9 +119,9 @@ class NotificationService {
     const eventBus = new KafkaEventBus();
     
     // Subscribe to complaint events
-    await eventBus.subscribe('complaint.submitted', this.handleComplaintSubmitted.bind(this));
-    await eventBus.subscribe('complaint.status.changed', this.handleStatusChanged.bind(this));
-    await eventBus.subscribe('escalation.due', this.handleEscalationDue.bind(this));
+    await eventBus.subscribe('complaint-submitted', this.handleComplaintSubmitted.bind(this));
+    await eventBus.subscribe('complaint-status-changed', this.handleStatusChanged.bind(this));
+    await eventBus.subscribe('escalation-due', this.handleEscalationDue.bind(this));
   }
   
   private async handleComplaintSubmitted(event: ComplaintSubmittedEvent): Promise<void> {
@@ -153,8 +153,8 @@ class FabricAnchorService {
     const eventBus = new KafkaEventBus();
     
     // Subscribe to complaint events for blockchain anchoring
-    await eventBus.subscribe('complaint.submitted', this.handleComplaintSubmitted.bind(this));
-    await eventBus.subscribe('complaint.status.changed', this.handleStatusChanged.bind(this));
+    await eventBus.subscribe('complaint-submitted', this.handleComplaintSubmitted.bind(this));
+    await eventBus.subscribe('complaint-status-changed', this.handleStatusChanged.bind(this));
   }
   
   private async handleComplaintSubmitted(event: ComplaintSubmittedEvent): Promise<void> {
@@ -258,7 +258,7 @@ class GatewayAPIIntegration {
   
   // → Fabric Anchor Consumer (Kafka Events)
   async publishToFabric(): Promise<void> {
-    await this.eventBus.publish('complaint.submitted', {
+    await this.eventBus.publish('complaint-submitted', {
       complaintId: 'RW-001',
       dataHash: 'abc123',
       timestamp: new Date().toISOString()
@@ -389,7 +389,7 @@ class FabricIntegration {
     
     // Submit to blockchain
     const txId = await this.fabricGateway.submitTransaction(
-      'AnchorMerkleRoot',
+      'SubmitMerkleRoot',
       merkleTree.root,
       complaints.length.toString(),
       'batch-' + Date.now()
@@ -408,7 +408,7 @@ class FabricIntegration {
     
     // Publish anchored events
     for (const complaint of complaints) {
-      await this.eventBus.publish('complaint.anchored', {
+      await this.eventBus.publish('complaint-anchored', {
         complaintId: complaint.complaintId,
         merkleRoot: merkleTree.root,
         fabricTxId: txId
@@ -431,7 +431,7 @@ class ComplaintLifecycleIntegration {
     const complaint = await this.complaintService.create(data);
     
     // Publish event for async processing
-    await this.eventBus.publish('complaint.submitted', {
+    await this.eventBus.publish('complaint-submitted', {
       complaintId: complaint.id,
       citizenId: data.citizenId,
       district: data.district,
@@ -468,7 +468,7 @@ class ComplaintLifecycleIntegration {
     await this.complaintService.updateStatus(complaintId, newStatus, actorId);
     
     // Publish status change event
-    await this.eventBus.publish('complaint.status.changed', {
+    await this.eventBus.publish('complaint-status-changed', {
       complaintId,
       oldStatus: 'PENDING',
       newStatus,

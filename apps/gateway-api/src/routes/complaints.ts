@@ -5,6 +5,7 @@ import { trackAnalyticsEvent } from '../analytics/service.js';
 import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
 import { pool } from '../postgres.js';
 import { requireAuth, type AuthedRequest } from '../rbac.js';
+import { uuidv7 } from '../uuid.js';
 
 const router = express.Router();
 const MERGE_ESCALATION_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -107,7 +108,7 @@ async function writeAuditEntry(input: {
        action, target_type, target_id, details, created_at
      ) VALUES ($1, $2, NULL, NULL, $3, $4, $5, $6, NOW())`,
     [
-      crypto.randomUUID(),
+      uuidv7(),
       input.actorUserId,
       input.action,
       input.targetType,

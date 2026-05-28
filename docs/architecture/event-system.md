@@ -159,7 +159,7 @@ class KafkaEventBus implements EventBus {
 ```typescript
 // Complaint lifecycle events
 interface ComplaintSubmittedEvent extends BaseEvent {
-  type: 'complaint.submitted';
+  type: 'complaint-submitted';
   complaintId: string;
   citizenId: string;
   district: string;
@@ -172,7 +172,7 @@ interface ComplaintSubmittedEvent extends BaseEvent {
 }
 
 interface ComplaintStatusChangedEvent extends BaseEvent {
-  type: 'complaint.status.changed';
+  type: 'complaint-status-changed';
   complaintId: string;
   oldStatus: ComplaintStatus;
   newStatus: ComplaintStatus;
@@ -182,7 +182,7 @@ interface ComplaintStatusChangedEvent extends BaseEvent {
 }
 
 interface ComplaintAssignedEvent extends BaseEvent {
-  type: 'complaint.assigned';
+  type: 'complaint-assigned';
   complaintId: string;
   contractorId: string;
   assignedBy: string;
@@ -191,7 +191,7 @@ interface ComplaintAssignedEvent extends BaseEvent {
 }
 
 interface ComplaintEscalatedEvent extends BaseEvent {
-  type: 'complaint.escalated';
+  type: 'complaint-escalated';
   complaintId: string;
   fromAuthorityId: string;
   toAuthorityId: string;
@@ -200,7 +200,7 @@ interface ComplaintEscalatedEvent extends BaseEvent {
 }
 
 interface ComplaintResolvedEvent extends BaseEvent {
-  type: 'complaint.resolved';
+  type: 'complaint-resolved';
   complaintId: string;
   resolvedBy: string;
   resolutionDescription: string;
@@ -212,7 +212,7 @@ interface ComplaintResolvedEvent extends BaseEvent {
 ### Media Processing Events
 ```typescript
 interface MediaCapturedEvent extends BaseEvent {
-  type: 'media.captured';
+  type: 'media-captured';
   mediaId: string;
   complaintId: string;
   mediaType: 'photo' | 'video';
@@ -222,7 +222,7 @@ interface MediaCapturedEvent extends BaseEvent {
 }
 
 interface MediaCompressedEvent extends BaseEvent {
-  type: 'media.compressed';
+  type: 'media-compressed';
   mediaId: string;
   originalSize: number;
   compressedSize: number;
@@ -231,7 +231,7 @@ interface MediaCompressedEvent extends BaseEvent {
 }
 
 interface MediaUploadedEvent extends BaseEvent {
-  type: 'media.uploaded';
+  type: 'media-uploaded';
   mediaId: string;
   uploadUrl: string;
   cdnUrl: string;
@@ -240,7 +240,7 @@ interface MediaUploadedEvent extends BaseEvent {
 }
 
 interface MediaAnalyzedEvent extends BaseEvent {
-  type: 'media.analyzed';
+  type: 'media-analyzed';
   mediaId: string;
   analysisResults: {
     damageDetected: boolean;
@@ -255,7 +255,7 @@ interface MediaAnalyzedEvent extends BaseEvent {
 ### Blockchain Events
 ```typescript
 interface ComplaintAnchoredEvent extends BaseEvent {
-  type: 'complaint.anchored';
+  type: 'complaint-anchored';
   complaintId: string;
   merkleRoot: string;
   merkleProof: MerkleProof;
@@ -265,7 +265,7 @@ interface ComplaintAnchoredEvent extends BaseEvent {
 }
 
 interface BatchProcessedEvent extends BaseEvent {
-  type: 'batch.processed';
+  type: 'batch-processed';
   batchId: string;
   complaintIds: string[];
   merkleRoot: string;
@@ -275,7 +275,7 @@ interface BatchProcessedEvent extends BaseEvent {
 }
 
 interface FabricEventReceived extends BaseEvent {
-  type: 'fabric.event.received';
+  type: 'fabric-event-received';
   fabricEventName: string;
   chaincodeName: string;
   txId: string;
@@ -287,7 +287,7 @@ interface FabricEventReceived extends BaseEvent {
 ### Notification Events
 ```typescript
 interface NotificationSendEvent extends BaseEvent {
-  type: 'notification.send';
+  type: 'notification-send';
   notificationId: string;
   recipientId: string;
   channel: 'fcm' | 'sms' | 'email' | 'in-app';
@@ -299,7 +299,7 @@ interface NotificationSendEvent extends BaseEvent {
 }
 
 interface NotificationDeliveredEvent extends BaseEvent {
-  type: 'notification.delivered';
+  type: 'notification-delivered';
   notificationId: string;
   channel: string;
   deliveredAt: string;
@@ -309,7 +309,7 @@ interface NotificationDeliveredEvent extends BaseEvent {
 }
 
 interface NotificationClickedEvent extends BaseEvent {
-  type: 'notification.clicked';
+  type: 'notification-clicked';
   notificationId: string;
   userId: string;
   clickedAt: string;
@@ -559,7 +559,7 @@ class ComplaintAggregate extends AggregateRoot {
     
     aggregate.addEvent({
       id: crypto.randomUUID(),
-      type: 'complaint.submitted',
+      type: 'complaint-submitted',
       version: 1,
       timestamp: new Date().toISOString(),
       source: 'complaint-service',
@@ -581,7 +581,7 @@ class ComplaintAggregate extends AggregateRoot {
     
     this.addEvent({
       id: crypto.randomUUID(),
-      type: 'complaint.status.changed',
+      type: 'complaint-status-changed',
       version: this.version + 1,
       timestamp: new Date().toISOString(),
       source: 'complaint-service',
@@ -595,10 +595,10 @@ class ComplaintAggregate extends AggregateRoot {
   
   applyEvent(event: BaseEvent): void {
     switch (event.type) {
-      case 'complaint.submitted':
+      case 'complaint-submitted':
         this.applyComplaintSubmitted(event as ComplaintSubmittedEvent);
         break;
-      case 'complaint.status.changed':
+      case 'complaint-status-changed':
         this.applyStatusChanged(event as ComplaintStatusChangedEvent);
         break;
       // Handle other event types...
@@ -713,7 +713,7 @@ class DeadLetterQueueHandler {
   async sendToDLQ(originalEvent: BaseEvent, error: Error): Promise<void> {
     const dlqEvent: DlqEvent = {
       id: crypto.randomUUID(),
-      type: 'dlq.event',
+      type: 'dlq-event',
       version: 1,
       timestamp: new Date().toISOString(),
       source: 'event-system',
@@ -728,7 +728,7 @@ class DeadLetterQueueHandler {
       maxRetries: 3
     };
     
-    await this.eventBus.publish('dlq.events', dlqEvent);
+    await this.eventBus.publish('dlq-events', dlqEvent);
   }
   
   async processDLQEvent(event: DlqEvent): Promise<void> {
@@ -744,7 +744,7 @@ class DeadLetterQueueHandler {
     } catch (error) {
       // Increment retry count and send back to DLQ
       event.retryCount++;
-      await this.eventBus.publish('dlq.events', event);
+      await this.eventBus.publish('dlq-events', event);
     }
   }
 }

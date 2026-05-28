@@ -18,6 +18,7 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",
+    "init:messaging": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/init-messaging.ps1",
     "test:unit": "turbo run test --filter=@roadwatch/core",
     "test:integration": "turbo run test --filter=@roadwatch/gateway-api",
     "test:prompts": "tsx tools/prompt-tests/run.ts",
@@ -37,14 +38,14 @@
     "migrate:pg2cassandra": "node scripts/migrate/index.js"
   },
   "devDependencies": {
-    "@grpc/grpc-js": "^1.13.4",
-    "@hyperledger/fabric-gateway": "^1.9.1",
+    "@grpc/grpc-js": "^1.14.0",
+    "@hyperledger/fabric-gateway": "^1.10.1",
     "@types/supertest": "^6.0.3",
     "@vitest/coverage-v8": "^3.2.4",
     "supertest": "^7.1.4",
     "tsx": "^4.20.5",
     "turbo": "latest",
-    "typescript": "^5.0.0",
+    "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }
 }

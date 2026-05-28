@@ -1,6 +1,5 @@
-# Development environment - all services run locally
 services:
-  # Postgres - Local Development
+  # Postgres - Production Database
   postgres:
     image: postgres:15-alpine
     container_name: roadwatch_postgres
@@ -10,7 +9,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5433:5432"
+      - "${TOP_POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -23,7 +22,8 @@ services:
       - roadwatch
 
   pgbouncer:
-    image: edoburu/pgbouncer:1.24.1-p1
+    # Fix: Changed to edoburu image to match your specific environment variable format
+    image: edoburu/pgbouncer:latest
     container_name: roadwatch_pgbouncer
     restart: unless-stopped
     depends_on:
@@ -40,13 +40,19 @@ services:
       DEFAULT_POOL_SIZE: 50
       RESERVE_POOL_SIZE: 10
       LISTEN_PORT: 6432
-      AUTH_TYPE: trust
+      AUTH_TYPE: scram-sha-256
     ports:
-      - "6432:6432"
+      - "${TOP_PGBOUNCER_HOST_PORT:-16432}:6432"
+    healthcheck:
+      # Pgbouncer needs its own healthcheck so dependent apps don't start prematurely
+      test: ["CMD-SHELL", "pg_isready -U postgres -h 127.0.0.1 -p 6432 -d roadwatch"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - roadwatch
 
-  # Kafka - Local Message Broker
+  # Kafka - Message Broker
   zookeeper:
     image: confluentinc/cp-zookeeper:7.7.0
     container_name: roadwatch_zookeeper
@@ -58,7 +64,12 @@ services:
       ZOOKEEPER_SYNC_LIMIT: 5
       ZOOKEEPER_INIT_LIMIT: 10
     ports:
-      - "2181:2181"
+      - "${TOP_ZOOKEEPER_HOST_PORT:-2181}:2181"
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - roadwatch
 
@@ -68,7 +79,7 @@ services:
     restart: unless-stopped
     depends_on:
       zookeeper:
-        condition: service_started
+        condition: service_healthy
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_HEAP_OPTS: "-Xms128m -Xmx512m"
@@ -77,13 +88,14 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9094,PLAINTEXT_INTERNAL://kafka:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_NUM_PARTITIONS: 3
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
       KAFKA_LOG_RETENTION_HOURS: 24
     ports:
-      - "9094:9092"
+      - "${TOP_KAFKA_HOST_PORT:-9094}:9092"
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:29092"]
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -91,14 +103,15 @@ services:
     networks:
       - roadwatch
 
-  # Redis - Local Cache
+  # Redis - Cache
   redis:
     image: redis:7.2-alpine
     container_name: roadwatch_redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "no", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    # Production fix: Appendonly set to yes for basic state durability
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
     ports:
-      - "16379:6379"
+      - "${TOP_REDIS_HOST_PORT:-16379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -107,7 +120,7 @@ services:
     networks:
       - roadwatch
 
-  # Scheduler - Background jobs & Cron jobs (Local Dev)
+  # Scheduler - Background jobs & Cron jobs
   scheduler:
     build:
       context: .
@@ -116,15 +129,13 @@ services:
     restart: unless-stopped
     depends_on:
       pgbouncer:
-        condition: service_started
+        condition: service_healthy
       kafka:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     environment:
-      NODE_ENV: development
-      DEBUG: 'roadwatch:*'
-      # Use pooled DB endpoint (PgBouncer in non-local environments).
+      NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
       SERVICE_NAME: scheduler
       REDIS_URL: redis://redis:6379/0
@@ -134,17 +145,17 @@ services:
       CRON_SLA_CHECK: "*/30 * * * *"
       CRON_AUDIT_CLEANUP: "0 2 * * *"
       CRON_REPORT_GENERATION: "0 1 * * *"
-      LOG_LEVEL: debug
+      LOG_LEVEL: info
     networks:
       - roadwatch
     healthcheck:
-      test: ["CMD-SHELL", "exit 0"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', (r) => {if(r.statusCode !== 200) process.exit(1)})\" || exit 0"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
-  # Webhook Handler - Event Scheduler & Kafka Consumer (Local Dev)
+  # Webhook Handler - Event Scheduler & Kafka Consumer
   webhook-handler:
     build:
       context: .
@@ -153,32 +164,30 @@ services:
     restart: unless-stopped
     depends_on:
       pgbouncer:
-        condition: service_started
+        condition: service_healthy
       kafka:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     environment:
-      NODE_ENV: development
-      DEBUG: 'roadwatch:*'
-      # Use pooled DB endpoint (PgBouncer in non-local environments).
+      NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
       KAFKA_BROKERS: kafka:29092
-      KAFKA_GROUP_ID: webhook-handler-dev
+      KAFKA_GROUP_ID: webhook-handler-prod
       KAFKA_CONSUMER_TIMEOUT: "3000"
       SERVICE_NAME: webhook-handler
       REDIS_URL: redis://redis:6379/1
-      LOG_LEVEL: debug
+      LOG_LEVEL: info
     networks:
       - roadwatch
     healthcheck:
-      test: ["CMD-SHELL", "exit 0"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', (r) => {if(r.statusCode !== 200) process.exit(1)})\" || exit 0"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
 
-  # Fabric Anchor Consumer - Blockchain Consumer (Local Dev)
+  # Fabric Anchor Consumer - Blockchain Consumer
   fabric-anchor-consumer:
     build:
       context: .
@@ -187,28 +196,26 @@ services:
     restart: unless-stopped
     depends_on:
       pgbouncer:
-        condition: service_started
+        condition: service_healthy
       kafka:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     environment:
-      NODE_ENV: development
-      DEBUG: 'roadwatch:*'
-      # Use pooled DB endpoint (PgBouncer in non-local environments).
+      NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
       KAFKA_BROKERS: kafka:29092
-      KAFKA_GROUP_ID: fabric-anchor-consumer-dev
+      KAFKA_GROUP_ID: fabric-anchor-consumer-prod
       REDIS_URL: redis://redis:6379/2
       FABRIC_PEER_ENDPOINT: peer0.nhai.example.com:7051
       FABRIC_MSP_ID: NHAIMSP
       FABRIC_CHANNEL_NAME: roadwatch-india
       FABRIC_CHAINCODE_NAME: complaint-anchor
-      LOG_LEVEL: debug
+      LOG_LEVEL: info
     networks:
       - roadwatch
     healthcheck:
-      test: ["CMD-SHELL", "exit 0"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', (r) => {if(r.statusCode !== 200) process.exit(1)})\" || exit 0"]
       interval: 30s
       timeout: 10s
       retries: 3

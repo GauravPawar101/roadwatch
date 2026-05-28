@@ -1,18 +1,23 @@
 import express from 'express';
 import http from 'http';
-import { beforeAll, afterAll, test, expect } from 'vitest';
-import { callServiceThroughGateway } from './serviceClient.js';
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+import { callServiceThroughGateway, requestServiceToken, resolveServiceAddress } from './serviceClient.js';
 
 let gatewayServer: http.Server;
 let targetServer: http.Server;
 let gatewayUrl: string;
 let targetUrl: string;
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
 beforeAll(async () => {
   // start target service
   const targetApp = express();
   targetApp.use(express.json());
-  targetApp.post('/do-something', (req, res) => {
+  targetApp.post('/do-something', (req: any, res: any) => {
     const auth = req.header('authorization') ?? '';
     if (auth !== 'Bearer service-token-abc') return res.status(401).json({ error: 'bad token' });
     return res.json({ ok: true, received: req.body });
@@ -27,14 +32,14 @@ beforeAll(async () => {
   const gw = express();
   gw.use(express.json());
 
-  gw.get('/services/:serviceName', (req, res) => {
+  gw.get('/services/:serviceName', (req: any, res: any) => {
     const auth = req.header('authorization') ?? '';
     if (auth !== 'Bearer reg-token') return res.status(401).json({ error: 'missing reg token' });
     const serviceName = req.params.serviceName;
     return res.json({ service: { name: serviceName, address: targetUrl } });
   });
 
-  gw.post('/services/:serviceName/token', (req, res) => {
+  gw.post('/services/:serviceName/token', (req: any, res: any) => {
     const auth = req.header('authorization') ?? '';
     if (auth !== 'Bearer reg-token') return res.status(401).json({ error: 'missing reg token' });
     return res.json({ service: { name: req.params.serviceName, address: targetUrl }, token: 'service-token-abc' });
@@ -62,4 +67,72 @@ test('resolve -> token -> call flow', async () => {
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body).toEqual({ ok: true, received: { hello: 'world' } });
+});
+
+describe('serviceClient helpers', () => {
+  test('resolveServiceAddress trims the gateway URL and returns the service payload', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('http://gateway.example/services/alpha%20beta');
+      expect(init).toMatchObject({
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer reg-token'
+        }
+      });
+
+      return new Response(JSON.stringify({ service: { name: 'alpha beta', address: 'http://service.example' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+
+    vi.stubGlobal('fetch', fetchMock as typeof fetch);
+
+    const service = await resolveServiceAddress('http://gateway.example/', 'alpha beta', 'reg-token');
+
+    expect(service).toEqual({ name: 'alpha beta', address: 'http://service.example' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('requestServiceToken posts method and path details', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('http://gateway.example/services/alpha/token');
+      expect(init).toMatchObject({
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer reg-token',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ method: 'POST', path: '/submit', ttlSeconds: 45 })
+      });
+
+      return new Response(JSON.stringify({ service: { name: 'alpha', address: 'http://service.example' }, token: 'service-token' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+
+    vi.stubGlobal('fetch', fetchMock as typeof fetch);
+
+    const response = await requestServiceToken('http://gateway.example/', 'reg-token', 'alpha', {
+      method: 'POST',
+      path: '/submit',
+      ttlSeconds: 45
+    });
+
+    expect(response).toEqual({
+      service: { name: 'alpha', address: 'http://service.example' },
+      token: 'service-token'
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('resolveServiceAddress surfaces gateway errors', async () => {
+    const fetchMock = vi.fn(async () => new Response('missing', { status: 404 }));
+    vi.stubGlobal('fetch', fetchMock as typeof fetch);
+
+    await expect(resolveServiceAddress('http://gateway.example', 'alpha', 'reg-token')).rejects.toThrow(
+      'resolveServiceAddress failed (404): missing'
+    );
+  });
 });

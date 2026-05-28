@@ -1,36 +1,67 @@
+import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
-  Activity,
-  AlertTriangle,
-  CheckCircle2,
-  ChevronRight,
-  Clock,
-  FolderOpen,
-  Globe2,
-  LayoutDashboard,
-  Network,
-  Phone,
-  ShieldCheck,
-  UserCheck,
-  Users,
-  Wrench
+    Activity,
+    AlertTriangle,
+    CheckCircle2,
+    ChevronRight,
+    Clock,
+    FolderOpen,
+    Globe2,
+    LayoutDashboard,
+    Network,
+    Phone,
+    ShieldCheck,
+    Sparkles,
+    UserCheck,
+    Users,
+    Wrench
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis
+    Area,
+    AreaChart,
+    Bar,
+    BarChart,
+    CartesianGrid,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis
 } from 'recharts'
 import MapEmbed from '../../components/MapEmbed'
 import { Badge, Button, Card, CardBody, Container } from '../../components/UIComponents'
 import { contractorProfiles, getContractorComplaintRows } from '../../data/roadwatchDashboard'
+
+type ContractorScorecardRow = {
+  contractorId: string
+  contractorName: string
+  karmaScore: number
+  reliabilityRank: number
+  avgSlaSuccessDays: number | null
+  repeatFailureRate: number
+  budgetDisciplineScore: number
+  citizenSatisfactionScore: number
+  auditPerformanceScore: number
+  maintenanceEfficiencyScore: number
+  historicalDurabilityDays: number
+  regionalExpertise: string[]
+  roadTypeSpecialization: string[]
+  riskIndicator: 'low' | 'medium' | 'high'
+  lifecycleCostINR: number
+  proposalConfidence: number
+  assignedCount: number
+  resolvedCount: number
+  openCount: number
+  avgResolutionDays: number | null
+  slaBreaches: number
+  onTimeRate: number | null
+}
+
+function normalizeText(value: string | undefined) {
+  return String(value ?? '').trim().toLowerCase()
+}
 
 // Mock activity log for completion rates
 const velocityData = [
@@ -57,6 +88,7 @@ export default function ContractorDashboard() {
   const navigate = useNavigate()
   const contractorHandle = localStorage.getItem('roadwatch_contractor_id') || contractorProfiles[0]?.handle || 'superbuild-infra'
   const contractorProfile = contractorProfiles.find((profile) => profile.handle === contractorHandle || profile.name === contractorHandle) ?? contractorProfiles[0]
+  const apiBase = ((import.meta as any).env?.VITE_API_BASE as string | undefined) || 'http://localhost:3100'
   const [projects] = useState(seedProjects)
   const assignedComplaints = useMemo(() => getContractorComplaintRows(contractorProfile.name), [contractorProfile.name])
   const projectChartData = useMemo(() => projects.map((project) => ({ name: project.type, completion: project.completionPercent, complaints: project.complaints })), [projects])
@@ -64,6 +96,26 @@ export default function ContractorDashboard() {
   const openCases = assignedComplaints.filter((item) => item.status !== 'Resolved')
   const criticalCases = assignedComplaints.filter((item) => item.severity >= 8)
   const breachCases = assignedComplaints.filter((item) => item.slaHoursLeft <= 12)
+  const scorecardQuery = useQuery({
+    queryKey: ['public-contractor-scorecard', contractorProfile.handle],
+    queryFn: async () => {
+      const response = await fetch(`${apiBase}/public/contractors/scorecard?limit=20`)
+      if (!response.ok) {
+        throw new Error(`Failed to load contractor scorecard: ${response.status}`)
+      }
+      return (await response.json()) as { rows: ContractorScorecardRow[] }
+    }
+  })
+  const leaderboard = useMemo(
+    () => (scorecardQuery.data?.rows ?? []).slice().sort((left, right) => right.karmaScore - left.karmaScore),
+    [scorecardQuery.data]
+  )
+  const liveContractorRow = leaderboard.find(
+    (row) => normalizeText(row.contractorName) === normalizeText(contractorProfile.name) || normalizeText(row.contractorId) === normalizeText(contractorProfile.handle)
+  )
+  const liveKarma = liveContractorRow?.karmaScore ?? contractorProfile.karmaScore
+  const liveRank = liveContractorRow?.reliabilityRank ?? contractorProfile.reliabilityRank
+  const karmaTrendData = contractorProfile.karmaTrend.map((value, index) => ({ day: `W${index + 1}`, karma: value }))
 
   return (
     <div className="page-radial-bg min-h-screen text-on-surface py-12">
@@ -168,18 +220,21 @@ export default function ContractorDashboard() {
           </motion.div>
 
           <motion.div whileHover={{ y: -4 }} className="transition-all duration-300">
-            <Card className="glass-panel border-tertiary/20 bg-tertiary-container/10">
+            <Card className="glass-panel border-tertiary/20 bg-tertiary-container/10" style={{ position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 14, right: 14, padding: '6px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.9)', border: '1px solid rgba(148,163,184,0.45)', fontSize: 11, fontWeight: 800, color: '#0f172a' }}>
+                Karma #{liveRank}
+              </div>
               <CardBody className="p-5">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-tertiary">Field Response</p>
-                    <h3 className="text-3xl font-black text-on-surface mt-1">{contractorProfile.certificationStatus}</h3>
+                    <p className="text-xs font-bold uppercase tracking-wider text-tertiary">Live karma score</p>
+                    <h3 className="text-3xl font-black text-on-surface mt-1">{liveKarma}</h3>
                   </div>
                   <div className="p-2.5 bg-tertiary-container rounded-xl border border-tertiary/20">
                     <ShieldCheck className="h-5 w-5 text-tertiary" />
                   </div>
                 </div>
-                <p className="text-xs text-on-surface-variant mt-3 font-medium">🔒 Trust score {contractorProfile.trustScore} · performance {contractorProfile.performanceScore}</p>
+                <p className="text-xs text-on-surface-variant mt-3 font-medium">Durability {liveContractorRow?.historicalDurabilityDays ?? contractorProfile.historicalDurabilityDays}d · budget discipline {liveContractorRow?.budgetDisciplineScore ?? contractorProfile.budgetDisciplineScore} · risk {liveContractorRow?.riskIndicator ?? contractorProfile.riskIndicator}</p>
               </CardBody>
             </Card>
           </motion.div>
@@ -344,6 +399,33 @@ export default function ContractorDashboard() {
                 </div>
                 <div className="rounded-xl overflow-hidden border border-outline-variant">
                   <MapEmbed center={{ lat: 22.0, lng: 78.5 }} zoom={5} markers={mapMarkers} height="240px" />
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card className="glass-panel border-outline-variant bg-surface-container-lowest">
+              <CardBody className="p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-secondary" />
+                      Historical karma trend
+                    </h3>
+                    <p className="text-on-surface-variant text-xs mt-1">
+                      Karma should rise as SLA success, durability, and citizen feedback improve.
+                    </p>
+                  </div>
+                </div>
+                <div className="w-full overflow-hidden">
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={karmaTrendData}>
+                      <CartesianGrid strokeDasharray="4 4" strokeOpacity={0.12} />
+                      <XAxis dataKey="day" tick={{ fill: '#64748b', fontSize: 11 }} />
+                      <YAxis tick={{ fill: '#64748b', fontSize: 11 }} domain={[60, 100]} />
+                      <Tooltip contentStyle={{ background: '#ffffff', borderColor: 'rgba(196,198,207,0.9)', borderRadius: '8px', color: '#1a1b1e' }} />
+                      <Bar dataKey="karma" fill="#0ea5e9" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               </CardBody>
             </Card>

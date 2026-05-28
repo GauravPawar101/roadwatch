@@ -26,8 +26,8 @@ const validatedEnv = {
    GEMINI_API_KEY: requireEnv('GEMINI_API_KEY'),
    SUPABASE_URL: requireEnv('SUPABASE_URL'),
    SUPABASE_ANON_KEY: requireEnv('SUPABASE_ANON_KEY'),
+   SUPABASE_STORAGE_BUCKET: requireEnv('SUPABASE_STORAGE_BUCKET'),
    API_GATEWAY_URL: requireEnv('API_GATEWAY_URL'),
-   CLOUDFLARE_R2_PUBLIC_URL: requireEnv('CLOUDFLARE_R2_PUBLIC_URL')
 } as const;
 
 const inMemoryStorage = new (class {
@@ -67,7 +67,7 @@ export const indiaProductionConfig: RoadWatchConfig = {
     
     // 4. Content Delivery Logic strictly attached logically flawlessly natively
     blobStorage: new (class {
-       readonly bucketUrl = validatedEnv.CLOUDFLARE_R2_PUBLIC_URL;
+       readonly bucketUrl = `${validatedEnv.SUPABASE_URL}/storage/v1/object/public/${validatedEnv.SUPABASE_STORAGE_BUCKET}`;
     })(),
 
     // Stubs inherently suppressing missing type properties elegantly safely natively

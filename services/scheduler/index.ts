@@ -2,7 +2,30 @@ import 'dotenv/config';
 
 import cron from 'node-cron';
 import { Pool } from 'pg';
-import { registerServiceWithGateway } from '../../apps/gateway-api/src/services/discovery.js';
+
+async function registerServiceWithGateway(input: {
+  gatewayUrl: string;
+  service: {
+    name: string;
+    address: string;
+    description?: string;
+  };
+  registrySecret?: string;
+}): Promise<void> {
+  const response = await fetch(`${input.gatewayUrl.replace(/\/$/, '')}/services/register`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(input.registrySecret ? { 'x-service-registry-secret': input.registrySecret } : {})
+    },
+    body: JSON.stringify(input.service)
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Service registration failed (${response.status}): ${body}`);
+  }
+}
 
 interface SchedulerConfig {
   serviceName: string;
@@ -33,6 +56,76 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000
 });
 
+pool.on('error', error => {
+  console.warn('[scheduler] PostgreSQL pool error:', error instanceof Error ? error.message : String(error));
+});
+
+const schemaExistsCache = new Map<string, boolean>();
+
+async function hasTable(tableName: string): Promise<boolean> {
+  const cached = schemaExistsCache.get(`table:${tableName}`);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const result = await pool.query(
+    `SELECT to_regclass($1) IS NOT NULL AS exists`,
+    [`public.${tableName}`]
+  );
+
+  const exists = Boolean(result.rows[0]?.exists);
+  schemaExistsCache.set(`table:${tableName}`, exists);
+  return exists;
+}
+
+async function hasColumn(tableName: string, columnName: string): Promise<boolean> {
+  const cached = schemaExistsCache.get(`column:${tableName}.${columnName}`);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const result = await pool.query(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = $1
+         AND column_name = $2
+     ) AS exists`,
+    [tableName, columnName]
+  );
+
+  const exists = Boolean(result.rows[0]?.exists);
+  schemaExistsCache.set(`column:${tableName}.${columnName}`, exists);
+  return exists;
+}
+
+async function hasOfflineQueueTable(): Promise<boolean> {
+  return hasTable('offline_queue');
+}
+
+async function canRecalculateKarmaScores(): Promise<boolean> {
+  return (
+    (await hasTable('users')) &&
+    (await hasTable('complaints')) &&
+    (await hasTable('karma_ledger')) &&
+    (await hasColumn('complaints', 'user_id')) &&
+    (await hasColumn('users', 'karma_score'))
+  );
+}
+
+async function canCheckSlaBreaches(): Promise<boolean> {
+  return (await hasTable('sla_tracking')) && (await hasTable('complaints')) && (await hasTable('event_logs'));
+}
+
+async function canCleanupAuditLogs(): Promise<boolean> {
+  return hasTable('event_logs');
+}
+
+async function canGenerateReports(): Promise<boolean> {
+  return (await hasTable('daily_reports')) && (await hasTable('complaints'));
+}
+
 // ---------------------------------------------------------------------------
 // Sync pending offline queue items
 // Called every 5 minutes.
@@ -41,6 +134,11 @@ const pool = new Pool({
 // ---------------------------------------------------------------------------
 async function syncOfflineQueue(): Promise<void> {
   try {
+    if (!(await hasOfflineQueueTable())) {
+      console.warn('[scheduler] offline_queue table is missing; skipping offline queue sync');
+      return;
+    }
+
     const now = new Date();
 
     const result = await pool.query(
@@ -71,6 +169,11 @@ async function syncOfflineQueue(): Promise<void> {
 // ---------------------------------------------------------------------------
 async function recalculateKarmaScores(): Promise<void> {
   try {
+    if (!(await canRecalculateKarmaScores())) {
+      console.warn('[scheduler] karma recalculation skipped; required tables/columns are missing');
+      return;
+    }
+
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const now = new Date();
 
@@ -123,6 +226,11 @@ async function recalculateKarmaScores(): Promise<void> {
 // ---------------------------------------------------------------------------
 async function checkSlaBreaches(): Promise<void> {
   try {
+    if (!(await canCheckSlaBreaches())) {
+      console.warn('[scheduler] SLA breach detection skipped; required tables are missing');
+      return;
+    }
+
     const now = new Date();
 
     const result = await pool.query(
@@ -167,6 +275,11 @@ async function checkSlaBreaches(): Promise<void> {
 // ---------------------------------------------------------------------------
 async function cleanupAuditLogs(): Promise<void> {
   try {
+    if (!(await canCleanupAuditLogs())) {
+      console.warn('[scheduler] audit log cleanup skipped; event_logs table is missing');
+      return;
+    }
+
     const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
     const result = await pool.query(
@@ -193,6 +306,11 @@ async function cleanupAuditLogs(): Promise<void> {
 // ---------------------------------------------------------------------------
 async function generateReports(): Promise<void> {
   try {
+    if (!(await canGenerateReports())) {
+      console.warn('[scheduler] report generation skipped; required tables are missing');
+      return;
+    }
+
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(0, 0, 0, 0);

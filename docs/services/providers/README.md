@@ -13,7 +13,7 @@ Infrastructure provider packages that handle external integrations and cross-cut
 ## Provider Packages
 
 ### Kafka Provider (`providers/kafka`)
-Event streaming and message queue integration supporting both local KafkaJS and Upstash Kafka.
+Event streaming and message queue integration using local Kafka (KafkaJS) for development and Docker deployments.
 
 #### Key Components
 - `KafkaClient.ts` - Client factory and connection management
@@ -41,35 +41,29 @@ const localConfig: KafkaConfig = {
   clientId: 'roadwatch-client'
 };
 
-// Upstash Kafka
-const upstashConfig: KafkaConfig = {
-  brokers: [process.env.UPSTASH_KAFKA_REST_URL!],
-  clientId: 'roadwatch-upstash',
-  ssl: true,
-  sasl: {
-    mechanism: 'scram-sha-256',
-    username: process.env.UPSTASH_KAFKA_REST_USERNAME!,
-    password: process.env.UPSTASH_KAFKA_REST_PASSWORD!
-  }
+// Local Kafka
+const localConfig: KafkaConfig = {
+  brokers: process.env.KAFKA_BROKERS?.split(',') || ['localhost:9092'],
+  clientId: 'roadwatch-client'
 };
 ```
 
 #### Event Topics
 ```typescript
 export const KafkaTopics = {
-  complaintSubmitted: 'complaint.submitted',
-  complaintAnchored: 'complaint.anchored',
-  complaintStatusChanged: 'complaint.status.changed',
-  mediaCaptured: 'media.captured',
-  mediaCompressed: 'media.compressed',
-  mediaUploaded: 'media.uploaded',
-  mediaAnalyzed: 'media.analyzed',
-  escalationDue: 'escalation.due',
-  escalationSent: 'escalation.sent',
-  fabricEvents: 'fabric.events',
-  authorityAction: 'authority.action',
-  notificationSend: 'notification.send',
-  dlq: 'dlq.events'
+  complaintSubmitted: 'complaint-submitted',
+  complaintAnchored: 'complaint-anchored',
+  complaintStatusChanged: 'complaint-status-changed',
+  mediaCaptured: 'media-captured',
+  mediaCompressed: 'media-compressed',
+  mediaUploaded: 'media-uploaded',
+  mediaAnalyzed: 'media-analyzed',
+  escalationDue: 'escalation-due',
+  escalationSent: 'escalation-sent',
+  fabricEvents: 'fabric-events',
+  authorityAction: 'authority-action',
+  notificationSend: 'notification-send',
+  dlq: 'dlq-events'
 } as const;
 ```
 

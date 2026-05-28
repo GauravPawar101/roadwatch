@@ -21,6 +21,9 @@ export class SidecarAuthClient {
   private registrationToken?: string;
   private serviceName: string;
 
+  private static readonly registrationAttempts = 8;
+  private static readonly registrationBaseDelayMs = 250;
+
   constructor(gatewayUrl: string, serviceName: string) {
     this.gatewayUrl = gatewayUrl.replace(/\/$/, '');
     this.serviceName = serviceName;
@@ -56,22 +59,40 @@ export class SidecarAuthClient {
    */
   async registerService(options: ServiceRegistrationOptions): Promise<{ service: ServiceInfo; registrationToken: string }> {
     const url = `${this.gatewayUrl}/services/register`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(options)
-    });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Service registration failed (${response.status}): ${error}`);
+    for (let attempt = 1; attempt <= SidecarAuthClient.registrationAttempts; attempt += 1) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(options)
+        });
+
+        if (!response.ok) {
+          const error = await response.text();
+          throw new Error(`Service registration failed (${response.status}): ${error}`);
+        }
+
+        const result = await response.json() as { service: ServiceInfo; registrationToken: string };
+        this.registrationToken = result.registrationToken;
+        return result;
+      } catch (error) {
+        const isLastAttempt = attempt === SidecarAuthClient.registrationAttempts;
+        if (isLastAttempt) {
+          throw error;
+        }
+
+        const delayMs = Math.min(
+          SidecarAuthClient.registrationBaseDelayMs * (2 ** (attempt - 1)),
+          2000
+        );
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
     }
 
-    const result = await response.json() as { service: ServiceInfo; registrationToken: string };
-    this.registrationToken = result.registrationToken;
-    return result;
+    throw new Error('Service registration failed after retries');
   }
 
   /**
@@ -169,7 +190,7 @@ export class SidecarAuthClient {
       body?: unknown;
       ttlSeconds?: number;
     }
-  ): Promise<Response> {
+  ): Promise<Awaited<ReturnType<typeof fetch>>> {
     const { service, token } = await this.getServiceAccessToken(targetService, {
       method: options.method,
       path: options.path,

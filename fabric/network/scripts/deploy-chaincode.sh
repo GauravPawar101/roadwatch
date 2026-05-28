@@ -16,6 +16,40 @@ if [ -d "$ROOT_DIR/bin" ]; then
   export PATH="$ROOT_DIR/bin:$PATH"
 fi
 
+# Ensure local CLI matches peer runtime version (compose). If a mismatch is
+# detected, attempt to fetch matching Fabric binaries into repo `bin/`.
+REQUIRED_FABRIC_VERSION="$(sed -n '1,120p' "$NETWORK_DIR/docker/docker-compose.yaml" | grep -m1 'image:.*hyperledger/fabric-peer' | sed 's/.*://; s/[^0-9.]//g' || true)"
+if [ -z "$REQUIRED_FABRIC_VERSION" ]; then
+  REQUIRED_FABRIC_VERSION="2.5.15"
+fi
+
+if command -v peer >/dev/null 2>&1; then
+  LOCAL_VER_RAW=$(peer version 2>/dev/null | sed -ne 's/^ Version: //p' || true)
+  LOCAL_VER="${LOCAL_VER_RAW#v}"
+  if [ -n "$LOCAL_VER" ] && [ "$LOCAL_VER" != "$REQUIRED_FABRIC_VERSION" ]; then
+    echo "==> Local peer CLI version ${LOCAL_VER} differs from required ${REQUIRED_FABRIC_VERSION}. Attempting to install matching binaries into $ROOT_DIR/bin"
+    TMPDIR=$(mktemp -d)
+    (cd "$TMPDIR" && \
+      curl -sSL https://raw.githubusercontent.com/hyperledger/fabric/main/scripts/install-fabric.sh -o install-fabric.sh && \
+      chmod +x install-fabric.sh && \
+      ./install-fabric.sh binary "$REQUIRED_FABRIC_VERSION") || {
+      echo "WARN: failed to download/install Fabric binaries; continuing with existing CLI" >&2
+      rm -rf "$TMPDIR"
+    }
+
+    mkdir -p "$ROOT_DIR/bin"
+    if [ -d "$TMPDIR/bin" ]; then
+      cp -a "$TMPDIR/bin/." "$ROOT_DIR/bin/" || true
+      rm -rf "$TMPDIR"
+      export PATH="$ROOT_DIR/bin:$PATH"
+      echo "==> Installed matching Fabric binaries to $ROOT_DIR/bin"
+    else
+      echo "WARN: install script did not produce bin/ directory; leaving local binaries untouched" >&2
+      rm -rf "$TMPDIR"
+    fi
+  fi
+fi
+
 ensureFabricImage() {
   local SOURCE_IMAGE="$1"
   local TARGET_IMAGE="$2"
@@ -35,10 +69,8 @@ ensureFabricImage() {
 ensureFabricChaincodeImages() {
   # Fabric still resolves the chaincode builder/runtime images from the legacy
   # hyperledger/* namespace in core.yaml, so make sure those local tags exist.
-  ensureFabricImage "ghcr.io/hyperledger/fabric-ccenv:2.5" "hyperledger/fabric-ccenv:2.5"
-  ensureFabricImage "ghcr.io/hyperledger/fabric-baseos:2.5" "hyperledger/fabric-baseos:2.5"
-  ensureFabricImage "ghcr.io/hyperledger/fabric-javaenv:2.5" "hyperledger/fabric-javaenv:2.5"
-  ensureFabricImage "ghcr.io/hyperledger/fabric-nodeenv:2.5" "hyperledger/fabric-nodeenv:2.5"
+  ensureFabricImage "ghcr.io/hyperledger/fabric-ccenv:2.5.15" "hyperledger/fabric-ccenv:2.5.15"
+  ensureFabricImage "ghcr.io/hyperledger/fabric-baseos:2.5.15" "hyperledger/fabric-baseos:2.5.15"
 }
 
 # peer reads core.yaml from FABRIC_CFG_PATH; core.yaml expects organizations/* relative to it.
@@ -47,11 +79,25 @@ export FABRIC_CFG_PATH="$NETWORK_DIR"
 
 CHANNEL="${FABRIC_CHANNEL:-$FABRIC_CHANNEL_NAME}"
 CC_NAME="${FABRIC_CHAINCODE:-$FABRIC_CHAINCODE_NAME}"
-CC_VERSION="${FABRIC_CC_VERSION:-0.0.1}"
+CC_VERSION="${FABRIC_CC_VERSION:-}"
 CC_SEQUENCE="${FABRIC_CC_SEQUENCE:-1}"
-CC_LANG="${FABRIC_CC_LANG:-golang}"
 CC_SRC_PATH="${FABRIC_CC_SRC_PATH:-$ROOT_DIR/fabric/chaincode/$CC_NAME}"
 CC_SIGNATURE_POLICY="${FABRIC_CC_SIGNATURE_POLICY:-}"
+
+if [ -z "$CC_VERSION" ] && [ -f "$CC_SRC_PATH/package.json" ]; then
+  CC_VERSION="$(jq -r '.version // empty' "$CC_SRC_PATH/package.json")"
+fi
+if [ -z "$CC_VERSION" ]; then
+  CC_VERSION="0.0.1"
+fi
+
+if [ -n "${FABRIC_CC_LANG:-}" ]; then
+  CC_LANG="$FABRIC_CC_LANG"
+elif [ -f "$CC_SRC_PATH/package.json" ]; then
+  CC_LANG="node"
+else
+  CC_LANG="golang"
+fi
 
 ORDERER_ENDPOINT="${FABRIC_ORDERER_ENDPOINT:-localhost:$FABRIC_ORDERER_PORT}"
 ORDERER_HOST_OVERRIDE="${FABRIC_ORDERER_HOST_OVERRIDE:-orderer1.orderer.roadwatch.com}"
@@ -113,11 +159,10 @@ ensureFabricChaincodeImages
 alreadyCommitted() {
   # Returns 0 if the given name/version/sequence is already committed on the channel.
   setPeerContext nhai
-  local out
-  if ! out="$(peer lifecycle chaincode querycommitted --channelID "$CHANNEL" --name "$CC_NAME" 2>/dev/null)"; then
+  if ! peer lifecycle chaincode querycommitted --channelID "$CHANNEL" --name "$CC_NAME" >/dev/null 2>&1; then
     return 1
   fi
-  echo "$out" | grep -q "Version: ${CC_VERSION}, Sequence: ${CC_SEQUENCE}"
+  return 0
 }
 
 PKG_DIR="$NETWORK_DIR/chaincode-packages"
@@ -130,6 +175,14 @@ peer lifecycle chaincode package "$PKG_FILE" \
   --path "$CC_SRC_PATH" \
   --lang "$CC_LANG" \
   --label "$LABEL"
+
+# Warn if chaincode does not contain CouchDB index files for META-INF (rich query support)
+if [ -d "$CC_SRC_PATH/META-INF/statedb/couchdb/indexes" ]; then
+  echo "==> Found CouchDB index files in chaincode source"
+else
+  echo "==> WARNING: No CouchDB index files found under $CC_SRC_PATH/META-INF/statedb/couchdb/indexes"
+  echo "    If you rely on Mango rich queries (CouchDB), include index files in META-INF/statedb/couchdb/indexes/"
+fi
 
 PACKAGE_ID="$(peer lifecycle chaincode calculatepackageid "$PKG_FILE")"
 echo "==> Package ID: $PACKAGE_ID"
@@ -228,6 +281,14 @@ setPeerContext nhai
 peer lifecycle chaincode querycommitted \
   --channelID "$CHANNEL" \
   --name "$CC_NAME"
+
+# Verify the committed definition matches the expected version/sequence
+setPeerContext nhai
+if ! peer lifecycle chaincode querycommitted --channelID "$CHANNEL" --name "$CC_NAME" 2>/dev/null | grep -q "Version: ${CC_VERSION}, Sequence: ${CC_SEQUENCE}"; then
+  echo "ERROR: Committed chaincode definition does not match expected version/sequence: ${CC_NAME} v${CC_VERSION} seq ${CC_SEQUENCE}" >&2
+  echo "Please check that the chaincode was committed successfully or bump CC_VERSION/CC_SEQUENCE to redeploy." >&2
+  exit 1
+fi
 
 if [ "${FABRIC_CC_INVOKE_INIT_LEDGER:-0}" = "1" ]; then
   echo "==> Invoking InitLedger (FABRIC_CC_INVOKE_INIT_LEDGER=1)"

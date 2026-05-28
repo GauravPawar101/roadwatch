@@ -10,8 +10,8 @@ router.post('/fabric-state-change', async (req, res) => {
     const body = z
       .object({
         complaintId: z.string().min(1),
-        eventType: z.enum(['complaint.submitted', 'complaint.anchored', 'complaint.status.changed']).optional(),
-        type: z.enum(['complaint.submitted', 'complaint.anchored', 'complaint.status.changed']).optional(),
+        eventType: z.enum(['complaint-submitted', 'complaint-anchored', 'complaint-status-changed']).optional(),
+        type: z.enum(['complaint-submitted', 'complaint-anchored', 'complaint-status-changed']).optional(),
         fabricTxId: z.string().min(1).optional(),
         txHash: z.string().min(1).optional(),
         newStatus: z.string().min(1).optional(),
@@ -27,7 +27,7 @@ router.post('/fabric-state-change', async (req, res) => {
       })
       .parse(req.body);
 
-    const eventType = body.eventType ?? body.type ?? 'complaint.anchored';
+    const eventType = body.eventType ?? body.type ?? 'complaint-anchored';
     const fabricTxId = body.fabricTxId ?? body.txHash ?? null;
     const complaintMetadata = body.metadata && typeof body.metadata === 'object' ? body.metadata : null;
     const roadId = typeof complaintMetadata?.roadId === 'string'
@@ -42,7 +42,7 @@ router.post('/fabric-state-change', async (req, res) => {
     );
 
     if (existing.rows.length === 0) {
-      if (eventType !== 'complaint.submitted') {
+      if (eventType !== 'complaint-submitted') {
         return res.status(404).json({ error: 'Complaint not found' });
       }
 
@@ -74,7 +74,7 @@ router.post('/fabric-state-change', async (req, res) => {
         ]
       );
     } else {
-        if (eventType === 'complaint.anchored' && fabricTxId) {
+        if (eventType === 'complaint-anchored' && fabricTxId) {
           await pool.query(
             `UPDATE complaints
             SET fabric_txid      = $1,
@@ -86,14 +86,14 @@ router.post('/fabric-state-change', async (req, res) => {
           );
         }
 
-      if (eventType === 'complaint.status.changed' && body.newStatus) {
+      if (eventType === 'complaint-status-changed' && body.newStatus) {
         await pool.query(
           'UPDATE complaints SET status = $1, updated_at = NOW() WHERE id = $2',
           [body.newStatus, body.complaintId]
         );
       }
 
-      if (eventType === 'complaint.submitted' && fabricTxId) {
+      if (eventType === 'complaint-submitted' && fabricTxId) {
         await pool.query(
           'UPDATE complaints SET fabric_txid = $1, updated_at = NOW() WHERE id = $2',
           [fabricTxId, body.complaintId]

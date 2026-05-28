@@ -2,8 +2,8 @@ import { pool } from '../postgres.js';
 import { decryptPhone } from '../security/phone.js';
 import type { NotificationChannel, NotificationDeliveryStatus } from './domain.js';
 import {
-  isWithinQuietHours,
-  minutesUntilQuietEnds
+    isWithinQuietHours,
+    minutesUntilQuietEnds
 } from './domain.js';
 import { sendViaChannel } from './providers.js';
 
@@ -12,7 +12,6 @@ type DeliveryRow = {
   user_id: string;
   phone_enc: string | null;
   phone_masked: string | null;
-  phone_legacy: string | null;
   role: string;
   districts: string[];
   zones: string[];
@@ -54,7 +53,7 @@ export async function processImmediateDeliveries(): Promise<number> {
       `SELECT 
          d.id, d.user_id, d.channel, d.scheduled_for, d.batch_key, d.notification_id,
          n.title, n.body, n.data, n.critical, n.district, n.zone, n.road_id,
-         u.phone_enc, u.phone_masked, u.phone_legacy, u.role, u.districts, u.zones,
+        u.phone_enc, u.phone_masked, u.role, u.districts, u.zones,
          p.enabled_channels, p.dnd_enabled, p.dnd_start_minutes, p.dnd_end_minutes, p.time_zone,
          p.authority_batching, p.digest_minutes
        FROM notification_deliveries d
@@ -99,7 +98,7 @@ export async function processImmediateDeliveries(): Promise<number> {
     }
 
     try {
-      const phone = row.phone_enc ? decryptPhone(row.phone_enc) : (row.phone_legacy ?? row.phone_masked ?? '');
+      const phone = row.phone_enc ? decryptPhone(row.phone_enc) : (row.phone_masked ?? '');
       if (!phone) {
         throw new Error('User phone number is completely missing or unavailable');
       }
@@ -159,7 +158,7 @@ export async function processBatchedDigests(): Promise<number> {
       `SELECT 
          d.id, d.user_id, d.channel, d.scheduled_for, d.batch_key, d.notification_id,
          n.title, n.body, n.data, n.critical, n.district, n.zone, n.road_id,
-         u.phone_enc, u.phone_masked, u.phone_legacy, u.role, u.districts, u.zones,
+        u.phone_enc, u.phone_masked, u.role, u.districts, u.zones,
          p.enabled_channels, p.dnd_enabled, p.dnd_start_minutes, p.dnd_end_minutes, p.time_zone,
          p.authority_batching, p.digest_minutes
        FROM notification_deliveries d
@@ -215,7 +214,7 @@ async function dispatchDigestBatch(batchKey: string, rows: DeliveryRow[]): Promi
   const body = `You have received ${count} jurisdiction updates across your tracked alerts. Open the dashboard to see detail reports.`;
 
   try {
-    const phone = first.phone_enc ? decryptPhone(first.phone_enc) : (first.phone_legacy ?? first.phone_masked ?? '');
+    const phone = first.phone_enc ? decryptPhone(first.phone_enc) : (first.phone_masked ?? '');
     if (!phone) throw new Error('User phone not available for delivery');
     
     await sendViaChannel({

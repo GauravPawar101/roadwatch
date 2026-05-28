@@ -1,6 +1,6 @@
-import { randomUUID } from 'crypto';
 import { pool } from './postgres.js';
 import { encryptPhone, hashPhone, maskPhone, normalizePhone, phoneLast4 } from './security/phone.js';
+import { uuidv7 } from './uuid.js';
 
 export type Role = 'CE' | 'EE' | 'CONTRACTOR' | 'CITIZEN';
 
@@ -36,6 +36,84 @@ export async function initDb(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query('SELECT NOW()');
+    await client.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS phone_masked text');
+
+    const missingMaskedPhones = await client.query<{ id: string; phone: string | null }>(
+      `SELECT id, phone
+         FROM users
+        WHERE phone_masked IS NULL
+           OR phone_masked = ''`
+    );
+
+    for (const row of missingMaskedPhones.rows) {
+      if (!row.phone) continue;
+      await client.query('UPDATE users SET phone_masked = $2 WHERE id = $1', [row.id, maskPhone(row.phone)]);
+    }
+
+    const ensureColumnType = async (table: string, column: string, expectedType: string) => {
+      const existing = await client.query(
+        `SELECT data_type
+           FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = $1
+            AND column_name = $2
+          LIMIT 1`,
+        [table, column]
+      );
+
+      if (existing.rows[0]?.data_type !== expectedType) {
+        console.warn(`Schema mismatch: ${table}.${column} expected ${expectedType} but found ${existing.rows[0]?.data_type}. Apply docker/postgres/init.sql to migrate.`);
+      }
+    };
+
+    await ensureColumnType('roads_catalog', 'total_length_km', 'numeric');
+
+    for (const [table, column] of [
+      ['users', 'id'],
+      ['complaints', 'id'],
+      ['complaint_attachments', 'complaint_id'],
+      ['complaint_assignments', 'complaint_id'],
+      ['contractors', 'id'],
+      ['districts', 'id'],
+      ['districts_by_state', 'id'],
+      ['road_assignments', 'id'],
+      ['notifications', 'id'],
+      ['notifications', 'user_id'],
+      ['notification_preferences', 'user_id'],
+      ['notification_inbox', 'id'],
+      ['notification_inbox', 'notification_id'],
+      ['notification_inbox', 'user_id'],
+      ['notification_deliveries', 'id'],
+      ['notification_deliveries', 'notification_id'],
+      ['notification_deliveries', 'user_id'],
+      ['notification_delivery_logs', 'id'],
+      ['notification_delivery_logs', 'notification_id'],
+      ['authority_action_logs', 'complaint_id'],
+      ['image_submissions', 'id'],
+      ['image_submissions', 'created_by_id'],
+      ['karma_records', 'user_id'],
+      ['offline_queue', 'id'],
+      ['access_logs', 'id'],
+      ['access_logs', 'user_id'],
+      ['otp_sessions', 'id'],
+      ['otp_sessions', 'user_id'],
+      ['user_privacy_profiles', 'user_id'],
+      ['sla_tracking', 'complaint_id'],
+      ['complaint_merkle_proofs', 'complaint_id'],
+      ['complaint_merkle_proofs_by_batch', 'complaint_id'],
+      ['rti_requests', 'complaint_id']
+    ] as const) {
+      await ensureColumnType(table, column, 'uuid');
+    }
+
+    // DDL centralized in docker/postgres/init.sql; skipping runtime ALTER on districts.
+    console.info('Skipping runtime ALTER of districts; ensure docker/postgres/init.sql has been applied');
+    // Ensure notification tables exist so retention job can run on older local DBs.
+    // DDL is centralized in docker/postgres/init.sql for consistency.
+    // Runtime schema mutations have been removed; ensure the DB is provisioned with the init.sql schema before starting services.
+    console.info('Skipping runtime notification DDL; ensure docker/postgres/init.sql has been applied');
+    // DDL centralized in docker/postgres/init.sql; skipping runtime ALTER/INDEX creation.
+    console.info('Skipping runtime ALTER/INDEX for users and roads_catalog; ensure init.sql has been applied');
     console.log('PostgreSQL connected and ready');
   } finally {
     client.release();
@@ -51,7 +129,7 @@ export async function createContractor(input: {
 }): Promise<{ id: string; companyName: string; registrationNumber: string; contactPhoneMasked: string | null; districts: string[]; zones: string[] }> {
   const districts = input.districts ?? [];
   const zones = input.zones ?? [];
-  const id = randomUUID();
+  const id = uuidv7();
 
   await pool.query(
     `INSERT INTO contractors (id, name, registration_number, contact_phone_masked, districts, zones, created_at)
@@ -154,6 +232,7 @@ export async function upsertUser(params: {
   const username = params.username ? params.username.trim().toLowerCase() : null;
   const clerkUserId = params.clerkUserId ? params.clerkUserId.trim() : null;
   const email = params.email ? params.email.trim().toLowerCase() : null;
+  const id = uuidv7();
   const enc = (() => {
     try {
       return encryptPhone(normalized);
@@ -165,23 +244,25 @@ export async function upsertUser(params: {
   const now = new Date();
 
   await pool.query(
-    `INSERT INTO users (id, phone, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, districts, zones, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    `INSERT INTO users (id, phone, phone_masked, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, districts, zones, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
      ON CONFLICT (phone_hash) DO UPDATE SET
        phone = $2,
+       phone_masked = $3,
        phone_enc = $4,
        phone_last4 = $5,
-       username = $6,
-       clerk_user_id = $7,
-       email = $8,
-       govt_id = $9,
-       role = $10,
-       districts = $11,
-       zones = $12,
+      username = EXCLUDED.username,
+      clerk_user_id = EXCLUDED.clerk_user_id,
+      email = EXCLUDED.email,
+      govt_id = EXCLUDED.govt_id,
+      role = EXCLUDED.role,
+      districts = EXCLUDED.districts,
+      zones = EXCLUDED.zones,
        updated_at = $14`,
     [
-      randomUUID(),
+      id,
       normalized,
+      phoneMasked,
       phoneHash,
       enc,
       last4,
@@ -198,7 +279,7 @@ export async function upsertUser(params: {
   );
 
   return {
-    id: randomUUID(),
+    id,
     phone: phoneMasked,
     phoneHash,
     phoneEnc: enc,
@@ -389,7 +470,7 @@ export async function upsertDistrict(input: {
 }): Promise<District> {
   const zoomMin = input.zoom?.min ?? 10;
   const zoomMax = input.zoom?.max ?? 16;
-  const id = randomUUID();
+  const id = uuidv7();
 
   await pool.query(
     `INSERT INTO districts (id, country_code, state_code, code, name, top_left_lat, top_left_lng, bottom_right_lat, bottom_right_lng, min_zoom, max_zoom, tile_style_url)
@@ -530,7 +611,7 @@ export async function createRoadAssignment(input: {
   endsOn: string | null;
   createdAt: string;
 }> {
-  const id = randomUUID();
+  const id = uuidv7();
   const now = new Date();
 
   await pool.query(

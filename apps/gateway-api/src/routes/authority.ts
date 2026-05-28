@@ -1,5 +1,4 @@
 import { KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent } from '@roadwatch/kafka';
-import crypto from 'crypto';
 import express from 'express';
 import { z } from 'zod';
 import { getContractorScorecard, trackAnalyticsEvent } from '../analytics/service.js';
@@ -8,6 +7,8 @@ import { createAndFanoutNotification } from '../notifications/service.js';
 import { sql as pool } from '../postgres.js'; // Use `sql` tagged-template executor exported from postgres.ts
 import { assertDistrictAccess, assertZoneAccess, requireAuth, requireRole } from '../rbac.js';
 import { broadcastComplaintEvent } from '../realtime/sse.js';
+import { fabricLedgerService } from '../services/fabric-ledger.js';
+import { uuidv7 } from '../uuid.js';
 
 const router = express.Router();
 
@@ -63,7 +64,7 @@ async function writeAudit(
       id, actor_user_id, actor_phone_hash, actor_phone_masked, 
       action, target_type, target_id, details, created_at
     ) VALUES (
-      ${crypto.randomUUID()}, ${actorUserId}, ${actorPhoneHash}, ${actorPhoneMasked}, 
+      ${uuidv7()}, ${actorUserId}, ${actorPhoneHash}, ${actorPhoneMasked}, 
       ${action}, ${targetType}, ${targetId}, ${JSON.stringify(details)}, NOW()
     )
   `;
@@ -92,11 +93,11 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const generatedId = `RW-${body.district.slice(0, 3).toUpperCase()}-${Date.now()}`;
+  const generatedId = uuidv7();
   const id = body.id ?? generatedId;
 
   const event: ComplaintSubmittedEvent = {
-    type: 'complaint.submitted',
+    type: 'complaint-submitted',
     idempotencyKey: `complaint:${id}:submitted`,
     occurredAt: new Date().toISOString(),
     version: 1,
@@ -105,7 +106,13 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     zone: body.zone,
     lat: body.lat ?? undefined,
     lng: body.lng ?? undefined,
-    description: body.description
+    description: body.description,
+    roadId: `${body.district}:${body.zone}`,
+    authorityOrg: body.zone,
+    citizenId: user.sub,
+    location: { district: body.district, zone: body.zone, lat: body.lat ?? null, lng: body.lng ?? null },
+    merged: false,
+    reportCount: 1
   };
 
   await pool.begin(async (tx: any) => {
@@ -250,7 +257,7 @@ router.post('/complaints/:id/status', requireAuth, requireRole(['CE', 'EE']), as
     `;
 
     const event: ComplaintStatusChangedEvent = {
-      type: 'complaint.status.changed',
+      type: 'complaint-status-changed',
       idempotencyKey: `complaint:${params.id}:status:${row.status}->${body.status}`,
       occurredAt: new Date().toISOString(),
       version: 1,
@@ -326,7 +333,7 @@ router.post('/complaints/:id/escalate', requireAuth, requireRole(['CE', 'EE']), 
     `;
 
     const event: ComplaintStatusChangedEvent = {
-      type: 'complaint.status.changed',
+      type: 'complaint-status-changed',
       idempotencyKey: `complaint:${params.id}:status:${row.status}->ESCALATED`,
       occurredAt: new Date().toISOString(),
       version: 1,
@@ -476,6 +483,26 @@ router.get('/complaints', requireAuth, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /complaints/:id/history
+// ---------------------------------------------------------------------------
+router.get('/complaints/:id/history', requireAuth, async (req, res) => {
+  const user = (req as any).user as { role: string; districts: string[]; zones: string[] };
+  const params = z.object({ id: z.string().min(1) }).parse(req.params);
+
+  const [row] = await pool`
+    SELECT district, zone FROM complaints WHERE id = ${params.id} LIMIT 1
+  `;
+  if (!row) return res.status(404).json({ error: 'Not found' });
+
+  if (!assertDistrictAccess(user as any, row.district) || !assertZoneAccess(user as any, row.zone)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const history = await fabricLedgerService.getComplaintHistory(params.id);
+  res.json({ complaintId: params.id, history });
+});
+
+// ---------------------------------------------------------------------------
 // POST /complaints/:id/resolve
 // ---------------------------------------------------------------------------
 router.post('/complaints/:id/resolve', requireAuth, async (req, res) => {
@@ -509,7 +536,7 @@ router.post('/complaints/:id/resolve', requireAuth, async (req, res) => {
     `;
 
     const event: ComplaintStatusChangedEvent = {
-      type: 'complaint.status.changed',
+      type: 'complaint-status-changed',
       idempotencyKey: `complaint:${params.id}:status:${row.status}->RESOLVED`,
       occurredAt: new Date().toISOString(),
       version: 1,

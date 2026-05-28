@@ -18,6 +18,7 @@ import { getUserByIdentifier, getUserByPhone, upsertUser } from '../db.js';
 import { pool } from '../postgres.js';
 import { requireAuth } from '../rbac.js';
 import { decryptPhone, hashPhone } from '../security/phone.js';
+import { uuidv7 } from '../uuid.js';
 
 function normalizeLoginIdentifier(identifier: string): string {
   const trimmed = identifier.trim();
@@ -349,7 +350,7 @@ router.post('/citizen/signup', async (req, res) => {
 
     const passwordHash = await hashPassword(body.password);
     const signupMethod = body.email ? 'email' : body.phone ? 'phone' : 'username';
-    const userId = crypto.randomUUID();
+    const userId = uuidv7();
 
     await pool.query(
       `INSERT INTO users (id, email, phone, phone_hash, username, password_hash, signup_method, role)
@@ -475,7 +476,7 @@ router.post('/authority/signup', async (req, res) => {
     if (existing.rows.length > 0) return res.status(409).json({ error: 'Email or username already exists' });
 
     const passwordHash = await hashPassword(body.password);
-    const userId = crypto.randomUUID();
+    const userId = uuidv7();
 
     await pool.query(
       `INSERT INTO users (id, email, username, password_hash, phone, signup_method, role, districts, zones)
@@ -596,7 +597,7 @@ router.post('/contractor/signup', async (req, res) => {
     if (existing.rows.length > 0) return res.status(409).json({ error: 'Email or username already exists' });
 
     const passwordHash = await hashPassword(body.password);
-    const userId = crypto.randomUUID();
+    const userId = uuidv7();
 
     await pool.query(
       `INSERT INTO users (id, email, username, password_hash, phone, signup_method, role, districts, zones)

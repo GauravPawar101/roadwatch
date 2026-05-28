@@ -5,7 +5,7 @@
 ### 1. **Image Upload System - FIXED** ✅
 **Problem**: Image upload was completely stubbed with placeholder implementations
 **Solution**: 
-- Fixed `PinataMediaProvider.ts` - Real IPFS upload via Pinata API
+- Fixed `SupabaseStorageProvider.ts` - Real storage upload via Supabase API
 - Fixed `R2MediaProvider.ts` - Real Cloudflare R2 upload with pre-signed URLs
 - Fixed `CompressionPipeline.ts` - Real image compression using Sharp/Canvas API
 - Updated `image-submissions.ts` routes to use sidecar authentication
@@ -163,7 +163,7 @@
 - **Circuit breakers**: Prevent cascade failures
 
 ### External Services
-- **IPFS integration**: Decentralized image storage via Pinata
+- **Storage integration**: Complaint media storage via Supabase
 - **Cloud storage**: Cloudflare R2 for scalable file hosting
 - **Mapping services**: OpenStreetMap integration with Leaflet
 - **Notification systems**: Real-time updates via Server-Sent Events
@@ -201,7 +201,7 @@
 ## 🎯 **Next Steps for Production**
 
 1. **Set up environment variables** for all services
-2. **Configure IPFS/Pinata API keys** for image uploads
+2. **Configure Supabase Storage env vars** for image uploads
 3. **Set up Cloudflare R2 buckets** for file storage
 4. **Deploy PostgreSQL** with PostGIS extensions
 5. **Configure monitoring** and alerting systems

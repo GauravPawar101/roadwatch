@@ -6,7 +6,7 @@ type DbLike = {
 };
 
 type ComplaintSubmittedEnvelope = {
-  type: 'complaint.submitted';
+  type: 'complaint-submitted';
   idempotencyKey: string;
   occurredAt: string;
   version: number;
@@ -30,32 +30,14 @@ let relayTimer: ReturnType<typeof setInterval> | null = null;
 let relayInFlight = false;
 
 async function ensureOutboxTable(): Promise<void> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS complaint_event_outbox (
-      id UUID PRIMARY KEY,
-      topic TEXT NOT NULL,
-      message_key TEXT NOT NULL,
-      payload JSONB NOT NULL,
-      status TEXT NOT NULL DEFAULT 'PENDING',
-      attempts INT NOT NULL DEFAULT 0,
-      last_error TEXT,
-      available_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      sent_at TIMESTAMP
-    )
-  `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_complaint_event_outbox_pending
-    ON complaint_event_outbox (status, available_at, created_at)
-  `);
+  // DDL centralized in docker/postgres/init.sql; runtime table creation removed.
+  console.info('Skipping creation of complaint_event_outbox; ensure docker/postgres/init.sql has been applied');
 }
 
 export async function enqueueComplaintSubmittedEvent(
   client: DbLike,
   event: ComplaintSubmittedEnvelope,
-  topic = 'complaint.submitted'
+  topic = 'complaint-submitted'
 ): Promise<void> {
   await client.query(
     `INSERT INTO complaint_event_outbox

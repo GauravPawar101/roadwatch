@@ -29,13 +29,13 @@ Deploy only the essential components:
 1. **Frontend** → Vercel/Netlify
 2. **Gateway API** → Render/Railway/Fly.io
 3. **Database** → Neon/Supabase PostgreSQL
-4. **Cache** → Upstash Redis
+4. **Cache** → Local Redis (Docker)
 
 ### Full Production Setup
 
 Add background services for complete functionality:
 
-5. **Message Queue** → Upstash Kafka
+5. **Message Queue** → Local Kafka (Docker)
 6. **Background Services** → Same host as API or separate containers
 7. **Blockchain** → Hyperledger Fabric network (optional)
 
@@ -89,15 +89,9 @@ OTP_TTL_SECONDS=300
 
 # Redis (for caching)
 REDIS_URL=redis://user:pass@host:6379/0
-# OR Upstash Redis
-UPSTASH_REDIS_REST_URL=https://...
-UPSTASH_REDIS_REST_TOKEN=...
 
 # Kafka (for events)
 KAFKA_BROKER=host:9092
-# OR Upstash Kafka
-UPSTASH_KAFKA_REST_URL=https://...
-UPSTASH_KAFKA_REST_TOKEN=...
 ```
 
 **Optional LLM Configuration:**
@@ -190,10 +184,10 @@ Set these environment variables in your hosting platform:
 **Required:**
 - `DATABASE_URL`
 - `JWT_SECRET`
-- `REDIS_URL` or `UPSTASH_REDIS_REST_*`
+- `REDIS_URL`
 
 **Optional but Recommended:**
-- `KAFKA_BROKER` or `UPSTASH_KAFKA_REST_*`
+- `KAFKA_BROKER` or `KAFKA_BROKERS`
 - `GEMINI_API_KEY`
 
 **Fabric (Advanced):**

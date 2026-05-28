@@ -50,6 +50,20 @@ export type ContractorProfile = {
   citizenValidation: number
   regions: string[]
   certificationStatus: 'Certified' | 'Pending renewal'
+  karmaScore: number
+  reliabilityRank: number
+  avgSlaSuccessDays: number
+  historicalDurabilityDays: number
+  budgetDisciplineScore: number
+  citizenSatisfactionScore: number
+  auditPerformanceScore: number
+  maintenanceEfficiencyScore: number
+  riskIndicator: 'low' | 'medium' | 'high'
+  roadTypeSpecialization: string[]
+  regionalBreakdown: Array<{ label: string; score: number }>
+  karmaTrend: number[]
+  lifecycleCostINR: number
+  proposalConfidence: number
 }
 
 export type AuthorityProfile = {
@@ -197,9 +211,21 @@ export const citizenProfile: CitizenProfile = {
 }
 
 export const contractorProfiles: ContractorProfile[] = [
-  { name: 'SuperBuild Infra', handle: 'superbuild-infra', trustScore: 91, performanceScore: 94, slaScore: 89, authorityRating: 92, citizenValidation: 87, regions: ['South Delhi', 'New Delhi'], certificationStatus: 'Certified' },
-  { name: 'RoadForge Works', handle: 'roadforge-works', trustScore: 86, performanceScore: 88, slaScore: 84, authorityRating: 82, citizenValidation: 81, regions: ['Mumbai', 'Pune'], certificationStatus: 'Certified' },
-  { name: 'MetroRoads Ltd', handle: 'metroroads-ltd', trustScore: 84, performanceScore: 86, slaScore: 80, authorityRating: 85, citizenValidation: 79, regions: ['Chennai', 'Bengaluru Urban'], certificationStatus: 'Pending renewal' },
+  {
+    name: 'SuperBuild Infra', handle: 'superbuild-infra', trustScore: 91, performanceScore: 94, slaScore: 89, authorityRating: 92, citizenValidation: 87, regions: ['South Delhi', 'New Delhi'], certificationStatus: 'Certified',
+    karmaScore: 96, reliabilityRank: 1, avgSlaSuccessDays: 3.2, historicalDurabilityDays: 124, budgetDisciplineScore: 94, citizenSatisfactionScore: 92, auditPerformanceScore: 95, maintenanceEfficiencyScore: 93,
+    riskIndicator: 'low', roadTypeSpecialization: ['NH', 'State arterial'], regionalBreakdown: [{ label: 'South Delhi', score: 96 }, { label: 'New Delhi', score: 91 }], karmaTrend: [88, 90, 91, 93, 94, 95, 96], lifecycleCostINR: 18450000, proposalConfidence: 94
+  },
+  {
+    name: 'RoadForge Works', handle: 'roadforge-works', trustScore: 86, performanceScore: 88, slaScore: 84, authorityRating: 82, citizenValidation: 81, regions: ['Mumbai', 'Pune'], certificationStatus: 'Certified',
+    karmaScore: 88, reliabilityRank: 2, avgSlaSuccessDays: 4.1, historicalDurabilityDays: 101, budgetDisciplineScore: 87, citizenSatisfactionScore: 84, auditPerformanceScore: 82, maintenanceEfficiencyScore: 85,
+    riskIndicator: 'medium', roadTypeSpecialization: ['Drainage', 'Urban renewal'], regionalBreakdown: [{ label: 'Mumbai', score: 89 }, { label: 'Pune', score: 86 }], karmaTrend: [82, 83, 84, 85, 86, 87, 88], lifecycleCostINR: 16300000, proposalConfidence: 86
+  },
+  {
+    name: 'MetroRoads Ltd', handle: 'metroroads-ltd', trustScore: 84, performanceScore: 86, slaScore: 80, authorityRating: 85, citizenValidation: 79, regions: ['Chennai', 'Bengaluru Urban'], certificationStatus: 'Pending renewal',
+    karmaScore: 81, reliabilityRank: 3, avgSlaSuccessDays: 5.3, historicalDurabilityDays: 88, budgetDisciplineScore: 79, citizenSatisfactionScore: 78, auditPerformanceScore: 80, maintenanceEfficiencyScore: 77,
+    riskIndicator: 'medium', roadTypeSpecialization: ['Signage', 'Crack repair'], regionalBreakdown: [{ label: 'Chennai', score: 82 }, { label: 'Bengaluru Urban', score: 80 }], karmaTrend: [75, 76, 77, 79, 79, 80, 81], lifecycleCostINR: 15125000, proposalConfidence: 82
+  },
 ]
 
 export const authorityProfiles: AuthorityProfile[] = [

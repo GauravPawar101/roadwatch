@@ -36,11 +36,11 @@
   - `index.ts` — Kafka consumer implementation
   - `Dockerfile` — Alpine Node.js container
 - **Kafka Topics Subscribed:**
-  - ✅ complaint.submitted
-  - ✅ complaint.anchored
-  - ✅ complaint.status.changed
-  - ✅ notification.send
-  - ✅ authority.action
+  - ✅ complaint-submitted
+  - ✅ complaint-anchored
+  - ✅ complaint-status-changed
+  - ✅ notification-send
+  - ✅ authority-action
 - **Event Handlers Implemented:**
   - ✅ handleComplaintSubmitted()
   - ✅ handleComplaintAnchored()
@@ -54,7 +54,7 @@
 - **Location:** `services/fabric-anchor-consumer/`
 - **Dockerfile Created:** Alpine Node.js container with HLF SDK
 - **Environment Config:** `services/fabric-anchor-consumer/.env` updated
-- **Kafka Integration:** Consumes complaint.submitted, publishes complaint.anchored
+-- **Kafka Integration:** Consumes complaint-submitted, publishes complaint-anchored
 - **Resource Limits:** 1 CPU, 512MB RAM (HLF SDK overhead)
 
 ### Docker Compose Integration
@@ -131,8 +131,7 @@
 ### Previous (Upstash)
 ```
 Apps/Gateway-API
-  └─ UPSTASH_KAFKA_REST_URL (HTTP polling)
-  └─ UPSTASH_KAFKA_REST_TOKEN
+  └─ KAFKA_BROKER(S)
   
 Services: Only fabric-anchor-consumer (REST client)
 Latency: ~100ms per request
@@ -158,18 +157,18 @@ Benefits:
 
 ### Topics Auto-Created
 All topics defined in `providers/kafka/topics.ts`:
-- complaint.submitted
-- complaint.anchored
-- complaint.status.changed
-- media.captured
-- media.uploaded
-- media.analyzed
-- escalation.due
-- escalation.sent
-- fabric.events
-- notification.send
-- authority.action
-- dlq.events
+- complaint-submitted
+- complaint-anchored
+- complaint-status-changed
+- media-captured
+- media-uploaded
+- media-analyzed
+- escalation-due
+- escalation-sent
+- fabric-events
+- notification-send
+- authority-action
+- dlq-events
 
 ---
 
@@ -195,7 +194,7 @@ Phase 3: Background Services (Always-on)
      └─ Subscribed to 5 topics
   ✅ Fabric-Anchor-Consumer (depends: postgres, kafka)
      └─ Connected after ~3s
-     └─ Ready for complaint.submitted events
+    └─ Ready for complaint-submitted events
 
 Phase 4: Application Server
   ✅ Gateway API (port 3000)
@@ -290,7 +289,7 @@ Services require these tables/views to function:
 - ✅ `FABRIC_X509_KEY_PATH` — User private key
 
 ### Optional
-- ℹ️ `PINATA_JWT` — For media uploads
+- ℹ️ `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_STORAGE_BUCKET` — For media uploads
 - ℹ️ `GEMINI_API_KEY` — For LLM inference
 - ℹ️ `LOG_LEVEL` — Logging verbosity
 
@@ -415,12 +414,12 @@ process.on('SIGINT', async () => {
 [webhook-handler] Starting webhook handler...
 [webhook-handler] Database connection OK: 2026-05-08 10:30:00
 [webhook-handler] Connected to Kafka brokers: localhost:29092
-[webhook-handler] Subscribed to topics: complaint.submitted, complaint.anchored, ...
+[webhook-handler] Subscribed to topics: complaint-submitted, complaint-anchored, ...
 [webhook-handler] Webhook handler initialized and running...
-[webhook] Processing complaint.submitted: RW-2026-00001
-[webhook] ✓ Processed complaint.submitted: RW-2026-00001
-[webhook] Processing complaint.anchored: RW-2026-00001
-[webhook] ✓ Processed complaint.anchored: RW-2026-00001 TX: abc123...
+[webhook] Processing complaint-submitted: RW-2026-00001
+[webhook] ✓ Processed complaint-submitted: RW-2026-00001
+[webhook] Processing complaint-anchored: RW-2026-00001
+[webhook] ✓ Processed complaint-anchored: RW-2026-00001 TX: abc123...
 ```
 
 ### Container Logs
@@ -446,7 +445,7 @@ docker-compose logs -f fabric-anchor-consumer
 
 ### Short-term (Seeding Phase)
 - [ ] Generate Delhi 30 roads data
-- [ ] Upload road images to Pinata
+- [ ] Upload road images to Supabase Storage
 - [ ] Create test contractors and authority users
 - [ ] Seed complaints with verified data
 - [ ] Verify HLF anchoring via fabric-anchor-consumer logs

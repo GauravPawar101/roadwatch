@@ -14,37 +14,9 @@ pool.on('error', (err) => {
 })
 
 async function ensureSchema() {
-  // Create tables used by media-ingest
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS media (
-      upload_id TEXT PRIMARY KEY,
-      object_key TEXT,
-      sha256 TEXT,
-      metadata TEXT,
-      hf_result TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `)
+  // DDL centralized in docker/postgres/init.sql; skip creating media/embeddings at runtime.
+  console.info('Skipping media/embeddings DDL; ensure docker/postgres/init.sql has been applied');
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS embeddings (
-      upload_id TEXT PRIMARY KEY,
-      embedding TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `)
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS pinata_webhook_retries (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      cid TEXT,
-      payload TEXT,
-      attempts INT DEFAULT 0,
-      last_error TEXT,
-      next_attempt TIMESTAMP,
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `)
 }
 
 module.exports = { pool, ensureSchema }

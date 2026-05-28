@@ -104,12 +104,19 @@ class ComplaintAnchorContract extends Contract {
 
   async GetEscalationHistory(ctx, complaintID) {
     if (!complaintID) throw new Error('GetEscalationHistory: complaintID required');
-    const q = { selector: { complaintId: complaintID }, sort: [{ timestamp: 'asc' }] };
-    const it = await ctx.stub.getQueryResult(JSON.stringify(q));
+    // Use CouchDB Mango rich query to fetch escalation records for the complaint
+    // Requires the peer(s) for this chaincode to be configured with CouchDB state database.
+    const query = {
+      selector: {
+        complaintId: complaintID,
+      },
+      sort: [{ timestamp: 'asc' }]
+    };
+    const it = await ctx.stub.getQueryResult(JSON.stringify(query));
     const results = [];
     while (true) {
       const res = await it.next();
-      if (res.value && res.value.value.toString()) {
+      if (res.value && res.value.value && res.value.value.toString()) {
         const v = JSON.parse(res.value.value.toString('utf8'));
         results.push(v);
       }

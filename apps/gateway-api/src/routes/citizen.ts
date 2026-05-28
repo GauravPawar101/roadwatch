@@ -12,7 +12,8 @@ import { createAndFanoutNotification } from '../notifications/service.js';
 import { pool, sql } from '../postgres.js';
 import { requireAuth, requireRole, type AuthedRequest } from '../rbac.js';
 import { broadcastComplaintEvent } from '../realtime/sse.js';
-import { uploadFileToPinata } from '../services/pinata.js';
+import { uploadFileToSupabaseStorage } from '../services/supabase-storage.js';
+import { uuidv7 } from '../uuid.js';
 
 const router = express.Router();
 
@@ -208,10 +209,10 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
 
   let attachmentCid = body.imageCid ?? null;
   let attachmentSha = body.imageSha256 ?? null;
-  let attachmentProvider: 'pinata' | 'local-fallback' | 'client' = body.imageCid ? 'client' : 'local-fallback';
+  let attachmentProvider: 'supabase-storage' | 'local-fallback' | 'client' = body.imageCid ? 'client' : 'local-fallback';
 
   if (file?.path) {
-    const uploaded = await uploadFileToPinata(file.path, file.mimetype ?? 'application/octet-stream');
+    const uploaded = await uploadFileToSupabaseStorage(file.path, file.mimetype ?? 'application/octet-stream');
     attachmentCid = uploaded.cid;
     attachmentSha = uploaded.hash;
     attachmentProvider = uploaded.provider;
@@ -246,7 +247,7 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
       `;
       reportCount = Number(updated[0]?.report_count ?? 2);
     } else {
-      complaintId = `RW-${districtCode.slice(0, 3)}-${Date.now()}`;
+      complaintId = uuidv7();
       await tx`
         INSERT INTO complaints
            (id, district, zone, status, description, lat, lng, road_id, authority_id, report_count, created_at, updated_at)
@@ -257,7 +258,7 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
 
     if (!merged) {
       const event: ComplaintSubmittedEvent = {
-        type: 'complaint.submitted',
+        type: 'complaint-submitted',
         idempotencyKey: `complaint:${complaintId}:submitted`,
         occurredAt: new Date().toISOString(),
         version: 1,
@@ -266,7 +267,15 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
         zone: authorityId,
         lat: body.lat ?? undefined,
         lng: body.lng ?? undefined,
-        description: body.description
+        description: body.description,
+        roadId: body.roadId,
+        authorityOrg: authorityId,
+        citizenId: user.sub,
+        initialIPFSCid: attachmentCid ?? undefined,
+        detailsHash: attachmentSha ?? undefined,
+        location: { lat: body.lat, lng: body.lng, capturedAt: body.capturedAt ?? null },
+        merged,
+        reportCount
       };
 
       await enqueueKafkaEvent(tx, KafkaTopics.complaintSubmitted, event, {
@@ -299,7 +308,7 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
     await pool.query(
       `INSERT INTO audit_log
          (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, 'complaint', $5, $6, NOW())`,
+      VALUES (${uuidv7()}, $1, $2, $3, $4, 'complaint', $5, $6, NOW())`,
       [
         user.sub,
         user.phoneHash,
@@ -319,7 +328,7 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
   await pool.query(
     `INSERT INTO audit_log
        (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4, 'complaint', $5, $6, NOW())`,
+    VALUES (${uuidv7()}, $1, $2, $3, $4, 'complaint', $5, $6, NOW())`,
     [
       user.sub,
       user.phoneHash,
@@ -385,7 +394,7 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
   res.json(responseBody);
 });
 
-router.post('/media/pinata', requireAuth, requireRole(['CITIZEN']), upload.single('image'), async (req, res) => {
+router.post('/media/upload', requireAuth, requireRole(['CITIZEN']), upload.single('image'), async (req, res) => {
   const body = z
     .object({
       capturedLat: z.coerce.number(),
@@ -402,7 +411,7 @@ router.post('/media/pinata', requireAuth, requireRole(['CITIZEN']), upload.singl
     return res.status(400).json({ error: 'Capture timestamp too old. Please capture again.' });
   }
 
-  const uploaded = await uploadFileToPinata(file.path, file.mimetype ?? 'application/octet-stream');
+  const uploaded = await uploadFileToSupabaseStorage(file.path, file.mimetype ?? 'application/octet-stream');
   res.json({ ok: true, cid: uploaded.cid, sha256: uploaded.hash, provider: uploaded.provider, url: uploaded.url });
 });
 

@@ -4,9 +4,9 @@ CREATE TABLE IF NOT EXISTS user_privacy_profiles (
   is_authority BOOLEAN DEFAULT FALSE,
   is_contractor BOOLEAN DEFAULT FALSE,
   is_citizen BOOLEAN DEFAULT FALSE,
-  authority_jurisdiction TEXT,
-  contractor_assignment TEXT,
-  can_view_user_ids BOOLEAN,
+  authority_jurisdiction TEXT[],
+  contractor_assignment JSONB,
+  can_view_user_ids BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS access_logs (
   resource_type TEXT,
   resource_id TEXT,
   action TEXT,
-  accessed_fields JSONB DEFAULT '[]'::jsonb,
+  accessed_fields TEXT[] DEFAULT '{}',
   ip_address TEXT,
   user_agent TEXT,
   status TEXT,

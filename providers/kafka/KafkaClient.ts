@@ -1,11 +1,15 @@
-import { Kafka } from '@upstash/kafka';
-import { getUpstashKafkaConfig } from './config.js';
+import { Kafka as KafkaJS } from 'kafkajs';
+import { getLocalKafkaBrokers } from './config.js';
 
-let kafkaSingleton: Kafka | null = null;
+let kafkaSingleton: KafkaJS | null = null;
 
-export function getKafkaClient(): Kafka {
+export function getKafkaClient(): KafkaJS {
   if (kafkaSingleton) return kafkaSingleton;
-  const { url, username, password } = getUpstashKafkaConfig();
-  kafkaSingleton = new Kafka({ url, username, password });
+  const brokers = getLocalKafkaBrokers();
+  if (!brokers) {
+    throw new Error('Kafka is required but KAFKA_BROKER or KAFKA_BROKERS is not configured');
+  }
+
+  kafkaSingleton = new KafkaJS({ clientId: 'roadwatch', brokers });
   return kafkaSingleton;
 }

@@ -5,6 +5,7 @@ import {
     getContractorScorecard,
     getCountsByStatus,
     getHotspots,
+    getProposalIntelligence,
     getWorseningTrends,
     listChronicRoads,
     renderPublicRoadsPdf,
@@ -286,6 +287,22 @@ router.get('/contractors/scorecard', async (req, res) => {
 
   const rows = await getContractorScorecard(query);
   res.json({ generatedAt: new Date().toISOString(), rows });
+});
+
+router.get('/proposals/intelligence', async (req, res) => {
+  const query = z
+    .object({
+      district: z.string().min(1).optional(),
+      zone: z.string().min(1).optional(),
+      roadType: z.string().min(1).optional(),
+      plannedLengthKm: z.coerce.number().positive().optional().default(12),
+      requestedBudgetINR: z.coerce.number().int().positive().optional(),
+      limit: z.coerce.number().int().positive().optional().default(12)
+    })
+    .parse(req.query);
+
+  const intelligence = await getProposalIntelligence(query);
+  res.json(intelligence);
 });
 
 router.get('/hotspots', async (req, res) => {

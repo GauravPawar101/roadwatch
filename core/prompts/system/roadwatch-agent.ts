@@ -191,7 +191,7 @@ export function buildRoadWatchAgentPreamble(options: {
           '  Requires: Any network.',
           '',
           'TOOL: upload_repair_proof',
-          '  What: Accepts repair video/photos, uploads to Pinata, anchors CID to Fabric as resolution proof.',
+          '  What: Accepts repair video/photos, uploads to Supabase Storage, anchors object key to Fabric as resolution proof.',
           '  Input: { complaintId, mediaIds[], workDescription }',
           '  Output: { resolutionTxId, mediaCIDs[] }',
           '  Access: EE | Inspector | ContractorRep',
