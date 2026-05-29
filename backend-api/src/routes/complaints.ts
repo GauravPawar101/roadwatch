@@ -1,6 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { pool } from '../../../apps/gateway-api/src/postgres.js';
+import { analyzeComplaintText } from '../../../packages/core/src/engines/complaintTextIntel.ts';
 import { ensureAuthenticated } from '../middleware/auth';
 import { rateLimiter } from '../middleware/rateLimiter';
 import { enqueueComplaintSubmittedEvent } from '../services/complaintOutbox.js';
@@ -10,7 +11,7 @@ const router = express.Router();
 
 const complaintSchema = z.object({
   roadId: z.string().min(1),
-  description: z.string().min(5),
+  description: z.string().min(1).optional(),
   damageType: z.string().min(1),
   severity: z.coerce.number().int().min(1).max(5),
   lat: z.coerce.number(),
@@ -219,6 +220,9 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
     const shouldAttach = Boolean(attachmentCid && attachmentSha);
     const damageType = body.damageType ?? 'General';
     const severity = body.severity ?? 3;
+    const complaintDescription = body.description?.trim() || `Citizen report: ${damageType}`;
+    const textIntel = analyzeComplaintText(body.description ?? null);
+    const inferredSeverity = textIntel.recommendedSeverity > 0 ? Math.max(severity, textIntel.recommendedSeverity) : severity;
 
     let complaintId = '';
     let merged = false;
@@ -276,7 +280,7 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
           ? ageMs <= MERGE_ESCALATION_WINDOW_MS
           : ageMs >= MERGE_ESCALATION_WINDOW_MS;
 
-        finalSeverity = getComplaintSeverity(existing.metadata, severity);
+        finalSeverity = Math.max(getComplaintSeverity(existing.metadata, severity), inferredSeverity);
         if (shouldEscalate) {
           escalated = true;
           finalSeverity = Math.min(finalSeverity + (isResolvedRecurrence ? 2 : 1), 5);
@@ -293,7 +297,11 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
           mergedAt: new Date().toISOString(),
           escalationReason: mergeReason,
           escalationLevel: escalated ? (isResolvedRecurrence ? 2 : 1) : Number(existing.metadata?.escalationLevel ?? 0),
-          escalatedAt: escalated ? new Date().toISOString() : existing.metadata?.escalatedAt ?? null
+          escalatedAt: escalated ? new Date().toISOString() : existing.metadata?.escalatedAt ?? null,
+          textIntel: {
+            ...textIntel,
+            severityDelta: Math.max(0, Math.min(5, finalSeverity - severity))
+          }
         });
 
         const updated = await client.query(
@@ -358,7 +366,7 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
         complaintId = `RW-${String(districtCode).slice(0, 3)}-${Date.now()}`;
         reportCount = 1;
         finalStatus = 'FILED';
-        finalSeverity = severity;
+        finalSeverity = inferredSeverity;
         await client.query(
           `INSERT INTO complaints
              (id, district, zone, status, description, lat, lng, road_id, authority_id, report_count, metadata, created_at, updated_at)
@@ -367,7 +375,7 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
             complaintId,
             districtCode,
             authorityId,
-            body.description,
+            complaintDescription,
             body.lat,
             body.lng,
             body.roadId,
@@ -375,12 +383,13 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
             {
               roadId: body.roadId,
               damageType,
-              severity,
+              severity: finalSeverity,
               authorId: actorId,
               capturedLat: body.capturedLat ?? null,
               capturedLng: body.capturedLng ?? null,
               capturedAt: body.capturedAt ?? null,
-              public: true
+              public: true,
+              textIntel
             }
           ]
         );
@@ -422,7 +431,7 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
           zone: authorityId,
           lat: body.lat,
           lng: body.lng,
-          description: body.description
+          description: complaintDescription
         });
       }
 
@@ -475,6 +484,7 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
           mergeReason,
           reportCount,
           severity: finalSeverity,
+          textIntel,
           attachmentCid,
           attachmentSha
         }
@@ -495,7 +505,8 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
         status: finalStatus,
         severity: finalSeverity,
         damageType,
-        description: body.description,
+        description: complaintDescription,
+        textIntel,
         lat: body.lat,
         lng: body.lng,
         attachmentCid,

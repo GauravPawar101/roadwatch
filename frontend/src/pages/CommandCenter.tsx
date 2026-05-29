@@ -471,7 +471,7 @@ function DashboardHeader({ role, onSwitchRole, onToggleTheme }: { role: Dashboar
               <MapPinned style={{ height: 18, width: 18 }} />
             </div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 900, background: 'linear-gradient(45deg, #d4e4fa 30%, #8B5CF6 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>RoadWatch OS</div>
+              <div style={{ fontSize: 15, fontWeight: 900, background: 'linear-gradient(45deg, #d4e4fa 30%, #8B5CF6 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>RoadWatch</div>
               <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Civic infrastructure accountability & audit network</div>
             </div>
           </div>

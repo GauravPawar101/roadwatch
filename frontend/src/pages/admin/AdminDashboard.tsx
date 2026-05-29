@@ -201,7 +201,7 @@ function UsersTab() {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="glass-panel rounded-2xl p-6 w-full max-w-md mx-4"
+            className="w-full max-w-md mx-4 rounded-2xl border border-outline-variant bg-white p-6 shadow-xl"
           >
             <h3 className="text-lg font-semibold text-on-surface mb-4">Create New User</h3>
             <div className="space-y-4">
@@ -248,13 +248,13 @@ function UsersTab() {
               <div className="flex gap-3 pt-4">
                 <button
                   onClick={handleCreateUser}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="btn-primary flex-1"
                 >
                   Create User
                 </button>
                 <button
                   onClick={() => setShowCreateModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="btn-secondary flex-1"
                 >
                   Cancel
                 </button>
@@ -353,7 +353,7 @@ function ContractorsTab() {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="glass-panel rounded-2xl p-6 w-full max-w-md mx-4"
+            className="w-full max-w-md mx-4 rounded-2xl border border-outline-variant bg-white p-6 shadow-xl"
           >
             <h3 className="text-lg font-semibold text-on-surface mb-4">Add New Contractor</h3>
             <div className="space-y-4">
@@ -379,13 +379,13 @@ function ContractorsTab() {
               <div className="flex gap-3 pt-4">
                 <button
                   onClick={handleCreateContractor}
-                  className="flex-1 px-4 py-2 bg-secondary text-white rounded-lg hover:bg-primary transition-colors"
+                  className="btn-primary flex-1"
                 >
                   Add Contractor
                 </button>
                 <button
                   onClick={() => setShowCreateModal(false)}
-                  className="flex-1 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-low transition-colors"
+                  className="btn-secondary flex-1"
                 >
                   Cancel
                 </button>

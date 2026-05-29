@@ -11,6 +11,7 @@ import {
     renderPublicRoadsPdf,
     toCsv
 } from '../analytics/service.js';
+  import { analyzeComplaintText, summarizeRoadTextIntel } from '../../../../packages/core/src/engines/complaintTextIntel.ts';
 import {
     getDistrictOfflineManifest,
     listCountries,
@@ -101,6 +102,33 @@ router.get('/roads/segments.geojson', async (req, res) => {
     [districtId, limit]
   );
 
+  const roadIds = roadsRes.rows.map((r: any) => r.id);
+  const roadTextIntelByRoadId = new Map<string, ReturnType<typeof summarizeRoadTextIntel>>();
+
+  if (roadIds.length > 0) {
+    const complaintIntelRes = await pool.query(
+      `SELECT road_id, description, report_count
+       FROM complaints
+       WHERE road_id = ANY($1)`,
+      [roadIds]
+    );
+
+    const samplesByRoadId = new Map<string, Array<ReturnType<typeof analyzeComplaintText> & { reportCount?: number }>>();
+    for (const row of complaintIntelRes.rows as any[]) {
+      const roadId = String(row.road_id);
+      const entries = samplesByRoadId.get(roadId) ?? [];
+      entries.push({
+        ...analyzeComplaintText(row.description ?? null),
+        reportCount: Number(row.report_count ?? 1)
+      });
+      samplesByRoadId.set(roadId, entries);
+    }
+
+    for (const [roadId, samples] of samplesByRoadId.entries()) {
+      roadTextIntelByRoadId.set(roadId, summarizeRoadTextIntel(samples));
+    }
+  }
+
   // Prefetch all authority info for these roads
   const authorityIds = Array.from(new Set(roadsRes.rows.map((r: any) => r.authority_id).filter(Boolean)));
   const authorities: Record<string, any> = {};
@@ -113,17 +141,16 @@ router.get('/roads/segments.geojson', async (req, res) => {
       [authorityIds]
     );
     for (const row of authRes.rows) {
-      authorities[row.authority_id] = row;
     }
   }
 
   // Prefetch all road assignments
   const roadIds = roadsRes.rows.map((r: any) => r.id);
   const assignmentsRes = await pool.query(
-    `SELECT road_id, contractor_id, engineer_user_id, starts_on, ends_on, created_at
+    `SELECT road_id, contractor_id, engineer_user_id, starts_on, ends_on, assigned_at
      FROM road_assignments
      WHERE road_id = ANY($1)
-     ORDER BY created_at DESC`,
+     ORDER BY assigned_at DESC NULLS LAST`,
     [roadIds]
   );
 
@@ -171,6 +198,17 @@ router.get('/roads/segments.geojson', async (req, res) => {
     const contractor = assignment?.contractor_id ? contractors[assignment.contractor_id] : null;
     const engineer = assignment?.engineer_user_id ? engineers[assignment.engineer_user_id] : null;
     const authority = authorities[row.authority_id] ?? null;
+    const complaintIntel = roadTextIntelByRoadId.get(row.id) ?? {
+      totalReportCount: 0,
+      analyzedCount: 0,
+      negativeReportCount: 0,
+      urgentReportCount: 0,
+      averageSentimentScore: 0,
+      priorityFlag: false,
+      priorityScore: 0,
+      languages: [],
+      signals: []
+    };
 
     features.push({
       type: 'Feature',
@@ -197,6 +235,17 @@ router.get('/roads/segments.geojson', async (req, res) => {
           publicEmail: authority?.public_email ?? null,
           website: authority?.website ?? null,
           address: authority?.address ?? null
+        },
+        complaintIntel: {
+          totalReportCount: complaintIntel.totalReportCount,
+          analyzedCount: complaintIntel.analyzedCount,
+          negativeReportCount: complaintIntel.negativeReportCount,
+          urgentReportCount: complaintIntel.urgentReportCount,
+          averageSentimentScore: complaintIntel.averageSentimentScore,
+          priorityFlag: complaintIntel.priorityFlag,
+          priorityScore: complaintIntel.priorityScore,
+          languages: complaintIntel.languages,
+          signals: complaintIntel.signals
         }
       }
     });
@@ -301,7 +350,38 @@ router.get('/proposals/intelligence', async (req, res) => {
     })
     .parse(req.query);
 
-  const intelligence = await getProposalIntelligence(query);
+  const lookbackDays = Math.max(1, Math.floor(Number(process.env.ANOMALY_LOOKBACK_DAYS ?? 30)));
+  const expenditureResult = await pool.query(
+    `SELECT id, allocation_id, amount, description, contractor_id, "timestamp", district, zone
+     FROM budget_expenditures
+     WHERE "timestamp" >= now() - ($1::int * interval '1 day')
+       ${query.district ? 'AND district = $2' : ''}
+       ${query.zone ? (query.district ? 'AND zone = $3' : 'AND zone = $2') : ''}
+     ORDER BY "timestamp" DESC
+     LIMIT 500`,
+    query.district && query.zone ? [lookbackDays, query.district, query.zone] : query.district ? [lookbackDays, query.district] : query.zone ? [lookbackDays, query.zone] : [lookbackDays]
+  );
+
+  const recentExpenses = expenditureResult.rows.map((row: any) => ({
+    date: new Date(row.timestamp).toISOString(),
+    amount: Number(row.amount ?? 0),
+    vendorId: row.contractor_id ?? null
+  }));
+
+  const dayMap = new Map<string, number>();
+  for (const row of expenditureResult.rows as any[]) {
+    const dayKey = new Date(row.timestamp).toISOString().slice(0, 10);
+    dayMap.set(dayKey, (dayMap.get(dayKey) ?? 0) + Number(row.amount ?? 0));
+  }
+
+  const dailySpendSeries: number[] = [];
+  for (let i = lookbackDays - 1; i >= 0; i -= 1) {
+    const day = new Date();
+    day.setUTCDate(day.getUTCDate() - i);
+    dailySpendSeries.push(dayMap.get(day.toISOString().slice(0, 10)) ?? 0);
+  }
+
+  const intelligence = await getProposalIntelligence({ ...query, recentExpenses, dailySpendSeries });
   res.json(intelligence);
 });
 

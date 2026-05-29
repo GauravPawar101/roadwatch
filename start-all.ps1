@@ -6,9 +6,33 @@ $ErrorActionPreference = "Stop"
 Write-Host "🚀 Starting RoadWatch Services..." -ForegroundColor White
 Write-Host ""
 
+function Import-DotEnv {
+    param([string]$Path = ".env")
+
+    if (-not (Test-Path $Path)) {
+        return
+    }
+
+    Get-Content $Path | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith("#") -or -not ($line -match "^([^=]+)=(.*)$")) {
+            return
+        }
+
+        $key = $matches[1].Trim()
+        $value = $matches[2].Trim()
+        if ($key -and -not (Test-Path "Env:$key")) {
+            Set-Item -Path "Env:$key" -Value $value
+        }
+    }
+}
+
+Import-DotEnv
+
 $GatewayPort = if ($env:ROADWATCH_GATEWAY_PORT) { [int]$env:ROADWATCH_GATEWAY_PORT } else { 3100 }
 $GatewayUrl = "http://localhost:$GatewayPort"
 $PgBouncerHostPort = if ($env:TOP_PGBOUNCER_HOST_PORT) { [int]$env:TOP_PGBOUNCER_HOST_PORT } else { 16432 }
+$PostgresHostPort = if ($env:TOP_POSTGRES_HOST_PORT) { [int]$env:TOP_POSTGRES_HOST_PORT } else { 15433 }
 $RedisHostPort = if ($env:TOP_REDIS_HOST_PORT) { [int]$env:TOP_REDIS_HOST_PORT } else { 16379 }
 $LocalDatabaseUrl = "postgresql://postgres:postgres@127.0.0.1:$PgBouncerHostPort/roadwatch"
 $LocalRedisUrl = "redis://127.0.0.1:$RedisHostPort/0"
@@ -176,8 +200,8 @@ $Command 2>&1 | Tee-Object -FilePath '$LogFile'
 Write-Host "📦 Step 1: Starting Postgres, Kafka, Redis, and Zookeeper..." -ForegroundColor Blue
 docker-compose up -d
 
-Write-Host "⏳ Waiting for Postgres (5433) and PgBouncer (6432) to be ready..." -ForegroundColor Blue
-Wait-ForTcpPort -Ports @(5433, 16432) -TimeoutSeconds 100
+Write-Host "⏳ Waiting for Postgres ($PostgresHostPort) and PgBouncer (16432) to be ready..." -ForegroundColor Blue
+Wait-ForTcpPort -Ports @($PostgresHostPort, 16432) -TimeoutSeconds 100
 
 Write-Host "⏳ Running Redis and Kafka initialization script..." -ForegroundColor Blue
 pnpm init:messaging
@@ -225,7 +249,7 @@ if ($skipDbSeed) {
 } else {
     # Production Fix: Intercept and route heavy seed operations directly to Postgres (5433)
     # to avoid PgBouncer transaction-pooling drops.
-    $PostgresHostPort = if ($env:TOP_POSTGRES_HOST_PORT) { [int]$env:TOP_POSTGRES_HOST_PORT } else { 5433 }
+    $PostgresHostPort = if ($env:TOP_POSTGRES_HOST_PORT) { [int]$env:TOP_POSTGRES_HOST_PORT } else { 15433 }
     $DirectDatabaseUrl = "postgresql://postgres:postgres@127.0.0.1:$PostgresHostPort/roadwatch"
     
     $OldDbUrl = $env:DATABASE_URL
@@ -262,6 +286,9 @@ if (-not (Test-PortAvailable $preferredBackendPort)) {
     $preferredBackendPort = 5001
 }
 $env:BACKEND_PORT = $preferredBackendPort
+
+# Vite port (frontend) - allow override from .env
+$VitePort = if ($env:VITE_PORT) { [int]$env:VITE_PORT } else { 5173 }
 
 # Step 4: Gateway API - Cyan
 Write-Host "🔌 Step 4: Starting Gateway API in separate terminal..." -ForegroundColor Blue
@@ -336,8 +363,8 @@ Write-Host ""
 # Step 9: Frontend - Magenta
 Write-Host "🌐 Step 9: Starting Frontend in separate terminal..." -ForegroundColor Blue
 $frontendProc = Start-ServiceWindow `
-    -Title "🌐 RoadWatch — Frontend  |  http://localhost:5173" `
-    -Command "`$env:VITE_API_BASE='$GatewayUrl'; pnpm --filter roadwatch-frontend dev" `
+    -Title "🌐 RoadWatch — Frontend  |  http://localhost:$VitePort" `
+    -Command ((New-EnvCommand @{ VITE_API_BASE = $GatewayUrl; VITE_PORT = $VitePort }) + "; pnpm --filter roadwatch-frontend dev") `
     -Color "Magenta" `
     -PidFile ".pids\frontend.pid" `
     -LogFile ".\logs\frontend.log"
@@ -351,13 +378,13 @@ Write-Host ("━" * 62) -ForegroundColor Green
 Write-Host ""
 Write-Host "📋 Service URLs & Windows:" -ForegroundColor Yellow
 Write-Host "  🔧 Backend API:       http://localhost:$preferredBackendPort    " -NoNewline; Write-Host "[BLUE]"     -ForegroundColor Blue
-Write-Host "  🌐 Frontend:          http://localhost:5173    " -NoNewline; Write-Host "[MAGENTA]" -ForegroundColor Magenta
+Write-Host "  🌐 Frontend:          http://localhost:$VitePort    " -NoNewline; Write-Host "[MAGENTA]" -ForegroundColor Magenta
 Write-Host "  🔌 Gateway API:       $GatewayUrl    " -NoNewline; Write-Host "[CYAN]"    -ForegroundColor Cyan
 Write-Host "  🗓️  Scheduler:         service://scheduler    " -NoNewline; Write-Host "[YELLOW]"   -ForegroundColor Yellow
 Write-Host "  🪝 Webhook Handler:    service://webhook-handler    " -NoNewline; Write-Host "[DARKYELLOW]" -ForegroundColor DarkYellow
 Write-Host "  ⛓️  Fabric Anchor:     service://fabric-anchor-consumer    " -NoNewline; Write-Host "[GREEN]"   -ForegroundColor Green
 Write-Host "  ⛓️  Fabric (WSL):                               " -NoNewline; Write-Host "[GREEN]"   -ForegroundColor Green
-Write-Host "  📦 PostgreSQL:        localhost:5433            [BACKGROUND - Docker]" -ForegroundColor Gray
+Write-Host "  📦 PostgreSQL:        localhost:$PostgresHostPort            [BACKGROUND - Docker]" -ForegroundColor Gray
 Write-Host "  📨 Kafka:             localhost:9094            [BACKGROUND - Docker]" -ForegroundColor Gray
 Write-Host "  💾 Redis:             localhost:16379           [BACKGROUND - Docker]" -ForegroundColor Gray
 Write-Host "  ⛓️  Fabric Peer NHAI:  localhost:7051            [WSL]"                -ForegroundColor Gray

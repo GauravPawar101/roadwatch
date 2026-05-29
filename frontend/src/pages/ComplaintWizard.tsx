@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import ResumableUpload from '../components/ResumableUpload'
 import { useAuth } from '../contexts/AuthContext'
 import { enqueueAction, saveRecord } from '../lib/offlineStore'
+import { resolveRoadContext } from '../lib/roadContext'
 
 const damageTypes = [
   { id: 'Potholes & Roads', label: 'Pothole Cluster / Surface Damage', desc: 'Severe deep cracks, asphalt disintegration, or tire hazards.' },
@@ -17,6 +18,7 @@ export default function ComplaintWizard() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { isAuthenticated, loading } = useAuth()
+  const roadContext = resolveRoadContext({ roadId: id || 'r1' })
   
   const [step, setStep] = useState(1)
   const [complaintId] = useState(() => `GRI-${Math.floor(10000 + Math.random() * 90000)}`)
@@ -77,6 +79,8 @@ export default function ComplaintWizard() {
     const payload = {
       id: complaintId,
       roadId: id || 'r1',
+      roadName: roadContext.roadName,
+      roadType: roadContext.roadType,
       title: title || `${damageType} issue on Segment ${id || 'r1'}`,
       damageType,
       severity,
@@ -84,10 +88,13 @@ export default function ComplaintWizard() {
       status: 'Under Review',
       createdAt: new Date().toISOString(),
       slaDeadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
-      routedTo: 'District Infrastructure Authority',
+      routedTo: roadContext.officerLabel,
+      assignedAuthority: roadContext.officerLabel,
+      assignedContractor: roadContext.contractorProfileName,
       location: { lat: 18.5204, lng: 73.8567 },
       media: mediaAsset,
-      slaRemaining: severity >= 4 ? '24h remaining' : severity === 3 ? '48h remaining' : '14-day SLA'
+      slaRemaining: severity >= 4 ? '24h remaining' : severity === 3 ? '48h remaining' : '14-day SLA',
+      financeSnapshot: roadContext.finance,
     }
 
     const apiBase = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:3100'
@@ -135,6 +142,7 @@ export default function ComplaintWizard() {
     await saveRecord('complaint_uploads', complaintId, {
       complaintId,
       roadId: id || 'r1',
+      roadName: roadContext.roadName,
       ...nextMedia,
       completedAt: new Date().toISOString(),
     })

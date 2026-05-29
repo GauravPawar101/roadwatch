@@ -7,7 +7,7 @@ const multer = require('multer')
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
 const { uploadBufferToSupabase } = require('./supabase')
 const { pool, ensureSchema } = require('./db')
-const { callHuggingFaceImageEmbedding, upsertToVectorDB } = require('./processor')
+const { analyzeImageWithHuggingFace } = require('./processor')
 
 async function registerServiceWithGateway(input) {
   const response = await fetch(`${input.gatewayUrl.replace(/\/$/, '')}/services/register`, {
@@ -54,9 +54,7 @@ app.post('/api/uploads/upload', upload.single('file'), async (req, res) => {
 
     let hfResult = null
     try {
-      const embedding = await callHuggingFaceImageEmbedding(file.buffer)
-      hfResult = { embeddingLength: Array.isArray(embedding) ? embedding.length : null }
-      await upsertToVectorDB(uploadId, Array.isArray(embedding) ? embedding : [])
+      hfResult = await analyzeImageWithHuggingFace(file.buffer, file.mimetype || 'application/octet-stream')
     } catch (hfErr) {
       console.warn('HF failed:', hfErr.message)
       hfResult = { error: hfErr.message }
@@ -129,9 +127,7 @@ app.post('/api/uploads/chunk/complete', express.json(), async (req, res) => {
 
     let hfResult = null
     try {
-      const embedding = await callHuggingFaceImageEmbedding(buffer)
-      hfResult = { embeddingLength: Array.isArray(embedding) ? embedding.length : null }
-      await upsertToVectorDB(uploadId, Array.isArray(embedding) ? embedding : [])
+      hfResult = await analyzeImageWithHuggingFace(buffer, 'application/octet-stream')
     } catch (hfErr) {
       console.warn('HF failed:', hfErr.message)
       hfResult = { error: hfErr.message }

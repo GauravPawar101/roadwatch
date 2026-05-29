@@ -215,6 +215,26 @@ CREATE TABLE IF NOT EXISTS complaint_reviews (
 );
 
 CREATE INDEX IF NOT EXISTS complaint_reviews_complaint_id_idx ON complaint_reviews (complaint_id);
+
+-- =============================================================
+--  Budget expenditures projection
+--  Canonical SQL projection of Fabric budget expenditures.
+-- =============================================================
+CREATE TABLE IF NOT EXISTS budget_expenditures (
+  id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  allocation_id  text        NOT NULL,
+  amount         numeric     NOT NULL,
+  description    text        NOT NULL,
+  contractor_id  uuid,
+  "timestamp"   timestamptz NOT NULL,
+  district       text,
+  zone           text,
+  created_at     timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS budget_expenditures_timestamp_idx ON budget_expenditures ("timestamp");
+CREATE INDEX IF NOT EXISTS budget_expenditures_district_zone_idx ON budget_expenditures (district, zone);
+CREATE INDEX IF NOT EXISTS budget_expenditures_contractor_id_idx ON budget_expenditures (contractor_id);
 -- =============================================================
 --  Road assignments
 -- =============================================================

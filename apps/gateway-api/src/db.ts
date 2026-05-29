@@ -109,6 +109,22 @@ export async function initDb(): Promise<void> {
       )
     `);
     await client.query('CREATE INDEX IF NOT EXISTS complaint_reviews_complaint_id_idx ON complaint_reviews (complaint_id)');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS budget_expenditures (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        allocation_id text NOT NULL,
+        amount numeric NOT NULL,
+        description text NOT NULL,
+        contractor_id uuid,
+        "timestamp" timestamptz NOT NULL,
+        district text,
+        zone text,
+        created_at timestamptz NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS budget_expenditures_timestamp_idx ON budget_expenditures ("timestamp")');
+    await client.query('CREATE INDEX IF NOT EXISTS budget_expenditures_district_zone_idx ON budget_expenditures (district, zone)');
+    await client.query('CREATE INDEX IF NOT EXISTS budget_expenditures_contractor_id_idx ON budget_expenditures (contractor_id)');
     await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS contractor_user_id uuid');
     await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT \'ASSIGNED\'');
     await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS accepted_at timestamptz');

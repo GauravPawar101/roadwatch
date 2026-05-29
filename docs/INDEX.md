@@ -78,6 +78,8 @@ Complete index of all documentation in the RoadWatch system.
 
 | Document | Description | Location |
 |----------|-------------|----------|
+| **Contributing** | Repository workflow and contribution checklist | [../CONTRIBUTING.md](../CONTRIBUTING.md) |
+| **AI Model Card** | AI system usage, limits, and governance | [../AI_MODEL_CARD.md](../AI_MODEL_CARD.md) |
 | **Development Tools** | Development utilities and helpers | [development/dev-tools.md](./development/dev-tools.md) |
 | **Tools** | Chaos testing, load testing, schema generation | [development/tools.md](./development/tools.md) |
 | **Scripts** | Build scripts, seed data, and automation tools | [development/scripts.md](./development/scripts.md) |
@@ -102,6 +104,7 @@ Complete index of all documentation in the RoadWatch system.
 | Document | Description | Location |
 |----------|-------------|----------|
 | **Onboarding Operations** | User onboarding workflows | [onboarding-ops.md](./onboarding-ops.md) |
+| **Fabric Runbook** | Local Fabric start, deploy, and recovery steps | [FABRIC_RUNBOOK.md](./FABRIC_RUNBOOK.md) |
 | **Monitoring** | Logging, metrics, and health checks | [operations/monitoring.md](./operations/monitoring.md) |
 
 ## 📋 Quick Reference

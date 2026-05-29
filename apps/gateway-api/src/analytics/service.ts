@@ -1,6 +1,16 @@
 import PDFDocument from 'pdfkit';
 import { pool } from '../postgres.js';
 
+// Anomaly engine tunables from environment (defaults kept conservative)
+const ANOMALY_BUDGET_UPPER_MULTIPLIER = Number(process.env.ANOMALY_BUDGET_UPPER_MULTIPLIER ?? 1.15);
+const ANOMALY_BUDGET_LOWER_MULTIPLIER = Number(process.env.ANOMALY_BUDGET_LOWER_MULTIPLIER ?? 0.9);
+const ANOMALY_CONTRACTOR_UPPER_MULTIPLIER = Number(process.env.ANOMALY_CONTRACTOR_UPPER_MULTIPLIER ?? 1.2);
+const ANOMALY_CONTRACTOR_LOWER_MULTIPLIER = Number(process.env.ANOMALY_CONTRACTOR_LOWER_MULTIPLIER ?? 0.85);
+const ANOMALY_VENDOR_SPIKE_MULTIPLIER = Number(process.env.ANOMALY_VENDOR_SPIKE_MULTIPLIER ?? 10);
+const ANOMALY_DAILY_THRESHOLD_MULTIPLIER = Number(process.env.ANOMALY_DAILY_THRESHOLD_MULTIPLIER ?? 0.25);
+const ANOMALY_ZSCORE_THRESHOLD = Number(process.env.ANOMALY_ZSCORE_THRESHOLD ?? 3);
+const ANOMALY_ROLLING_STD_MULT = Number(process.env.ANOMALY_ROLLING_STD_MULT ?? 3);
+
 export type AnalyticsEventType =
   | 'COMPLAINT_CREATED'
   | 'COMPLAINT_STATUS_CHANGED'
@@ -29,7 +39,7 @@ function normalizeComplaintStatus(status: string | null | undefined): string {
 }
 
 export async function trackAnalyticsEvent(event: {
-  type: AnalyticsEventType;
+  type: string; // allow broader event vocabulary across services
   actorUserId?: string | null;
   complaintId?: string | null;
   contractorId?: string | null;
@@ -433,7 +443,7 @@ export async function getContractorScorecard(params?: { district?: string; zone?
 
   const [contractorInfoRes, roadTypeRes, complaintRoadRes, slaTrackingRes] = await Promise.all([
     pool.query(
-      `SELECT id, COALESCE(name, id) AS name, districts, zones
+      `SELECT id::text AS id, COALESCE(name, id::text) AS name, districts, zones
        FROM contractors
        WHERE id = ANY($1)`,
       [contractorIds]
@@ -612,6 +622,12 @@ export type ProposalIntelligence = {
   forecastRepairProbability: number;
   inflatedBudgetFlag: boolean;
   anomalyReason: string | null;
+  anomaly?: {
+    reasons: string[];
+    severity: 'none' | 'low' | 'medium' | 'high' | 'critical';
+    deviationPercent?: number | null;
+    signals: string[];
+  } | null;
   contractorRecommendations: Array<{
     contractorId: string;
     contractorName: string;
@@ -645,6 +661,13 @@ export async function getProposalIntelligence(params?: {
   plannedLengthKm?: number;
   requestedBudgetINR?: number;
   limit?: number;
+  // Optional anomaly-engine inputs
+  materialPriceIndex?: number;
+  laborCostIndex?: number;
+  contractorQuotes?: number[];
+  recentExpenses?: Array<{ date: string; amount: number; vendorId?: string; invoiceId?: string }>;
+  dailySpendSeries?: number[]; // most recent last
+  dailySpendThreshold?: number;
 }): Promise<ProposalIntelligence> {
   const plannedLengthKm = Math.max(0.5, Number(params?.plannedLengthKm ?? 12));
   const requestedBudgetINR = typeof params?.requestedBudgetINR === 'number' && Number.isFinite(params.requestedBudgetINR)
@@ -664,13 +687,102 @@ export async function getProposalIntelligence(params?: {
   const maintenanceReserveINR = Math.round((materialEstimateINR + laborEstimateINR) * (0.12 + averageRepeatRate * 0.28));
   const lifecycleOwnershipCostINR = materialEstimateINR + laborEstimateINR + maintenanceReserveINR;
   const forecastRepairProbability = clamp(Math.round((averageRisk * 0.55 + averageRepeatRate * 0.45) * 100), 0, 100);
-  const inflatedBudgetFlag = requestedBudgetINR != null ? requestedBudgetINR > lifecycleOwnershipCostINR * 1.25 : false;
+  // Tighten anomaly thresholds: 15% upper bound, 10% lower bound
+  const inflatedBudgetFlag = requestedBudgetINR != null ? requestedBudgetINR > lifecycleOwnershipCostINR * ANOMALY_BUDGET_UPPER_MULTIPLIER : false;
+
+  // Compare against contractor-derived lifecycle estimates as an additional signal
+  const contractorAvgLifecycleINR = contractors.length ? Math.round(contractors.reduce((s, c) => s + (c.lifecycleCostINR ?? 0), 0) / contractors.length) : lifecycleOwnershipCostINR;
+  const deviationAboveContractors = requestedBudgetINR != null ? requestedBudgetINR > contractorAvgLifecycleINR * ANOMALY_CONTRACTOR_UPPER_MULTIPLIER : false;
+  const deviationBelowContractors = requestedBudgetINR != null ? requestedBudgetINR < contractorAvgLifecycleINR * ANOMALY_CONTRACTOR_LOWER_MULTIPLIER : false;
 
   let anomalyReason: string | null = null;
-  if (inflatedBudgetFlag) {
-    anomalyReason = 'Requested budget exceeds lifecycle benchmark by more than 25%.';
-  } else if (requestedBudgetINR != null && requestedBudgetINR < lifecycleOwnershipCostINR * 0.75) {
-    anomalyReason = 'Requested budget appears materially below lifecycle benchmark.';
+  if (inflatedBudgetFlag || deviationAboveContractors) {
+    const parts: string[] = [];
+    if (inflatedBudgetFlag) parts.push('Requested budget exceeds lifecycle benchmark by more than 15%.');
+    if (deviationAboveContractors) parts.push('Requested budget materially exceeds typical contractor estimates.');
+    anomalyReason = parts.join(' ');
+  } else if (requestedBudgetINR != null && (requestedBudgetINR < lifecycleOwnershipCostINR * 0.9 || deviationBelowContractors)) {
+    const parts: string[] = [];
+    if (requestedBudgetINR < lifecycleOwnershipCostINR * 0.9) parts.push('Requested budget appears materially below lifecycle benchmark.');
+    if (deviationBelowContractors) parts.push('Requested budget is below typical contractor lifecycle estimates.');
+    // If forecasted repair probability is high, lower-than-benchmark budgets are especially concerning
+    if (forecastRepairProbability >= 70) parts.push('High forecast repair probability increases risk of under-budgeting.');
+    anomalyReason = parts.join(' ');
+  }
+
+  // Layer-1 Rule Engine checks (deterministic)
+  const signals: string[] = [];
+  const reasons: string[] = [];
+
+  if (Array.isArray(params?.recentExpenses) && params!.recentExpenses.length) {
+    const expenses = params!.recentExpenses.filter((e) => Number.isFinite(e.amount) && e.amount > 0);
+    // duplicate invoice
+    const invoiceCounts = new Map<string, number>();
+    for (const e of expenses) if (e.invoiceId) invoiceCounts.set(e.invoiceId, (invoiceCounts.get(e.invoiceId) ?? 0) + 1);
+    for (const [inv, c] of invoiceCounts.entries()) if (c > 1) { signals.push('duplicate_invoice'); reasons.push(`Invoice ${inv} appears ${c} times.`); }
+
+    // single large expense relative to lifecycle
+    for (const e of expenses) {
+      if (e.amount > lifecycleOwnershipCostINR * 0.9) {
+        signals.push('single_large_expense');
+        reasons.push(`Expense ${e.amount} exceeds 90% of lifecycle benchmark.`);
+        break;
+      }
+    }
+
+    // daily spend threshold
+    const byDay = new Map<string, number>();
+    for (const e of expenses) {
+      const day = (new Date(e.date)).toISOString().slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + e.amount);
+    }
+    const dailyThreshold = Number.isFinite(params?.dailySpendThreshold ?? NaN) ? params!.dailySpendThreshold! : Math.max(1, Math.round(lifecycleOwnershipCostINR * ANOMALY_DAILY_THRESHOLD_MULTIPLIER));
+    for (const [day, total] of byDay.entries()) if (total > dailyThreshold) { signals.push('daily_spend_threshold_exceeded'); reasons.push(`Daily spend ${total} on ${day} exceeds threshold ${dailyThreshold}.`); break; }
+
+    // vendor sudden spike (10x)
+    const vendorAmounts = new Map<string, number[]>();
+    for (const e of expenses) {
+      const v = String(e.vendorId ?? '');
+      const arr = vendorAmounts.get(v) ?? [];
+      arr.push(e.amount);
+      vendorAmounts.set(v, arr);
+    }
+    for (const [v, arr] of vendorAmounts.entries()) {
+      if (arr.length < 2) continue;
+      const last = arr[arr.length - 1] ?? 0;
+      const prevAvg = arr.slice(0, arr.length - 1).reduce((s, a) => s + a, 0) / Math.max(1, arr.length - 1);
+      if (prevAvg > 0 && last > prevAvg * ANOMALY_VENDOR_SPIKE_MULTIPLIER) {
+        signals.push('vendor_spike');
+        reasons.push(`Vendor ${v} latest amount ${last} is >${ANOMALY_VENDOR_SPIKE_MULTIPLIER}x previous average ${Math.round(prevAvg)}.`);
+      }
+    }
+  }
+
+  // Layer-2 Statistical Detection (Z-score / rolling mean)
+  if (Array.isArray(params?.dailySpendSeries) && params!.dailySpendSeries.length >= 7) {
+    const series = params!.dailySpendSeries.map((n) => Number(n) || 0);
+    const last = series[series.length - 1] ?? 0;
+    const rest = series.slice(0, series.length - 1);
+    const mean = rest.reduce((s, v) => s + v, 0) / Math.max(1, rest.length);
+    const variance = rest.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / Math.max(1, rest.length);
+    const std = Math.sqrt(variance);
+    const z = std > 0 ? (last - mean) / std : 0;
+    if (Math.abs(z) > ANOMALY_ZSCORE_THRESHOLD) { signals.push('zscore_outlier'); reasons.push(`Last daily spend has z=${z.toFixed(2)} (>${ANOMALY_ZSCORE_THRESHOLD}).`); }
+    if (last > mean + ANOMALY_ROLLING_STD_MULT * std) { signals.push('rolling_mean_threshold'); reasons.push(`Last daily spend ${last} > rolling_mean + ${ANOMALY_ROLLING_STD_MULT}*std (${Math.round(mean + ANOMALY_ROLLING_STD_MULT * std)}).`); }
+  }
+
+  // compute deviation percent vs lifecycle
+  const deviationPercent = requestedBudgetINR != null ? Math.round(((requestedBudgetINR - lifecycleOwnershipCostINR) / Math.max(1, lifecycleOwnershipCostINR)) * 100) : null;
+
+  // severity mapping -> build anomaly object
+  const uniqueSignals = Array.from(new Set(signals));
+  let anomalyObj: ProposalIntelligence['anomaly'] = null;
+  if (uniqueSignals.length === 0) {
+    anomalyObj = { reasons: [], severity: 'none', deviationPercent, signals: [] };
+  } else {
+    const count = uniqueSignals.length;
+    const sev: 'low' | 'medium' | 'high' | 'critical' = count === 1 ? 'low' : count === 2 ? 'medium' : count === 3 ? 'high' : 'critical';
+    anomalyObj = { reasons, severity: sev, deviationPercent, signals: uniqueSignals };
   }
 
   return {
@@ -689,6 +801,7 @@ export async function getProposalIntelligence(params?: {
     forecastRepairProbability,
     inflatedBudgetFlag,
     anomalyReason,
+    anomaly: anomalyObj,
     contractorRecommendations: contractors.slice(0, 8).map((row) => ({
       contractorId: row.contractorId,
       contractorName: row.contractorName,

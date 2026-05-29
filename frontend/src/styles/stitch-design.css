@@ -76,7 +76,7 @@ body {
 .chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--outline-variant); background: var(--surface-container-lowest); color: var(--on-surface-variant); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 
 /* Buttons */
-.btn-muted-gradient { background: linear-gradient(135deg, #002045 0%, #515f74 100%); color: #ffffff; border: none; padding: 12px 16px; font-weight: 800; border-radius: 8px; cursor: pointer; }
+.btn-muted-gradient { background: linear-gradient(135deg, #002045 0%, #1960a3 100%); color: #ffffff; border: none; padding: 12px 16px; font-weight: 800; border-radius: 8px; cursor: pointer; }
 .btn-ghost { border: 1px solid var(--outline-variant); background: transparent; color: var(--on-surface); padding: 12px 16px; border-radius: 8px; cursor: pointer; }
 
 /* Inspector list item */
@@ -136,7 +136,7 @@ body {
   align-items: center;
   gap: 0.5rem;
   padding: 1rem 1.5rem;
-  background: linear-gradient(135deg, var(--primary-container) 0%, var(--secondary) 100%);
+  background: linear-gradient(135deg, #002045 0%, #1960a3 100%);
   color: white;
   border: none;
   border-radius: 0.5rem;

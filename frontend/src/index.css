@@ -113,7 +113,7 @@
   }
 
   .btn-primary {
-    @apply inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-primary-container to-secondary px-lg py-md font-semibold text-white transition hover:opacity-95 active:scale-95 duration-200 shadow-sm hover:shadow-md;
+    @apply inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#002045] to-[#1960a3] px-lg py-md font-semibold text-white transition hover:opacity-95 active:scale-95 duration-200 shadow-sm hover:shadow-md;
   }
 
   .btn-secondary {

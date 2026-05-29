@@ -1,6 +1,6 @@
 # Sidecar Authentication Architecture
 
-This document describes the sidecar authentication pattern implemented for the Roadwatch microservices architecture.
+This document describes the sidecar authentication pattern implemented for the RoadWatch microservices architecture.
 
 ## Overview
 

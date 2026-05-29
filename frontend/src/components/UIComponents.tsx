@@ -72,7 +72,7 @@ export type ButtonVariant = 'primary' | 'secondary' | 'accent' | 'ghost' | 'ghos
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
 const buttonVariantStyles: Record<ButtonVariant, React.CSSProperties> = {
-  primary: { background: 'linear-gradient(135deg, var(--color-primary-container, #002045) 0%, var(--color-secondary, #1960a3) 100%)', color: '#fff', border: `1px solid ${palette.primary}` },
+  primary: { background: 'linear-gradient(135deg, #002045 0%, #1960a3 100%)', color: '#fff', border: `1px solid ${palette.primary}` },
   secondary: { background: 'transparent', color: palette.text, border: `1px solid ${palette.border}` },
   accent: { background: palette.accent, color: '#fff', border: `1px solid ${palette.accent}` },
   ghost: { background: 'transparent', color: palette.text, border: 'none' },

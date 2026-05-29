@@ -19,6 +19,7 @@ A small, standalone prototype service that accepts geotagged image submissions, 
 - Stores submission metadata and verification state
 - Perceptual-hash (pHash) based duplication detection
 - Nonce generation and freshness checks for submission integrity
+- Optional Hugging Face vision analysis using YOLOv8 and ResNet
 
 ## Tech Stack
 
@@ -59,11 +60,16 @@ curl -X POST http://localhost:3000/upload \
 - `DATABASE_URL` — Postgres connection string
 - `PHASH_THRESHOLD` — pHash distance threshold for duplicates (optional)
 - `NODE_ENV` — `development` | `production`
+- `HF_API_KEYS` — comma-separated Hugging Face API keys used for inference
+- `HF_YOLO_MODEL` — Hugging Face object-detection model, defaults to `ultralytics/yolov8n`
+- `HF_RESNET_MODEL` — Hugging Face image-classification model, defaults to `microsoft/resnet-50`
 
 ## API (important endpoints)
 
 - `POST /upload` — multipart form: `image` (file), `lat`, `lng`, `nonce` → returns submission id and verification status
 - `GET /status/:id` — returns stored metadata and verification result for a submission
+
+When Hugging Face keys are configured, uploads also store a normalized `hf_result` payload with the top YOLO detections and top ResNet classifications.
 
 Adjust these if the implementation differs; use the source code in this folder as the canonical reference.
 

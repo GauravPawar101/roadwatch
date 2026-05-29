@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
-import { authorityProfiles, timelineEvents } from '../data/roadwatchDashboard'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { authorityProfiles, contractorProfiles, timelineEvents } from '../data/roadwatchDashboard'
+import { formatCurrencyINR, resolveRoadContext } from '../lib/roadContext'
 import { enqueueAction, getRecord, saveRecord } from '../lib/offlineStore'
 
 const statusProgress: Record<string, number> = {
@@ -35,6 +36,7 @@ export default function AuthorityComplaintDetail(){
   const [upload, setUpload] = useState<any | null>(null)
   const [reviewComments, setReviewComments] = useState('')
   const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<'overview' | 'finance' | 'audit'>('overview')
 
   useEffect(()=>{
     Promise.all([
@@ -108,7 +110,20 @@ export default function AuthorityComplaintDetail(){
   }, [c])
 
   const progress = statusProgress[displayStatus] || 0
-  const assignedAuthority = authorityProfiles[1] ?? authorityProfiles[0]
+  const roadContext = resolveRoadContext({
+    roadId: c?.roadId,
+    assignedContractor: c?.assignedContractor,
+    assignedAuthority: c?.assignedAuthority,
+    severity: c?.severity,
+  })
+  const assignedAuthority = useMemo(() => {
+    const lookup = String(c?.assignedAuthority || roadContext.officerName || '')
+    return authorityProfiles.find((profile) => lookup.includes(profile.name) || lookup.includes(profile.role)) ?? authorityProfiles[1] ?? authorityProfiles[0]
+  }, [c?.assignedAuthority, roadContext.officerName])
+  const assignedContractor = useMemo(() => {
+    const lookup = String(c?.assignedContractor || roadContext.contractorProfileName || '').toLowerCase()
+    return contractorProfiles.find((profile) => lookup.includes(profile.name.toLowerCase()) || lookup.includes(profile.handle.toLowerCase())) ?? contractorProfiles[0]
+  }, [c?.assignedContractor, roadContext.contractorProfileName])
   const relatedEvents = timelineEvents.slice(0, 4)
   const relatedProject = {
     projectId: c?.complaintId || c?.id,
@@ -152,6 +167,7 @@ export default function AuthorityComplaintDetail(){
   }
 
   const tone = c.severity <= 2 ? '#22c55e' : c.severity <= 3 ? '#f59e0b' : '#ef4444'
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine
 
   if (loading) {
     return (
@@ -193,6 +209,7 @@ export default function AuthorityComplaintDetail(){
                 <span style={{ ...chipStyle, color: tone, borderColor: 'rgba(255,255,255,0.14)' }}>Severity {c.severity}/5</span>
                 <span style={{ ...chipStyle, borderColor: 'rgba(255,255,255,0.14)' }}>SLA {new Date(c.slaDeadline).toLocaleDateString()}</span>
                 <span style={{ ...chipStyle, borderColor: 'rgba(255,255,255,0.14)' }}>{verification?.repaired ? 'Verified repair' : 'Awaiting repair verification'}</span>
+                <span style={{ ...chipStyle, borderColor: 'rgba(255,255,255,0.14)' }}>{roadContext.roadType}</span>
               </div>
             </div>
 
@@ -201,17 +218,43 @@ export default function AuthorityComplaintDetail(){
               <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
                 <button onClick={assign} style={{ border: 'none', borderRadius: 16, padding: '12px 16px', fontWeight: 800, color: '#08111f', background: 'linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%)', cursor: 'pointer' }}>Assign inspector</button>
                 <button onClick={() => navigate(`/authority/repair/${c.id}`)} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, padding: '12px 16px', fontWeight: 800, color: '#e2e8f0', background: 'rgba(255,255,255,0.04)', cursor: 'pointer' }}>Verify repair</button>
+                <button onClick={() => setActiveTab('finance')} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, padding: '12px 16px', fontWeight: 800, color: '#e2e8f0', background: 'rgba(255,255,255,0.04)', cursor: 'pointer' }}>Open finance tab</button>
                 <button onClick={() => navigate('/dashboard/authority')} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, padding: '12px 16px', fontWeight: 800, color: '#e2e8f0', background: 'rgba(255,255,255,0.04)', cursor: 'pointer' }}>Back to dashboard</button>
               </div>
             </div>
           </div>
         </section>
 
+        <section style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 20 }}>
+          {([
+            { id: 'overview', label: 'Overview' },
+            { id: 'finance', label: 'Finance' },
+            { id: 'audit', label: 'Audit trail' },
+          ] as const).map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 999,
+                padding: '10px 16px',
+                fontWeight: 800,
+                color: activeTab === tab.id ? '#08111f' : '#e2e8f0',
+                background: activeTab === tab.id ? 'linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%)' : 'rgba(255,255,255,0.04)',
+                cursor: 'pointer',
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </section>
+
         <section style={{ display: 'grid', gridTemplateColumns: '1.35fr 0.95fr', gap: 20, marginTop: 20 }}>
           <div style={{ display: 'grid', gap: 20 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 16 }}>
               {[
-                { label: 'Road', value: c.roadId },
+                { label: 'Road', value: roadContext.roadName },
+                { label: 'Road type', value: roadContext.roadType },
                 { label: 'Damage type', value: c.damageType },
                 { label: 'Severity', value: `${c.severity}/5`, tone },
                 { label: 'Status', value: displayStatus },
@@ -223,6 +266,7 @@ export default function AuthorityComplaintDetail(){
               ))}
             </div>
 
+            {activeTab === 'overview' && (
             <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div>
@@ -252,6 +296,27 @@ export default function AuthorityComplaintDetail(){
                   <div style={{ marginTop: 6, color: '#cbd5e1', fontSize: 14 }}>{assignedAuthority.role}</div>
                 </div>
                 <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+
+              <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
+                <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Contractor</div>
+                  <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>
+                    <Link to={roadContext.contractorRoute} style={{ color: '#f8fafc', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                      {assignedContractor.name}
+                    </Link>
+                  </div>
+                  <div style={{ marginTop: 6, color: '#cbd5e1', fontSize: 14 }}>{assignedContractor.handle} · {roadContext.roadType}</div>
+                </div>
+                <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Officer routing</div>
+                  <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{roadContext.officerLabel}</div>
+                  <div style={{ marginTop: 6, color: '#cbd5e1', fontSize: 14 }}>
+                    <Link to={`/authority/assign/${c.id}`} style={{ color: '#cfe8ff', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                      Open the correct officer workflow
+                    </Link>
+                  </div>
+                </div>
+              </div>
                   <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>SLA deadline</div>
                   <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{new Date(c.slaDeadline).toLocaleString()}</div>
                 </div>
@@ -260,10 +325,50 @@ export default function AuthorityComplaintDetail(){
               {c.notes && (
                 <div style={{ marginTop: 16, borderRadius: 22, padding: 18, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
                   <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Notes</div>
+            )}
                   <p style={{ margin: '10px 0 0', color: '#e2e8f0', lineHeight: 1.7 }}>{c.notes}</p>
+            {activeTab === 'finance' && (
+            <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
+              <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Finance snapshot</div>
+              <h3 style={{ margin: '10px 0 0', color: '#f8fafc', fontSize: 24, fontWeight: 800 }}>Road budget and lifecycle cost</h3>
+              {isOffline && (
+                <div style={{ marginTop: 12, borderRadius: 18, padding: 14, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.22)', color: '#bbf7d0' }}>
+                  Offline mode is active. This budget snapshot is served from the local record cache and can still be reviewed safely.
                 </div>
               )}
+              <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
+                {[
+                  { label: 'Sanctioned budget', value: formatCurrencyINR(roadContext.finance.sanctionedBudgetINR) },
+                  { label: 'Released budget', value: formatCurrencyINR(roadContext.finance.releasedBudgetINR) },
+                  { label: 'Spent to date', value: formatCurrencyINR(roadContext.finance.spentBudgetINR) },
+                  { label: 'Pending balance', value: formatCurrencyINR(roadContext.finance.pendingBudgetINR) },
+                ].map((item) => (
+                  <div key={item.label} style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>{item.label}</div>
+                    <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 16, borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Lifecycle and controls</div>
+                <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{assignedContractor.name}</div>
+                <div style={{ marginTop: 6, color: '#cbd5e1' }}>
+                  Budget discipline score {assignedContractor.budgetDisciplineScore} · Proposal confidence {assignedContractor.proposalConfidence} · Road type specialization {assignedContractor.roadTypeSpecialization.slice(0, 2).join(', ')}
+                </div>
+                <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  <Link to={`/authority/budget/${c.id}`} style={{ color: '#08111f', textDecoration: 'none' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 14, padding: '10px 14px', background: 'linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%)', fontWeight: 800 }}>Open full budget history</span>
+                  </Link>
+                  <Link to={roadContext.contractorRoute} style={{ color: '#e2e8f0', textDecoration: 'none' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 14, padding: '10px 14px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', fontWeight: 800 }}>Open contractor profile</span>
+                  </Link>
+                </div>
+              </div>
             </section>
+            )}
+              )}
+            {activeTab === 'audit' && (
+            <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
 
             <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
               <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Related project</div>
@@ -300,6 +405,7 @@ export default function AuthorityComplaintDetail(){
                 </div>
               </div>
             </section>
+            )}
 
             {upload?.ipfs && (
               <section style={{ ...glass, borderRadius: 28, padding: 22 }}>

@@ -120,7 +120,7 @@ export default function ComplaintActions({ complaintId, currentStatus, onActionC
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-lg p-6 w-full max-w-md mx-4"
+            className="w-full max-w-md mx-4 rounded-2xl border border-outline-variant bg-white p-6 shadow-xl"
           >
             <h4 className="text-lg font-semibold text-gray-900 mb-4">Escalate Complaint</h4>
             <div className="space-y-4">
@@ -140,13 +140,13 @@ export default function ComplaintActions({ complaintId, currentStatus, onActionC
                 <button
                   onClick={handleEscalate}
                   disabled={!escalationReason.trim() || isLoading(complaintId, 'escalate')}
-                  className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isLoading(complaintId, 'escalate') ? 'Escalating...' : 'Escalate'}
                 </button>
                 <button
                   onClick={() => setShowEscalateModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="btn-secondary flex-1"
                 >
                   Cancel
                 </button>
@@ -162,7 +162,7 @@ export default function ComplaintActions({ complaintId, currentStatus, onActionC
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-lg p-6 w-full max-w-md mx-4"
+            className="w-full max-w-md mx-4 rounded-2xl border border-outline-variant bg-white p-6 shadow-xl"
           >
             <h4 className="text-lg font-semibold text-gray-900 mb-4">Resolve Complaint</h4>
             <div className="space-y-4">
@@ -182,13 +182,13 @@ export default function ComplaintActions({ complaintId, currentStatus, onActionC
                 <button
                   onClick={handleResolve}
                   disabled={!resolutionNotes.trim() || isLoading(complaintId, 'resolve')}
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isLoading(complaintId, 'resolve') ? 'Resolving...' : 'Mark Resolved'}
                 </button>
                 <button
                   onClick={() => setShowResolveModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="btn-secondary flex-1"
                 >
                   Cancel
                 </button>

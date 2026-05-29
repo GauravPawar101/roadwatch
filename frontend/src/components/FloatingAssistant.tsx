@@ -306,7 +306,7 @@ export default function FloatingAssistant() {
         onMouseUp={(e) => ((e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)')}
       >
         <Bot size={16} />
-        <span>RoadWatch Copilot</span>
+        <span>RoadWatch</span>
         {chatOpen ? <X size={14} /> : <Sparkles size={14} />}
       </button>
     </div>

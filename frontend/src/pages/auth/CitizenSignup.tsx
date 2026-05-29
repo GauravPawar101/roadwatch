@@ -107,7 +107,7 @@ export default function CitizenSignup() {
         <div className="flex flex-col items-center text-center">
           <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-on-surface-variant">
             <span className="h-1.5 w-1.5 rounded-full bg-on-surface-variant" aria-hidden="true" />
-            <span>CivicGuard</span>
+            <span>RoadWatch</span>
           </div>
           <p className="mt-3 max-w-[26rem] text-[11px] leading-4 text-on-surface-variant sm:text-[12px] sm:leading-5">
             Join the infrastructure transparency movement as a Citizen.
@@ -196,7 +196,7 @@ export default function CitizenSignup() {
 
         <footer className="absolute bottom-0 left-0 right-0 border-t border-outline-variant/60 bg-background/90 px-4 py-3 backdrop-blur-sm sm:px-6">
           <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-2 text-[11px] text-on-surface-variant sm:flex-row sm:items-center sm:justify-between">
-            <p>© 2024 CivicGuard Institutional Portal. All rights reserved.</p>
+            <p>© 2024 RoadWatch Institutional Portal. All rights reserved.</p>
             <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 sm:justify-end">
               <a className="transition-colors hover:text-primary" href="#">Help Center</a>
               <a className="transition-colors hover:text-primary" href="#">Privacy Policy</a>

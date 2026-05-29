@@ -39,7 +39,7 @@ export default function HeaderClean() {
         {/* Brand */}
         <Link to="/" className="flex min-w-0 items-center gap-2 whitespace-nowrap text-base font-bold tracking-tight text-primary transition-opacity hover:opacity-90 sm:text-lg">
           <span className="material-symbols-outlined shrink-0 text-secondary text-xl sm:text-2xl font-bold">account_balance</span>
-          <span className="truncate">CivicGuard</span>
+          <span className="truncate">RoadWatch</span>
         </Link>
 
         {/* Navigation Tabs (Desktop) */}
