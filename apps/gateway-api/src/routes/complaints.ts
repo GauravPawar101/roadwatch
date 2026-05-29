@@ -2,8 +2,10 @@ import express from 'express';
 import { z } from 'zod';
 import { trackAnalyticsEvent } from '../analytics/service.js';
 import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
+import { createAndFanoutNotification } from '../notifications/service.js';
 import { pool } from '../postgres.js';
 import { requireAuth, type AuthedRequest } from '../rbac.js';
+import { broadcastComplaintEvent } from '../realtime/sse.js';
 import { uuidv7 } from '../uuid.js';
 
 const router = express.Router();
@@ -115,6 +117,37 @@ async function writeAuditEntry(input: {
       JSON.stringify(input.details)
     ]
   );
+}
+
+async function loadComplaintSummary(complaintId: string) {
+  const result = await pool.query(
+    `SELECT id, district, zone, status, description, lat, lng, metadata, report_count, created_at, updated_at
+     FROM complaints
+     WHERE id = $1
+     LIMIT 1`,
+    [complaintId]
+  );
+
+  return result.rows[0] as
+    | {
+        id: string;
+        district: string;
+        zone: string;
+        status: string;
+        description: string;
+        lat: number | null;
+        lng: number | null;
+        metadata: Record<string, unknown> | null;
+        report_count: number;
+        created_at: Date;
+        updated_at: Date;
+      }
+    | undefined;
+}
+
+function canCitizenAccessComplaint(user: { role: string; sub: string }, complaint: { metadata: Record<string, unknown> | null }) {
+  if (user.role !== 'CITIZEN') return true;
+  return complaint.metadata?.authorId === user.sub || complaint.metadata?.public === 'true';
 }
 
 // GET /complaints - List complaints with filtering and geospatial queries
@@ -739,6 +772,190 @@ router.get('/heatmap/data', requireAuth, async (req, res) => {
     console.error('Failed to fetch heatmap data:', error);
     res.status(500).json({ error: 'Failed to fetch heatmap data' });
   }
+});
+
+router.get('/:id/comments', requireAuth, async (req, res) => {
+  const user = (req as AuthedRequest).user;
+  const params = z.object({ id: z.string().min(1) }).parse(req.params);
+  const query = z.object({ limit: z.coerce.number().int().min(1).max(200).optional().default(100) }).parse(req.query);
+
+  const complaint = await loadComplaintSummary(params.id);
+  if (!complaint) return res.status(404).json({ error: 'Complaint not found' });
+  if (!canCitizenAccessComplaint(user as any, complaint)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  const comments = await pool.query(
+    `SELECT cc.id, cc.parent_id, cc.body, cc.user_id, cc.user_role, cc.created_at, cc.updated_at, u.username
+     FROM complaint_comments cc
+     LEFT JOIN users u ON u.id = cc.user_id
+     WHERE cc.complaint_id = $1
+     ORDER BY cc.created_at ASC
+     LIMIT $2`,
+    [params.id, query.limit]
+  );
+
+  res.json({
+    comments: comments.rows.map((row) => ({
+      id: row.id,
+      parentId: row.parent_id ?? null,
+      body: row.body,
+      userId: row.user_id,
+      userRole: row.user_role,
+      username: row.username ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }))
+  });
+});
+
+router.post('/:id/comments', requireAuth, async (req, res) => {
+  const user = (req as AuthedRequest).user;
+  const params = z.object({ id: z.string().min(1) }).parse(req.params);
+  const body = z.object({ body: z.string().min(1).max(2000), parentId: z.string().uuid().optional() }).parse(req.body);
+
+  const complaint = await loadComplaintSummary(params.id);
+  if (!complaint) return res.status(404).json({ error: 'Complaint not found' });
+  if (!canCitizenAccessComplaint(user as any, complaint)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  const commentId = uuidv7();
+  await pool.query(
+    `INSERT INTO complaint_comments (id, complaint_id, user_id, user_role, parent_id, body, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+    [commentId, params.id, user.sub, user.role, body.parentId ?? null, body.body]
+  );
+
+  await pool.query(`UPDATE complaints SET updated_at = NOW() WHERE id = $1`, [params.id]);
+
+  await writeAuditEntry({
+    actorUserId: user.sub,
+    action: 'COMPLAINT_COMMENTED',
+    targetType: 'complaint',
+    targetId: params.id,
+    details: { parentId: body.parentId ?? null }
+  });
+
+  await trackAnalyticsEvent({
+    type: 'COMPLAINT_COMMENTED',
+    actorUserId: user.sub,
+    complaintId: params.id,
+    district: complaint.district,
+    zone: complaint.zone,
+    lat: complaint.lat ?? null,
+    lng: complaint.lng ?? null,
+    properties: { parentId: body.parentId ?? null }
+  });
+
+  broadcastComplaintEvent({
+    type: 'complaint_updated',
+    complaint: {
+      id: complaint.id,
+      district: complaint.district,
+      zone: complaint.zone,
+      status: complaint.status,
+      description: complaint.description,
+      lat: complaint.lat,
+      lng: complaint.lng,
+      updatedAt: new Date().toISOString()
+    }
+  });
+
+  await createAndFanoutNotification({
+    message: {
+      type: 'status_change',
+      title: `New comment on complaint ${params.id}`,
+      body: body.body,
+      data: { complaintId: params.id, commentId, parentId: body.parentId ?? null },
+      audience: { kind: 'jurisdiction', district: complaint.district, zone: complaint.zone },
+      critical: false
+    }
+  });
+
+  res.status(201).json({
+    ok: true,
+    comment: {
+      id: commentId,
+      complaintId: params.id,
+      parentId: body.parentId ?? null,
+      body: body.body,
+      userId: user.sub,
+      userRole: user.role,
+      createdAt: new Date().toISOString()
+    }
+  });
+});
+
+router.post('/:id/reactions', requireAuth, async (req, res) => {
+  const user = (req as AuthedRequest).user;
+  const params = z.object({ id: z.string().min(1) }).parse(req.params);
+  const body = z.object({ reaction: z.enum(['UPVOTE', 'FLAG']) }).parse(req.body);
+
+  const complaint = await loadComplaintSummary(params.id);
+  if (!complaint) return res.status(404).json({ error: 'Complaint not found' });
+  if (!canCitizenAccessComplaint(user as any, complaint)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  await pool.query(
+    `INSERT INTO complaint_reactions (id, complaint_id, user_id, reaction, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, NOW(), NOW())
+     ON CONFLICT (complaint_id, user_id) DO UPDATE SET reaction = EXCLUDED.reaction, updated_at = NOW()`,
+    [uuidv7(), params.id, user.sub, body.reaction]
+  );
+
+  await pool.query(`UPDATE complaints SET updated_at = NOW() WHERE id = $1`, [params.id]);
+
+  const countsResult = await pool.query(
+    `SELECT reaction, COUNT(*)::int AS count
+     FROM complaint_reactions
+     WHERE complaint_id = $1
+     GROUP BY reaction`,
+    [params.id]
+  );
+
+  const counts = countsResult.rows.reduce<Record<string, number>>((acc, row) => {
+    acc[row.reaction] = row.count;
+    return acc;
+  }, {});
+
+  await writeAuditEntry({
+    actorUserId: user.sub,
+    action: body.reaction === 'FLAG' ? 'COMPLAINT_FLAGGED' : 'COMPLAINT_UPVOTED',
+    targetType: 'complaint',
+    targetId: params.id,
+    details: { reaction: body.reaction }
+  });
+
+  await trackAnalyticsEvent({
+    type: body.reaction === 'FLAG' ? 'COMPLAINT_FLAGGED' : 'COMPLAINT_UPVOTED',
+    actorUserId: user.sub,
+    complaintId: params.id,
+    district: complaint.district,
+    zone: complaint.zone,
+    lat: complaint.lat ?? null,
+    lng: complaint.lng ?? null,
+    properties: { reaction: body.reaction }
+  });
+
+  if (body.reaction === 'FLAG') {
+    broadcastComplaintEvent({
+      type: 'complaint_updated',
+      complaint: {
+        id: complaint.id,
+        district: complaint.district,
+        zone: complaint.zone,
+        status: 'ESCALATED',
+        description: complaint.description,
+        lat: complaint.lat,
+        lng: complaint.lng,
+        updatedAt: new Date().toISOString()
+      }
+    });
+  }
+
+  res.json({ ok: true, reaction: body.reaction, counts });
 });
 
 export default router;

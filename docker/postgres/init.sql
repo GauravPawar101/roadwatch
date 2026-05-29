@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS users (
   signup_method   text,
   govt_id         text,
   role            text,
+  account_status  text        NOT NULL DEFAULT 'ACTIVE',
+  suspended_at    timestamptz,
+  suspension_reason text,
   districts       text[],
   zones           text[],
   fabric_verified boolean     DEFAULT false,
@@ -59,6 +62,21 @@ ALTER TABLE IF EXISTS users
   ADD COLUMN IF NOT EXISTS karma_updated_at timestamptz NOT NULL DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS users_role_idx ON users (role);
+
+-- =============================================================
+--  Refresh tokens
+-- =============================================================
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  token_hash  text        NOT NULL UNIQUE,
+  expires_at  timestamptz NOT NULL,
+  is_revoked  boolean     NOT NULL DEFAULT false,
+  created_at  timestamptz NOT NULL DEFAULT NOW(),
+  updated_at  timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS refresh_tokens_user_id_idx ON refresh_tokens (user_id);
 
 -- =============================================================
 --  Complaints
@@ -132,7 +150,71 @@ CREATE TABLE IF NOT EXISTS complaint_assignments (
 -- Add missing assignment metadata columns used by application logic
 ALTER TABLE IF EXISTS complaint_assignments
   ADD COLUMN IF NOT EXISTS assigned_by_user_id uuid,
-  ADD COLUMN IF NOT EXISTS notes text;
+  ADD COLUMN IF NOT EXISTS notes text,
+  ADD COLUMN IF NOT EXISTS contractor_user_id uuid,
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'ASSIGNED',
+  ADD COLUMN IF NOT EXISTS accepted_at timestamptz,
+  ADD COLUMN IF NOT EXISTS progress_pct integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS progress_note text,
+  ADD COLUMN IF NOT EXISTS resolution_report jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS completed_at timestamptz,
+  ADD COLUMN IF NOT EXISTS reviewed_at timestamptz,
+  ADD COLUMN IF NOT EXISTS review_decision text,
+  ADD COLUMN IF NOT EXISTS review_note text;
+
+-- =============================================================
+--  Complaint engagement
+-- =============================================================
+CREATE TABLE IF NOT EXISTS complaint_comments (
+  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  complaint_id uuid        NOT NULL REFERENCES complaints (id) ON DELETE CASCADE,
+  user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  user_role    text        NOT NULL,
+  parent_id    uuid        REFERENCES complaint_comments (id) ON DELETE CASCADE,
+  body         text        NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT NOW(),
+  updated_at   timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS complaint_comments_complaint_id_idx ON complaint_comments (complaint_id);
+
+CREATE TABLE IF NOT EXISTS complaint_reactions (
+  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  complaint_id uuid        NOT NULL REFERENCES complaints (id) ON DELETE CASCADE,
+  user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  reaction     text        NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT NOW(),
+  updated_at   timestamptz NOT NULL DEFAULT NOW(),
+  UNIQUE (complaint_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS complaint_reactions_complaint_id_idx ON complaint_reactions (complaint_id);
+
+CREATE TABLE IF NOT EXISTS complaint_work_logs (
+  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  complaint_id uuid        NOT NULL REFERENCES complaints (id) ON DELETE CASCADE,
+  contractor_id uuid,
+  user_id      uuid,
+  phase        text        NOT NULL,
+  progress_pct integer,
+  note         text,
+  report       jsonb       NOT NULL DEFAULT '{}'::jsonb,
+  created_at   timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS complaint_work_logs_complaint_id_idx ON complaint_work_logs (complaint_id);
+
+CREATE TABLE IF NOT EXISTS complaint_reviews (
+  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  complaint_id uuid        NOT NULL REFERENCES complaints (id) ON DELETE CASCADE,
+  user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  user_role    text        NOT NULL,
+  decision     text        NOT NULL,
+  note         text,
+  created_at   timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS complaint_reviews_complaint_id_idx ON complaint_reviews (complaint_id);
 -- =============================================================
 --  Road assignments
 -- =============================================================

@@ -15,6 +15,7 @@ export type UserRow = {
   email: string | null;
   govtId: string | null;
   role: Role;
+  accountStatus: string;
   districts: string[];
   zones: string[];
   created_at: Date;
@@ -38,10 +39,86 @@ export async function initDb(): Promise<void> {
     await client.query('SELECT NOW()');
     await client.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS phone_masked text');
     await client.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS fabric_identity_id text');
+    await client.query("ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS account_status text NOT NULL DEFAULT 'ACTIVE'");
+    await client.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS suspended_at timestamptz');
+    await client.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS suspension_reason text');
     await client.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS karma_score integer NOT NULL DEFAULT 0');
     await client.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS karma_updated_at timestamptz NOT NULL DEFAULT NOW()');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS refresh_tokens (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+        token_hash text NOT NULL UNIQUE,
+        expires_at timestamptz NOT NULL,
+        is_revoked boolean NOT NULL DEFAULT false,
+        created_at timestamptz NOT NULL DEFAULT NOW(),
+        updated_at timestamptz NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS refresh_tokens_user_id_idx ON refresh_tokens (user_id)');
     await client.query('ALTER TABLE IF EXISTS complaints ADD COLUMN IF NOT EXISTS user_id uuid');
     await client.query('CREATE INDEX IF NOT EXISTS complaints_user_id_idx ON complaints (user_id)');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS complaint_comments (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        complaint_id uuid NOT NULL REFERENCES complaints (id) ON DELETE CASCADE,
+        user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+        user_role text NOT NULL,
+        parent_id uuid REFERENCES complaint_comments (id) ON DELETE CASCADE,
+        body text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT NOW(),
+        updated_at timestamptz NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS complaint_comments_complaint_id_idx ON complaint_comments (complaint_id)');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS complaint_reactions (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        complaint_id uuid NOT NULL REFERENCES complaints (id) ON DELETE CASCADE,
+        user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+        reaction text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT NOW(),
+        updated_at timestamptz NOT NULL DEFAULT NOW(),
+        UNIQUE (complaint_id, user_id)
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS complaint_reactions_complaint_id_idx ON complaint_reactions (complaint_id)');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS complaint_work_logs (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        complaint_id uuid NOT NULL REFERENCES complaints (id) ON DELETE CASCADE,
+        contractor_id uuid,
+        user_id uuid,
+        phase text NOT NULL,
+        progress_pct integer,
+        note text,
+        report jsonb NOT NULL DEFAULT '{}',
+        created_at timestamptz NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS complaint_work_logs_complaint_id_idx ON complaint_work_logs (complaint_id)');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS complaint_reviews (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        complaint_id uuid NOT NULL REFERENCES complaints (id) ON DELETE CASCADE,
+        user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+        user_role text NOT NULL,
+        decision text NOT NULL,
+        note text,
+        created_at timestamptz NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS complaint_reviews_complaint_id_idx ON complaint_reviews (complaint_id)');
+    await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS contractor_user_id uuid');
+    await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT \'ASSIGNED\'');
+    await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS accepted_at timestamptz');
+    await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS progress_pct integer NOT NULL DEFAULT 0');
+    await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS progress_note text');
+    await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS resolution_report jsonb NOT NULL DEFAULT \'{}\'');
+    await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS completed_at timestamptz');
+    await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS reviewed_at timestamptz');
+    await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS review_decision text');
+    await client.query('ALTER TABLE IF EXISTS complaint_assignments ADD COLUMN IF NOT EXISTS review_note text');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS fabric_identities (
@@ -99,6 +176,10 @@ export async function initDb(): Promise<void> {
       ['complaints', 'id'],
       ['complaint_attachments', 'complaint_id'],
       ['complaint_assignments', 'complaint_id'],
+      ['complaint_comments', 'complaint_id'],
+      ['complaint_reactions', 'complaint_id'],
+      ['complaint_work_logs', 'complaint_id'],
+      ['complaint_reviews', 'complaint_id'],
       ['contractors', 'id'],
       ['districts', 'id'],
       ['districts_by_state', 'id'],
@@ -178,7 +259,7 @@ export async function getUserByPhone(phone: string): Promise<UserRow | null> {
   const h = hashPhone(normalized);
 
   const result = await pool.query(
-    `SELECT id, phone, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, districts, zones, created_at
+    `SELECT id, phone, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, account_status, districts, zones, created_at
      FROM users
      WHERE phone_hash = $1`,
     [h]
@@ -198,6 +279,7 @@ export async function getUserByPhone(phone: string): Promise<UserRow | null> {
     email: row.email ?? null,
     govtId: row.govt_id ?? null,
     role: (row.role as Role) ?? 'CITIZEN',
+    accountStatus: row.account_status ?? 'ACTIVE',
     districts: row.districts ?? [],
     zones: row.zones ?? [],
     created_at: row.created_at
@@ -215,7 +297,7 @@ export async function getUserByIdentifier(identifier: string): Promise<UserRow |
   // Try username or email lookup
   const lowerIdent = normalized.toLowerCase();
   const result = await pool.query(
-    `SELECT id, phone, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, districts, zones, created_at
+    `SELECT id, phone, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, account_status, districts, zones, created_at
      FROM users
      WHERE LOWER(username) = $1 OR LOWER(email) = $1`,
     [lowerIdent]
@@ -235,6 +317,7 @@ export async function getUserByIdentifier(identifier: string): Promise<UserRow |
     email: row.email ?? null,
     govtId: row.govt_id ?? null,
     role: (row.role as Role) ?? 'CITIZEN',
+    accountStatus: row.account_status ?? 'ACTIVE',
     districts: row.districts ?? [],
     zones: row.zones ?? [],
     created_at: row.created_at
@@ -269,9 +352,9 @@ export async function upsertUser(params: {
 
   const now = new Date();
 
-  await pool.query(
-    `INSERT INTO users (id, phone, phone_masked, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, districts, zones, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+  const result = await pool.query(
+    `INSERT INTO users (id, phone, phone_masked, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, account_status, districts, zones, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'ACTIVE', $12, $13, $14, $15)
      ON CONFLICT (phone_hash) DO UPDATE SET
        phone = $2,
        phone_masked = $3,
@@ -282,9 +365,11 @@ export async function upsertUser(params: {
       email = EXCLUDED.email,
       govt_id = EXCLUDED.govt_id,
       role = EXCLUDED.role,
+      account_status = COALESCE(EXCLUDED.account_status, users.account_status),
       districts = EXCLUDED.districts,
       zones = EXCLUDED.zones,
-       updated_at = $14`,
+       updated_at = $14
+     RETURNING *`,
     [
       id,
       normalized,
@@ -304,27 +389,30 @@ export async function upsertUser(params: {
     ]
   );
 
+  const row = result.rows[0] as Record<string, any> | undefined;
+
   return {
-    id,
-    phone: phoneMasked,
-    phoneHash,
-    phoneEnc: enc,
-    phoneLast4: last4,
-    username: username ?? null,
-    clerkUserId: clerkUserId ?? null,
-    email: email ?? null,
-    govtId: params.govtId ?? null,
-    role: params.role,
-    districts: params.districts,
-    zones: params.zones,
-    created_at: now
+    id: row?.id ?? id,
+    phone: row?.phone ?? phoneMasked,
+    phoneHash: row?.phone_hash ?? phoneHash,
+    phoneEnc: row?.phone_enc ?? enc,
+    phoneLast4: row?.phone_last4 ?? last4,
+    username: row?.username ?? username ?? null,
+    clerkUserId: row?.clerk_user_id ?? clerkUserId ?? null,
+    email: row?.email ?? email ?? null,
+    govtId: row?.govt_id ?? params.govtId ?? null,
+    role: (row?.role as Role) ?? params.role,
+    accountStatus: row?.account_status ?? 'ACTIVE',
+    districts: row?.districts ?? params.districts,
+    zones: row?.zones ?? params.zones,
+    created_at: row?.created_at ?? now
   };
 }
 
 export async function listUsers(params?: { roles?: Role[]; limit?: number }): Promise<UserRow[]> {
   const limit = Math.min(5000, Math.max(1, Math.floor(params?.limit ?? 500)));
 
-  let query = 'SELECT id, phone, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, districts, zones, created_at FROM users';
+  let query = 'SELECT id, phone, phone_hash, phone_enc, phone_last4, username, clerk_user_id, email, govt_id, role, account_status, districts, zones, created_at FROM users';
   const queryParams: any[] = [];
 
   if (params?.roles && params.roles.length > 0) {
@@ -348,6 +436,7 @@ export async function listUsers(params?: { roles?: Role[]; limit?: number }): Pr
     email: row.email ?? null,
     govtId: row.govt_id ?? null,
     role: (row.role as Role) ?? 'CITIZEN',
+    accountStatus: row.account_status ?? 'ACTIVE',
     districts: row.districts ?? [],
     zones: row.zones ?? [],
     created_at: row.created_at

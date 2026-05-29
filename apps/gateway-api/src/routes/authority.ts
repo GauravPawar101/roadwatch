@@ -656,26 +656,66 @@ router.post('/complaints/:id/assign', requireAuth, requireRole(['CE', 'EE']), as
   res.json({ ok: true });
 });
 
+router.post('/complaints/:id/unassign', requireAuth, requireRole(['CE', 'EE']), async (req, res) => {
+  const user = (req as any).user as { sub: string; phone: string; phoneHash: string; role: string; districts: string[]; zones: string[] };
+  const params = z.object({ id: z.string().min(1) }).parse(req.params);
+
+  const [row] = await pool`
+    SELECT id, district, zone, status, lat, lng FROM complaints WHERE id = ${params.id} LIMIT 1
+  `;
+  if (!row) return res.status(404).json({ error: 'Not found' });
+
+  if (!assertDistrictAccess(user as any, row.district) || !assertZoneAccess(user as any, row.zone)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  await pool`
+    UPDATE complaint_assignments
+       SET contractor_id = NULL,
+           contractor_user_id = NULL,
+           status = 'UNASSIGNED',
+           progress_pct = 0,
+           progress_note = 'unassigned by authority',
+           reviewed_at = NOW(),
+           review_decision = 'UNASSIGNED',
+           review_note = 'Authority unassigned the complaint'
+     WHERE complaint_id = ${params.id}
+  `;
+
+  await writeAudit(user.sub, user.phoneHash, user.phone, 'COMPLAINT_UNASSIGNED', 'complaint', params.id, {});
+
+  await trackAnalyticsEvent({
+    type: 'COMPLAINT_ASSIGNED',
+    actorUserId: user.sub,
+    complaintId: params.id,
+    district: row.district,
+    zone: row.zone,
+    lat: row.lat ?? null,
+    lng: row.lng ?? null,
+    properties: {}
+  });
+
+  await createAndFanoutNotification({
+    message: {
+      type: 'assignment',
+      title: `Complaint ${params.id} unassigned`,
+      body: `Complaint was unassigned in ${row.district} / ${row.zone}.`,
+      data: { complaintId: params.id, district: row.district, zone: row.zone, contractorId: null },
+      audience: { kind: 'jurisdiction', district: row.district, zone: row.zone },
+      critical: false
+    }
+  });
+
+  res.json({ ok: true });
+});
+
 // ---------------------------------------------------------------------------
 // GET /analytics
 // ---------------------------------------------------------------------------
 router.get('/analytics', requireAuth, async (req, res) => {
-  const user = (req as any).user as any;
-
-  const district = typeof req.query.district === 'string' ? req.query.district : undefined;
-  if (district && !assertDistrictAccess(user, district)) return res.status(403).json({ error: 'Forbidden' });
-
-  let districtCondition = pool``;
-  if (district) {
-    districtCondition = pool`WHERE district = ${district}`;
-  } else if (user.role !== 'CE' && !user.districts.includes('ALL') && user.districts.length) {
-    districtCondition = pool`WHERE district = ANY(${user.districts})`;
-  }
-
   const analyticsRows = await pool`
     SELECT status, COUNT(*)::int AS count
     FROM complaints
-    ${districtCondition}
     GROUP BY status
   `;
 
@@ -688,7 +728,6 @@ router.get('/analytics', requireAuth, async (req, res) => {
     pool`
       SELECT COALESCE(metadata->>'damageType', 'Unknown') AS type, COUNT(*)::int AS count
       FROM complaints
-      ${districtCondition}
       GROUP BY COALESCE(metadata->>'damageType', 'Unknown')
       ORDER BY count DESC, type ASC
       LIMIT 5
@@ -696,7 +735,6 @@ router.get('/analytics', requireAuth, async (req, res) => {
     pool`
       SELECT COALESCE((metadata->>'severity')::int, 0) AS severity, COUNT(*)::int AS count
       FROM complaints
-      ${districtCondition}
       GROUP BY COALESCE((metadata->>'severity')::int, 0)
       ORDER BY severity ASC
     `,
@@ -710,8 +748,7 @@ router.get('/analytics', requireAuth, async (req, res) => {
           date_trunc('day', created_at) AS day_bucket,
           CASE WHEN status IN ('RESOLVED', 'Resolved') THEN TRUE ELSE FALSE END AS resolved_status
         FROM complaints
-        ${districtCondition}
-        AND created_at >= NOW() - INTERVAL '5 days'
+        WHERE created_at >= NOW() - INTERVAL '5 days'
       ) AS complaint_days
       GROUP BY day_bucket
       ORDER BY day_bucket ASC
@@ -720,7 +757,6 @@ router.get('/analytics', requireAuth, async (req, res) => {
       SELECT
         COALESCE(AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 3600.0), 0)::float AS average_hours
       FROM complaints
-      ${districtCondition}
       WHERE status IN ('RESOLVED', 'Resolved')
     `
   ]);
@@ -757,21 +793,10 @@ router.get('/analytics', requireAuth, async (req, res) => {
 // GET /budget
 // ---------------------------------------------------------------------------
 router.get('/budget', requireAuth, async (req, res) => {
-  const user = (req as any).user as any;
-  const district = typeof req.query.district === 'string' ? req.query.district : undefined;
-  if (district && !assertDistrictAccess(user, district)) return res.status(403).json({ error: 'Forbidden' });
-
-  let districtCondition = pool``;
-  if (district) {
-    districtCondition = pool`AND district = ${district}`;
-  } else if (user.role !== 'CE' && !user.districts.includes('ALL') && user.districts.length) {
-    districtCondition = pool`AND district = ANY(${user.districts})`;
-  }
-
   const budgetRows = await pool`
     SELECT status, COUNT(*)::int AS count 
     FROM complaints 
-    WHERE UPPER(status) <> 'RESOLVED' ${districtCondition} 
+    WHERE UPPER(status) <> 'RESOLVED' 
     GROUP BY status
   `;
 
@@ -786,7 +811,7 @@ router.get('/budget', requireAuth, async (req, res) => {
   const estimatedBacklogCostINR = pending * 25000 + inProgress * 10000 + rejected * 2000;
 
   res.json({
-    district: district ?? null,
+    district: null,
     estimatedBacklogCostINR,
     model: { PENDING: 25000, IN_PROGRESS: 10000, REJECTED: 2000 },
     counts
@@ -798,7 +823,7 @@ router.get('/budget', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get('/audit', requireAuth, requireRole(['CE']), async (req, res) => {
   const auditLogs = await pool`
-    SELECT id, actor_phone_masked, actor_phone_hash, action, target_type, target_id, details, fabric_txid, created_at
+    SELECT id, actor_phone_masked, actor_phone_hash, action, target_type, target_id, details, created_at
     FROM audit_log
     ORDER BY created_at DESC
     LIMIT 200
@@ -813,7 +838,7 @@ router.get('/audit', requireAuth, requireRole(['CE']), async (req, res) => {
     target_type: r.targetType ?? r.target_type,
     target_id: r.targetId ?? r.target_id,
     details: r.details,
-    fabric_txid: r.fabricTxid ?? r.fabric_txid,
+    fabric_txid: r.fabricTxid ?? null,
     created_at: r.createdAt ?? r.created_at
   }));
 
@@ -824,23 +849,6 @@ router.get('/audit', requireAuth, requireRole(['CE']), async (req, res) => {
 // GET /performance/evaluation
 // ---------------------------------------------------------------------------
 router.get('/performance/evaluation', requireAuth, requireRole(['CE', 'EE']), async (req, res) => {
-  const user = (req as any).user as any;
-  const district = typeof req.query.district === 'string' ? req.query.district : undefined;
-  const zone = typeof req.query.zone === 'string' ? req.query.zone : undefined;
-
-  if (district && !assertDistrictAccess(user, district)) return res.status(403).json({ error: 'Forbidden' });
-  if (zone && !assertZoneAccess(user, zone)) return res.status(403).json({ error: 'Forbidden' });
-
-  let districtCondition = pool``;
-  if (district) {
-    districtCondition = pool`AND (${district} = ANY(u.districts) OR 'ALL' = ANY(u.districts))`;
-  }
-
-  let zoneCondition = pool``;
-  if (zone) {
-    zoneCondition = pool`AND (${zone} = ANY(u.zones) OR 'ALL' = ANY(u.zones))`;
-  }
-
   const usersRes = await pool`
     SELECT
       u.id,
@@ -852,7 +860,7 @@ router.get('/performance/evaluation', requireAuth, requireRole(['CE', 'EE']), as
       COUNT(CASE WHEN al.action = 'SLA_WARNING'         THEN 1 END)::int AS sla_warnings
     FROM users u
     LEFT JOIN audit_log al ON al.actor_user_id = u.id
-    WHERE u.role IN ('CE','EE') ${districtCondition} ${zoneCondition}
+    WHERE u.role IN ('CE','EE')
     GROUP BY u.id, u.role, u.phone_masked
     LIMIT 200
   `;
@@ -871,7 +879,7 @@ router.get('/performance/evaluation', requireAuth, requireRole(['CE', 'EE']), as
     .sort((a: any, b: any) => b.karma - a.karma)
     .map((row: any, idx: number) => ({ ...row, rank: idx + 1 }));
 
-  const contractors = await getContractorScorecard({ district, zone, limit: 200 });
+  const contractors = await getContractorScorecard({ limit: 200 });
   const contractorRows = contractors
     .map((c) => {
       const onTime = c.onTimeRate == null ? 0 : c.onTimeRate * 100;
@@ -881,7 +889,7 @@ router.get('/performance/evaluation', requireAuth, requireRole(['CE', 'EE']), as
     .sort((a: any, b: any) => b.karma - a.karma)
     .map((row: any, idx: number) => ({ ...row, rank: idx + 1 }));
 
-  res.json({ district: district ?? null, zone: zone ?? null, employees: employeesRanked, contractors: contractorRows });
+  res.json({ district: null, zone: null, employees: employeesRanked, contractors: contractorRows });
 });
 
 export default router;

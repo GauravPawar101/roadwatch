@@ -415,4 +415,140 @@ router.post('/media/upload', requireAuth, requireRole(['CITIZEN']), upload.singl
   res.json({ ok: true, cid: uploaded.cid, sha256: uploaded.hash, provider: uploaded.provider, url: uploaded.url });
 });
 
+router.post('/complaints/:id/confirm', requireAuth, requireRole(['CITIZEN']), async (req, res) => {
+  const user = (req as AuthedRequest).user;
+  const params = z.object({ id: z.string().min(1) }).parse(req.params);
+  const body = z.object({ note: z.string().max(1000).optional() }).parse(req.body);
+
+  const complaintRes = await pool.query(
+    `SELECT id, district, zone, status, metadata, description, lat, lng FROM complaints WHERE id = $1 LIMIT 1`,
+    [params.id]
+  );
+  const complaint = complaintRes.rows[0];
+  if (!complaint) return res.status(404).json({ error: 'Complaint not found' });
+  if (complaint.metadata?.authorId && complaint.metadata.authorId !== user.sub) {
+    return res.status(403).json({ error: 'Only the reporting citizen can confirm this complaint' });
+  }
+
+  await pool.query(
+    `UPDATE complaints SET status = 'CITIZEN_CONFIRMED', updated_at = NOW() WHERE id = $1`,
+    [params.id]
+  );
+  await pool.query(
+    `INSERT INTO complaint_reviews (id, complaint_id, user_id, user_role, decision, note, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+    [uuidv7(), params.id, user.sub, user.role, 'CONFIRMED', body.note ?? null]
+  );
+  await pool.query(
+    `UPDATE complaint_assignments SET reviewed_at = NOW(), review_decision = 'CONFIRMED', review_note = $2 WHERE complaint_id = $1`,
+    [params.id, body.note ?? null]
+  ).catch(() => null);
+
+  await trackAnalyticsEvent({
+    type: 'COMPLAINT_STATUS_CHANGED',
+    actorUserId: user.sub,
+    complaintId: params.id,
+    district: complaint.district,
+    zone: complaint.zone,
+    lat: complaint.lat ?? null,
+    lng: complaint.lng ?? null,
+    properties: { note: body.note ?? null }
+  });
+
+  broadcastComplaintEvent({
+    type: 'complaint_updated',
+    complaint: {
+      id: complaint.id,
+      district: complaint.district,
+      zone: complaint.zone,
+      status: 'CITIZEN_CONFIRMED',
+      description: complaint.description,
+      lat: complaint.lat,
+      lng: complaint.lng,
+      updatedAt: new Date().toISOString()
+    }
+  });
+
+  await createAndFanoutNotification({
+    message: {
+      type: 'status_change',
+      title: `Complaint ${params.id} confirmed`,
+      body: body.note ?? 'The reporting citizen confirmed the repair.',
+      data: { complaintId: params.id, decision: 'CONFIRMED', note: body.note ?? null },
+      audience: { kind: 'jurisdiction', district: complaint.district, zone: complaint.zone },
+      critical: false
+    }
+  });
+
+  res.json({ ok: true, status: 'CITIZEN_CONFIRMED' });
+});
+
+router.post('/complaints/:id/dispute', requireAuth, requireRole(['CITIZEN']), async (req, res) => {
+  const user = (req as AuthedRequest).user;
+  const params = z.object({ id: z.string().min(1) }).parse(req.params);
+  const body = z.object({ note: z.string().max(1000).optional() }).parse(req.body);
+
+  const complaintRes = await pool.query(
+    `SELECT id, district, zone, status, metadata, description, lat, lng FROM complaints WHERE id = $1 LIMIT 1`,
+    [params.id]
+  );
+  const complaint = complaintRes.rows[0];
+  if (!complaint) return res.status(404).json({ error: 'Complaint not found' });
+  if (complaint.metadata?.authorId && complaint.metadata.authorId !== user.sub) {
+    return res.status(403).json({ error: 'Only the reporting citizen can dispute this complaint' });
+  }
+
+  await pool.query(
+    `UPDATE complaints SET status = 'CITIZEN_DISPUTED', updated_at = NOW() WHERE id = $1`,
+    [params.id]
+  );
+  await pool.query(
+    `INSERT INTO complaint_reviews (id, complaint_id, user_id, user_role, decision, note, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+    [uuidv7(), params.id, user.sub, user.role, 'DISPUTED', body.note ?? null]
+  );
+  await pool.query(
+    `UPDATE complaint_assignments SET reviewed_at = NOW(), review_decision = 'DISPUTED', review_note = $2 WHERE complaint_id = $1`,
+    [params.id, body.note ?? null]
+  ).catch(() => null);
+
+  await trackAnalyticsEvent({
+    type: 'COMPLAINT_STATUS_CHANGED',
+    actorUserId: user.sub,
+    complaintId: params.id,
+    district: complaint.district,
+    zone: complaint.zone,
+    lat: complaint.lat ?? null,
+    lng: complaint.lng ?? null,
+    properties: { note: body.note ?? null }
+  });
+
+  broadcastComplaintEvent({
+    type: 'complaint_updated',
+    complaint: {
+      id: complaint.id,
+      district: complaint.district,
+      zone: complaint.zone,
+      status: 'CITIZEN_DISPUTED',
+      description: complaint.description,
+      lat: complaint.lat,
+      lng: complaint.lng,
+      updatedAt: new Date().toISOString()
+    }
+  });
+
+  await createAndFanoutNotification({
+    message: {
+      type: 'status_change',
+      title: `Complaint ${params.id} disputed`,
+      body: body.note ?? 'The reporting citizen disputed the repair outcome.',
+      data: { complaintId: params.id, decision: 'DISPUTED', note: body.note ?? null },
+      audience: { kind: 'jurisdiction', district: complaint.district, zone: complaint.zone },
+      critical: true
+    }
+  });
+
+  res.json({ ok: true, status: 'CITIZEN_DISPUTED' });
+});
+
 export default router;

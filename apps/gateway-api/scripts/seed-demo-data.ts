@@ -515,7 +515,7 @@ const authoritySeeds: SeedUser[] = [
     phone: phoneFromIndex('991000', 2),
     maskedPhone: '+91-99XXXX0002',
     username: 'ee.east-delhi.02',
-    email: null,
+    email: 'ee.east-delhi.02@roadwatch.local',
     role: 'EE',
     districts: ['East Delhi'],
     zones: ['ALL'],
@@ -539,7 +539,7 @@ const authoritySeeds: SeedUser[] = [
     phone: phoneFromIndex('991000', 4),
     maskedPhone: '+91-99XXXX0004',
     username: 'ee.lucknow-noida.04',
-    email: null,
+    email: 'ee.lucknow-noida.04@roadwatch.local',
     role: 'EE',
     districts: ['Lucknow', 'Noida'],
     zones: ['ALL'],
@@ -578,7 +578,7 @@ const citizenSeeds: SeedUser[] = [
     phone: phoneFromIndex('992000', 2),
     maskedPhone: '+91-98XXXX0002',
     username: 'citizen.south-delhi.02',
-    email: null,
+    email: 'citizen.south-delhi.02@roadwatch.local',
     role: 'CITIZEN',
     districts: ['South Delhi'],
     zones: ['South'],
@@ -752,7 +752,6 @@ async function cleanupSeedRows(complaintIds: string[], roadIds: string[], contra
 
   if (roadIds.length > 0) {
     await pool.query(`DELETE FROM road_assignments WHERE road_id = ANY($1)`, [roadIds]).catch(() => null);
-    await pool.query(`DELETE FROM roads_catalog WHERE id = ANY($1)`, [roadIds]).catch(() => null);
   }
 
   if (contractorIds.length > 0) {
@@ -1786,19 +1785,22 @@ async function main() {
     });
   }
 
-  const admin = await upsertUser({
-    phone: adminSeed.phone,
-    username: adminSeed.username,
-    email: adminSeed.email,
-    role: adminSeed.role,
-    govtId: adminSeed.govtId,
-    districts: adminSeed.districts,
-    zones: adminSeed.zones
-  });
-  const adminUser: SeededUser = { ...adminSeed, dbId: admin.id };
+  const superAdmins: SeededUser[] = [];
+  for (const seed of superAdminSeeds) {
+    const user = await upsertUser({
+      phone: seed.phone,
+      username: seed.username,
+      email: seed.email,
+      role: seed.role,
+      govtId: seed.govtId,
+      districts: seed.districts,
+      zones: seed.zones
+    });
+    superAdmins.push({ ...seed, dbId: user.id });
+  }
 
-  const officers: SeededUser[] = [];
-  for (const seed of officerSeeds) {
+  const authorityUsers: SeededUser[] = [];
+  for (const seed of authoritySeeds) {
     const user = await upsertUser({
       phone: seed.phone,
       username: seed.username,
@@ -1808,10 +1810,10 @@ async function main() {
       districts: seed.districts,
       zones: seed.zones
     });
-    officers.push({ ...seed, dbId: user.id });
+    authorityUsers.push({ ...seed, dbId: user.id });
   }
 
-  const citizens: SeededUser[] = [];
+  const citizenUsers: SeededUser[] = [];
   for (const seed of citizenSeeds) {
     const user = await upsertUser({
       phone: seed.phone,
@@ -1822,7 +1824,7 @@ async function main() {
       districts: seed.districts,
       zones: seed.zones
     });
-    citizens.push({ ...seed, dbId: user.id });
+    citizenUsers.push({ ...seed, dbId: user.id });
   }
 
   const contractorUsers: SeededUser[] = [];
@@ -1839,17 +1841,19 @@ async function main() {
     contractorUsers.push({ ...seed, dbId: user.id });
   }
 
-  for (const seed of [adminUser, ...officers, ...citizens, ...contractorUsers]) {
+  const seededUsers = [...superAdmins, ...authorityUsers, ...citizenUsers, ...contractorUsers];
+
+  for (const seed of seededUsers) {
     await setPasswordForUser(seed.dbId, seedPassword);
   }
 
-  await writeCredentialFile(seedPassword, [adminUser, ...officers, ...citizens, ...contractorUsers]);
+  await writeCredentialFile(seedPassword, seededUsers);
 
-  await seedUserSupportTables([adminUser, ...officers, ...citizens, ...contractorUsers], ['CE', 'EE', 'CONTRACTOR', 'CITIZEN']);
+  await seedUserSupportTables(seededUsers, ['CE', 'EE', 'CONTRACTOR', 'CITIZEN']);
 
   const fabricSeedIdentityConfig = await loadFabricSeedIdentityConfig();
   if (fabricSeedIdentityConfig) {
-    await seedFabricIdentities([adminUser, ...officers, ...contractorUsers], fabricSeedIdentityConfig);
+    await seedFabricIdentities([...superAdmins, ...authorityUsers, ...contractorUsers], fabricSeedIdentityConfig);
   } else {
     console.warn('[seed-demo] Fabric identity seeding skipped because FABRIC_X509_CERT_PATH/FABRIC_MSP_ID could not be resolved');
   }
@@ -1892,7 +1896,7 @@ async function main() {
   const baseDate = new Date('2026-03-01T08:00:00.000Z');
 
   const citizensByDistrict = new Map<string, SeededUser[]>();
-  for (const citizen of citizens) {
+  for (const citizen of citizenUsers) {
     for (const district of citizen.districts) {
       if (district === 'ALL') {
         continue;
@@ -1904,7 +1908,7 @@ async function main() {
   }
 
   const officersByDistrict = new Map<string, SeededUser[]>();
-  for (const officer of officers) {
+  for (const officer of authorityUsers) {
     for (const district of officer.districts) {
       if (district === 'ALL') {
         continue;
@@ -1920,8 +1924,8 @@ async function main() {
   for (const [complaintIndex, district] of Array.from({ length: complaintCountSummary() }, (_, index) => districtSeeds[index % districtSeeds.length]!).entries()) {
     const districtRoads = roadsByDistrict.get(district.districtName) ?? [];
     const districtComplaintIndex = complaintCountByDistrict.get(district.districtName) ?? 0;
-    const citizenPool = citizensByDistrict.get(district.districtName) ?? citizens;
-    const officerPool = officersByDistrict.get(district.districtName) ?? officers;
+    const citizenPool = citizensByDistrict.get(district.districtName) ?? citizenUsers;
+    const officerPool = officersByDistrict.get(district.districtName) ?? authorityUsers;
     const citizen = citizenPool[districtComplaintIndex % citizenPool.length]!;
     const officer = officerPool[districtComplaintIndex % officerPool.length]!;
     const contractor = contractorSeeds[(complaintIndex + districtComplaintIndex) % contractorSeeds.length]!;
@@ -2022,7 +2026,7 @@ async function main() {
       critical: complaint.severity >= 4
     });
 
-    const districtOfficers = officers.filter((officerUser) => officerUser.districts.includes(complaint.district) || officerUser.districts.includes('ALL'));
+    const districtOfficers = authorityUsers.filter((officerUser) => officerUser.districts.includes(complaint.district) || officerUser.districts.includes('ALL'));
     await seedNotificationBundle({
       notificationId: deterministicUuid(`notification:${complaint.id}:assigned`),
       type: 'assignment',
@@ -2123,7 +2127,7 @@ async function main() {
 
   await seedInfrastructureTables();
 
-  for (const [index, user] of [...citizens, ...officers, ...contractorUsers].entries()) {
+  for (const [index, user] of [...citizenUsers, ...authorityUsers, ...contractorUsers].entries()) {
     await pool.query(
       `INSERT INTO otp_sessions (id, user_id, code, expires_at)
        VALUES ($1, $2, $3, $4)
@@ -2178,13 +2182,13 @@ async function main() {
   }
 
   console.log(
-    `[seed-demo] seeded: complaints=${complaints.length} citizens=${citizens.length} officers=${officers.length} contractorUsers=${contractorUsers.length} contractors=${contractorSeeds.length} districts=${districtSeeds.length}`
+    `[seed-demo] seeded: complaints=${complaints.length} citizens=${citizenUsers.length} authorities=${authorityUsers.length} superAdmins=${superAdmins.length} contractorUsers=${contractorUsers.length} contractors=${contractorSeeds.length} districts=${districtSeeds.length}`
   );
   console.log(`[seed-demo] queued fabric-bound complaint-submitted events=${complaintSubmittedEvents.length}`);
   console.table([
-    { account: adminSeed.label, username: adminSeed.username, phone: adminSeed.phone, role: adminSeed.role, districts: adminSeed.districts.join(', '), seedKarma: 200 },
-    ...officers.slice(0, 4).map((officer) => ({ account: officer.label, username: officer.username, phone: officer.phone, role: officer.role, districts: officer.districts.join(', '), seedKarma: 145 })),
-    ...citizens.slice(0, 4).map((citizen) => ({ account: citizen.label, username: citizen.username, phone: citizen.phone, role: citizen.role, districts: citizen.districts.join(', '), seedKarma: 120 })),
+    ...superAdmins.map((admin) => ({ account: admin.label, username: admin.username, phone: admin.phone, role: admin.role, districts: admin.districts.join(', '), seedKarma: 200 })),
+    ...authorityUsers.map((officer) => ({ account: officer.label, username: officer.username, phone: officer.phone, role: officer.role, districts: officer.districts.join(', '), seedKarma: 145 })),
+    ...citizenUsers.map((citizen) => ({ account: citizen.label, username: citizen.username, phone: citizen.phone, role: citizen.role, districts: citizen.districts.join(', '), seedKarma: 120 })),
     ...contractorUsers.slice(0, 4).map((contractor) => ({ account: contractor.label, username: contractor.username, phone: contractor.phone, role: contractor.role, districts: contractor.districts.join(', '), seedKarma: 130 }))
   ]);
 }

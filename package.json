@@ -27,6 +27,7 @@
     "chaostest": "node tools/chaos/run.mjs",
     "seed:backend": "pnpm -F @roadwatch/gateway-api seed:backend",
     "seed:demo": "pnpm -F @roadwatch/gateway-api seed:demo",
+    "simulate": "node simulate.js",
     "seed:fabric": "tsx scripts/fabric-ledger.ts seed",
     "query:fabric:history": "tsx scripts/fabric-ledger.ts history",
     "query:fabric:by-road": "tsx scripts/fabric-ledger.ts by-road",

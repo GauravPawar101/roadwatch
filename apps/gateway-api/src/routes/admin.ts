@@ -13,8 +13,10 @@ import {
     upsertUser
 } from '../db.js';
 import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult, type IdempotencyClaim } from '../idempotency.js';
+import { pool } from '../postgres.js';
 import { requireAuth, requireRole } from '../rbac.js';
 import { requireRegistrySecret } from '../services/discovery.js';
+import { uuidv7 } from '../uuid.js';
 
 const router = express.Router();
 
@@ -120,11 +122,57 @@ router.get('/users', requireAuth, requireRole(['CE']), async (req, res) => {
       phone: u.phone,
       govtId: u.govtId,
       role: u.role,
+        accountStatus: u.accountStatus,
       districts: u.districts,
       zones: u.zones,
       createdAt: u.created_at
     }))
   });
+});
+
+router.post('/users/:userId/suspend', requireAuth, requireRole(['CE']), async (req, res) => {
+  const params = z.object({ userId: z.string().uuid() }).parse(req.params);
+  const body = z.object({ reason: z.string().max(500).optional() }).parse(req.body ?? {});
+
+  await pool.query(
+    `UPDATE users
+     SET account_status = 'SUSPENDED',
+         suspended_at = NOW(),
+         suspension_reason = $2,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [params.userId, body.reason ?? null]
+  );
+
+  await pool.query(
+    `INSERT INTO audit_log (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
+     VALUES ($1, $2, NULL, NULL, 'USER_SUSPENDED', 'user', $3, $4::jsonb, NOW())`,
+    [uuidv7(), (req as any).user?.sub ?? null, params.userId, JSON.stringify({ reason: body.reason ?? null })]
+  );
+
+  res.json({ ok: true });
+});
+
+router.post('/users/:userId/reactivate', requireAuth, requireRole(['CE']), async (req, res) => {
+  const params = z.object({ userId: z.string().uuid() }).parse(req.params);
+
+  await pool.query(
+    `UPDATE users
+     SET account_status = 'ACTIVE',
+         suspended_at = NULL,
+         suspension_reason = NULL,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [params.userId]
+  );
+
+  await pool.query(
+    `INSERT INTO audit_log (id, actor_user_id, actor_phone_hash, actor_phone_masked, action, target_type, target_id, details, created_at)
+     VALUES ($1, $2, NULL, NULL, 'USER_REACTIVATED', 'user', $3, '{}'::jsonb, NOW())`,
+    [uuidv7(), (req as any).user?.sub ?? null, params.userId]
+  );
+
+  res.json({ ok: true });
 });
 
 // Contractor onboarding

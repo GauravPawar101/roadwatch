@@ -6,12 +6,12 @@ import { signAccessToken, signRefreshToken } from '../auth/jwt.js';
 import { requestOtp, verifyOtp } from '../auth/otp.js';
 import { hashPassword, validatePasswordStrength, verifyPassword } from '../auth/password.js';
 import {
-  clearRefreshCookie,
-  getRefreshTokenFromReq,
-  revokeRefreshTokenByHash,
-  setRefreshCookie,
-  storeRefreshToken,
-  verifyAndConsumeRefreshToken
+    clearRefreshCookie,
+    getRefreshTokenFromReq,
+    revokeRefreshTokenByHash,
+    setRefreshCookie,
+    storeRefreshToken,
+    verifyAndConsumeRefreshToken
 } from '../auth/refresh.js';
 import { getUserByIdentifier, getUserByPhone, upsertUser } from '../db.js';
 import { pool } from '../postgres.js';
@@ -38,6 +38,7 @@ async function resolveUserForLogin(
 ): Promise<{ user: NonNullable<Awaited<ReturnType<typeof getUserByIdentifier>>>; phone: string } | null> {
   const user = await getUserByIdentifier(normalizeLoginIdentifier(identifier));
   if (!user || !allowedRoles.includes(user.role)) return null;
+  if (user.accountStatus === 'SUSPENDED') return null;
   const phone = user.phoneEnc ? decryptPhone(user.phoneEnc) : user.phone;
   if (!phone) return null;
   return { user, phone };
@@ -218,6 +219,7 @@ router.post('/citizen/otp/verify', async (req, res) => {
 
   const existing = await getUserByPhone(body.phone);
   if (existing && existing.role !== 'CITIZEN') return res.status(403).json({ error: 'Use authority login' });
+  if (existing && existing.accountStatus === 'SUSPENDED') return res.status(403).json({ error: 'Account suspended' });
 
   const user =
     existing ??
@@ -410,19 +412,19 @@ router.post('/citizen/login', async (req, res) => {
     let result;
     if (body.identifier.includes('@')) {
       result = await pool.query(
-        `SELECT id, email, phone, phone_hash, username, password_hash, role
+        `SELECT id, email, phone, phone_hash, username, password_hash, role, account_status
          FROM users WHERE role = $1 AND email = $2 LIMIT 1`,
         ['CITIZEN', body.identifier.toLowerCase()]
       );
     } else if (/^\d{6,}$/.test(body.identifier)) {
       result = await pool.query(
-        `SELECT id, email, phone, phone_hash, username, password_hash, role
+        `SELECT id, email, phone, phone_hash, username, password_hash, role, account_status
          FROM users WHERE role = $1 AND phone_hash = $2 LIMIT 1`,
         ['CITIZEN', hashPhone(body.identifier)]
       );
     } else {
       result = await pool.query(
-        `SELECT id, email, phone, phone_hash, username, password_hash, role
+        `SELECT id, email, phone, phone_hash, username, password_hash, role, account_status
          FROM users WHERE role = $1 AND username = $2 LIMIT 1`,
         ['CITIZEN', body.identifier]
       );
@@ -431,6 +433,7 @@ router.post('/citizen/login', async (req, res) => {
     if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
 
     const user = result.rows[0];
+    if (user.account_status === 'SUSPENDED') return res.status(403).json({ error: 'Account suspended' });
     if (!user.password_hash) return res.status(401).json({ error: 'This account was not created with a password' });
 
     const passwordValid = await verifyPassword(body.password, user.password_hash);
@@ -542,7 +545,7 @@ router.post('/authority/login', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT id, email, username, password_hash, role, phone, phone_hash, districts, zones, fabric_verified
+      `SELECT id, email, username, password_hash, role, phone, phone_hash, districts, zones, fabric_verified, account_status
        FROM users
        WHERE role = ANY($1::text[])
          AND (${body.identifier.includes('@') ? 'email = $2' : 'username = $2'})
@@ -553,6 +556,7 @@ router.post('/authority/login', async (req, res) => {
     if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
 
     const user = result.rows[0];
+  if (user.account_status === 'SUSPENDED') return res.status(403).json({ error: 'Account suspended' });
     if (!user.password_hash) return res.status(401).json({ error: 'This account was not created with a password' });
 
     const passwordValid = await verifyPassword(body.password, user.password_hash);
@@ -667,7 +671,7 @@ router.post('/contractor/login', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT id, email, username, password_hash, role, phone, phone_hash, districts, zones, fabric_verified
+      `SELECT id, email, username, password_hash, role, phone, phone_hash, districts, zones, fabric_verified, account_status
        FROM users
        WHERE role = $1
          AND (${body.identifier.includes('@') ? 'email = $2' : 'username = $2'})
@@ -678,6 +682,7 @@ router.post('/contractor/login', async (req, res) => {
     if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
 
     const user = result.rows[0];
+  if (user.account_status === 'SUSPENDED') return res.status(403).json({ error: 'Account suspended' });
     if (!user.password_hash) return res.status(401).json({ error: 'This account was not created with a password' });
 
     const passwordValid = await verifyPassword(body.password, user.password_hash);

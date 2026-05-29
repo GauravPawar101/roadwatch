@@ -1,7 +1,7 @@
+import { acquireDistributedBackpressurePermit } from '@roadwatch/redis';
 import cors from 'cors';
 import express from 'express';
 import morgan from 'morgan';
-import { acquireDistributedBackpressurePermit } from '@roadwatch/redis';
 import { getServiceGraph, getSystemHealth } from './health.js';
 import { requireAuth } from './rbac.js';
 import { addSseClient } from './realtime/sse.js';
@@ -11,8 +11,9 @@ import authRouter from './routes/auth.js';
 import authorityRouter from './routes/authority.js';
 import citizenRouter from './routes/citizen.js';
 import complaintsRouter from './routes/complaints.js';
-import notificationsRouter from './routes/notifications.js';
+import contractorRouter from './routes/contractor.js';
 import internalNotificationsRouter from './routes/internal-notifications.js';
+import notificationsRouter from './routes/notifications.js';
 import proxyRouter from './routes/proxy.js';
 import publicRouter from './routes/public.js';
 import reportsRouter from './routes/reports.js';
@@ -109,6 +110,8 @@ export function createApp() {
   app.use('/citizen', citizenRouter);
   // Complaints management
   app.use('/complaints', complaintsRouter);
+  // Contractor actions
+  app.use('/contractor', contractorRouter);
   // Lightweight agent endpoint (LLM inference happens server-side)
   app.use('/public/agent', agentRouter);
   // RTI workflow is token-tracked (separate from complaints)
