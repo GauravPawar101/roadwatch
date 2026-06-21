@@ -12,13 +12,14 @@ Infrastructure provider packages that handle external integrations and cross-cut
 
 ## Provider Packages
 
-### Kafka Provider (`providers/kafka`)
-Event streaming and message queue integration using local Kafka (KafkaJS) for development and Docker deployments.
+### Kafka Provider (`packages/kafka`)
+Event streaming and message queue integration using local Kafka (KafkaJS).
+
+> **Location changed:** previously at `providers/kafka/` (root, outside workspace). Now at `packages/kafka/` and registered as `@roadwatch/kafka`.
 
 #### Key Components
 - `KafkaClient.ts` - Client factory and connection management
 - `KafkaProducer.ts` - Message publishing with retry logic
-- `KafkaConsumer.ts` - Message consumption with error handling
 - `topics.ts` - Topic definitions and event schemas
 - `config.ts` - Environment-based configuration
 
@@ -67,11 +68,13 @@ export const KafkaTopics = {
 } as const;
 ```
 
-### Storage Provider (`providers/storage-sqlite`)
+### Storage Provider (`packages/providers/storage-sqlite`)
 SQLite-based local storage for mobile applications with offline support.
 
-### Fabric Provider (`providers/fabric`)
+### Fabric Provider (`packages/providers/src/fabric-provider`)
 Hyperledger Fabric blockchain integration provider for immutable complaint records.
+
+> **Location changed:** `FabricProvider.ts` previously at `providers/fabric/` (root, outside workspace). Now at `packages/providers/src/fabric-provider/`.
 
 #### Key Components
 - `SQLiteStorage.ts` - Main storage interface

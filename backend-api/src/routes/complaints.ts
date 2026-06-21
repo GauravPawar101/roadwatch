@@ -1,9 +1,12 @@
 import express from 'express';
+import type { Request, Response } from 'express-serve-static-core';
 import { z } from 'zod';
-import { pool } from '../../../apps/gateway-api/src/postgres.js';
-import { analyzeComplaintText } from '../../../packages/core/src/engines/complaintTextIntel.ts';
-import { ensureAuthenticated } from '../middleware/auth';
-import { rateLimiter } from '../middleware/rateLimiter';
+import crypto from 'node:crypto';
+import { pool } from '@roadwatch/core';
+import { analyzeComplaintText } from '@roadwatch/core';
+import { countryAdapter, RoadType, Severity, ComplaintStatus } from '@roadwatch/adapters';
+import { ensureAuthenticated } from '../middleware/auth.js';
+import { rateLimiter } from '../middleware/rateLimiter.js';
 import { enqueueComplaintSubmittedEvent } from '../services/complaintOutbox.js';
 import { emitComplaintEvent } from '../services/kafka.js';
 
@@ -125,8 +128,8 @@ function isUuidLike(value: string | undefined): value is string {
   return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
 }
 
-function getActorId(req: express.Request): string | null {
-  const payload = (req as express.Request & { jwtPayload?: JwtPayload }).jwtPayload;
+function getActorId(req: Request): string | null {
+  const payload = (req as Request & { jwtPayload?: JwtPayload }).jwtPayload;
   const userId = payload?.sub ?? payload?.userId ?? null;
   return userId && userId.trim() ? userId : null;
 }
@@ -153,10 +156,12 @@ function toComplaintMetadata(metadata: Record<string, unknown> | null, updates: 
   };
 }
 
-const MERGE_ESCALATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+// Use the adapter's SLA baseline as the merge escalation window.
+const MERGE_ESCALATION_WINDOW_MS =
+  countryAdapter.calculateSLA(Severity.MODERATE, RoadType.URBAN) * 60 * 60 * 1000;
 
 // POST /complaints - File a new complaint or merge into an existing same-road/same-type complaint
-router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
+router.post('/', ensureAuthenticated, rateLimiter, async (req: Request, res: Response) => {
   try {
     const actorId = getActorId(req);
     if (!actorId) {
@@ -283,8 +288,12 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
         finalSeverity = Math.max(getComplaintSeverity(existing.metadata, severity), inferredSeverity);
         if (shouldEscalate) {
           escalated = true;
+          // Use adapter escalation path to confirm ESCALATED is a valid next status
+          const escalationPath = countryAdapter.getEscalationPath(
+            isResolvedRecurrence ? ComplaintStatus.RESOLVED : ComplaintStatus.IN_PROGRESS
+          );
+          finalStatus = escalationPath.includes(ComplaintStatus.ESCALATED) ? 'ESCALATED' : existing.status;
           finalSeverity = Math.min(finalSeverity + (isResolvedRecurrence ? 2 : 1), 5);
-          finalStatus = 'ESCALATED';
           mergeReason = isResolvedRecurrence ? 'resolved-within-24h' : 'active-over-24h';
         } else {
           finalStatus = existing.status;
@@ -363,7 +372,7 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
           }
         }
       } else {
-        complaintId = `RW-${String(districtCode).slice(0, 3)}-${Date.now()}`;
+        complaintId = crypto.randomUUID();
         reportCount = 1;
         finalStatus = 'FILED';
         finalSeverity = inferredSeverity;
@@ -525,7 +534,7 @@ router.post('/', ensureAuthenticated, rateLimiter, async (req, res) => {
 });
 
 // GET /complaints/:id - Get complaint by ID
-router.get('/:id', ensureAuthenticated, async (req, res) => {
+router.get('/:id', ensureAuthenticated, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

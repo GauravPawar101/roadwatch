@@ -1,11 +1,16 @@
 {
-	"$schema": "https://json.schemastore.org/tsconfig",
 	"compilerOptions": {
 		"ignoreDeprecations": "5.0",
 		"baseUrl": ".",
 		"paths": {
+			"@roadwatch/core": ["packages/core/src/index.ts"],
 			"@roadwatch/core/src/*": ["packages/core/src/*"],
+			"@roadwatch/kafka": ["packages/kafka/index.ts"],
+			"@roadwatch/kafka/src/*": ["packages/kafka/*"],
+			"@roadwatch/redis": ["packages/redis/index.ts"],
+			"@roadwatch/sidecar-auth": ["packages/sidecar-auth/src/index.ts"],
 			"@roadwatch/config/src/*": ["packages/config/src/*"],
+			"@roadwatch/adapters": ["packages/adapters/src/index.ts"],
 			"@roadwatch/adapters/src/*": ["packages/adapters/src/*"],
 			"@roadwatch/features/src/*": ["packages/features/src/*"],
 			"@roadwatch/feature-agent": ["packages/features/feature-agent/index.ts"],

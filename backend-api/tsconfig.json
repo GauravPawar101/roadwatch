@@ -1,0 +1,25 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "baseUrl": ".",
+    "moduleResolution": "Node16",
+    "module": "Node16",
+    "target": "ES2022",
+    "verbatimModuleSyntax": false,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "paths": {
+      "@roadwatch/core": ["../packages/core/src/index.ts"],
+      "@roadwatch/core/src/*": ["../packages/core/src/*"],
+      "@roadwatch/adapters": ["../packages/adapters/src/index.ts"],
+      "@roadwatch/adapters/src/*": ["../packages/adapters/src/*"],
+      "@roadwatch/kafka": ["../packages/kafka/index.ts"],
+      "@roadwatch/kafka/src/*": ["../packages/kafka/*"],
+      "@roadwatch/redis": ["../packages/redis/index.ts"],
+      "@roadwatch/sidecar-auth": ["../packages/sidecar-auth/src/index.ts"]
+    }
+  },
+  "include": ["./src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

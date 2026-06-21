@@ -165,84 +165,43 @@ class TestIdGenerator {
 ### Automation Scripts
 
 #### Start/Stop Scripts
-Platform-specific scripts for starting and stopping all services.
+Platform-specific scripts for starting and stopping all services. All scripts now live under `ops/dev/` and `ops/teardown/` — they were moved there from the repo root as part of the 4-layer architecture enforcement.
 
-**Windows PowerShell** (`start-all.ps1`)
-```powershell
-# Start all RoadWatch services on Windows
-Write-Host "Starting RoadWatch services..." -ForegroundColor Green
+**Windows PowerShell** (`ops/dev/start-all.ps1`)
 
-# Start infrastructure services (Postgres preferred)
-Write-Host "Starting Postgres (via Docker Compose)..." -ForegroundColor Yellow
-Start-Process -FilePath "docker" -ArgumentList "compose up -d postgres"
+Opens each service in a separate color-coded terminal window. Starts Docker infra, waits for Postgres and Kafka health, runs `pnpm seed:demo`, then starts gateway, backend, scheduler, webhook-handler, fabric-anchor-consumer, and frontend in sequence.
 
-Write-Host "Starting Redis..." -ForegroundColor Yellow
-Start-Process -FilePath "docker" -ArgumentList "compose up -d redis"
+```bash
+# From repo root (Windows)
+.\ops\dev\start-all.ps1
 
-Write-Host "Starting Kafka..." -ForegroundColor Yellow
-Start-Process -FilePath "docker" -ArgumentList "compose up -d kafka zookeeper"
-
-# Start application services
-Write-Host "Starting Gateway API..." -ForegroundColor Yellow
-Start-Process -FilePath "pnpm" -ArgumentList "--filter @roadwatch/gateway-api dev"
-
-Write-Host "Starting Frontend..." -ForegroundColor Yellow
-Start-Process -FilePath "pnpm" -ArgumentList "--filter roadwatch-frontend dev"
-
-Write-Host "Starting Fabric Anchor Consumer..." -ForegroundColor Yellow
-Start-Process -FilePath "pnpm" -ArgumentList "run dev --filter @roadwatch/fabric-anchor-consumer"
-
-Write-Host "All services started!" -ForegroundColor Green
+# Or via the compatibility wrapper
+.\ops\dev\start.ps1
 ```
 
-**Unix/Linux Shell** (`start-all.sh`)
+**Unix/Linux Shell** (`ops/dev/start-all.sh`)
+
 ```bash
-#!/bin/bash
-# Start all RoadWatch services on Unix/Linux
-
-echo "Starting RoadWatch services..."
-
-# Start infrastructure services (Postgres preferred)
-echo "Starting Postgres (Docker Compose)..."
-docker compose up -d postgres
-
-echo "Starting Redis..."
-docker compose up -d redis
-
-echo "Starting Kafka..."
-docker compose up -d kafka zookeeper
-
-# Start application services
-echo "Starting Gateway API..."
-pnpm --filter @roadwatch/gateway-api dev &
-
-echo "Starting Frontend..."
-pnpm --filter roadwatch-frontend dev &
-
-echo "Starting Fabric Anchor Consumer..."
-pnpm run dev --filter @roadwatch/fabric-anchor-consumer &
-
-echo "All services started!"
+# From repo root (Unix/WSL)
+./ops/dev/start-all.sh
 ```
 
-**Stop Script** (`stop-all.sh`)
+**Stop scripts**
+
 ```bash
-#!/bin/bash
-# Stop all RoadWatch services
+# Windows
+.\ops\teardown\stop-all.ps1
 
-echo "Stopping RoadWatch services..."
+# Unix/WSL
+./ops/dev/stop-all.sh
+```
 
-# Stop application services
-pkill -f "gateway-api"
-pkill -f "authority-portal"
-pkill -f "fabric-anchor-consumer"
+**One-time setup** (`ops/dev/setup.ps1`)
 
-# Stop infrastructure services
-pg_ctl stop -D /usr/local/var/postgres
-redis-cli shutdown
-kafka-server-stop.sh
-
-echo "All services stopped!"
+```bash
+# From repo root
+pnpm setup              # runs ops/dev/setup.ps1
+pnpm setup:skip-install # skips pnpm install
 ```
 
 ### Code Generation & Transformation
@@ -285,9 +244,14 @@ module.exports = function transformer(fileInfo, api) {
 ## Package.json Scripts
 
 ### Root Level Scripts
+
+The actual current scripts from `package.json`:
+
 ```json
 {
   "scripts": {
+    "setup": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./ops/dev/setup.ps1",
+    "setup:skip-install": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./ops/dev/setup.ps1 -SkipInstall",
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
     "lint": "turbo run lint",
@@ -296,17 +260,26 @@ module.exports = function transformer(fileInfo, api) {
     "test:integration": "turbo run test --filter=@roadwatch/gateway-api",
     "test:prompts": "tsx tools/prompt-tests/run.ts",
     "test:fabric": "vitest run -c tests/fabric/vitest.config.ts",
-    "loadtest": "node tools/load/run-k6.mjs",
-    "chaostest": "node tools/chaos/run.mjs",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "infra:reset": "docker compose down --volumes",
+    "fabric:start": "pwsh ... wsl fabric/network/scripts/start.sh",
+    "fabric:deploy": "pwsh ... wsl fabric/network/scripts/deploy-chaincode.sh",
+    "k8s:up": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./ops/deploy/deploy-kind.ps1",
+    "k8s:reset": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./ops/deploy/deploy-kind.ps1 -Reset",
+    "k8s:down": "kind delete cluster --name roadwatch",
     "seed:backend": "pnpm -F @roadwatch/gateway-api seed:backend",
-    "seed:fabric": "tsx scripts/fabric-ledger.ts seed",
-    "query:fabric:history": "tsx scripts/fabric-ledger.ts history",
-    "query:fabric:by-road": "tsx scripts/fabric-ledger.ts by-road",
+    "seed:demo": "pnpm -F @roadwatch/gateway-api seed:demo",
     "clean": "turbo run clean && rm -rf node_modules",
     "start": "pnpm --filter @roadwatch/mobile-host start"
   }
 }
 ```
+
+Key script locations after 4-layer enforcement:
+- `setup` / `setup:skip-install` → `ops/dev/setup.ps1`
+- `k8s:up` / `k8s:reset` → `ops/deploy/deploy-kind.ps1`
+- Fabric scripts → delegate to `ops/deploy/fabric-*.sh` via WSL
 
 ### Service-Specific Scripts
 Each service has its own package.json with specific scripts:
@@ -400,15 +373,22 @@ pnpm install
 cp .env.example .env
 # Edit .env with your configuration
 
-# Start all services
-./start-all.sh
+# Start all services (Windows)
+.\ops\dev\start-all.ps1
+
+# Start all services (Unix/WSL)
+./ops/dev/start-all.sh
+
+# Or manually:
+docker compose --profile kafka up -d
+pnpm dev
 
 # Run tests
 pnpm test
 
 # Seed data
-pnpm seed:backend
-pnpm seed:fabric
+pnpm seed:demo
+pnpm fabric:seed
 
 # Build for production
 pnpm build

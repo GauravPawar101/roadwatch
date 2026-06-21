@@ -7,11 +7,11 @@ import { promises as fs } from 'fs';
 import { Kafka as KafkaJS } from 'kafkajs';
 import { Pool } from 'pg';
 
-import { registerServiceWithGateway } from '../../apps/gateway-api/src/services/discovery.js';
-import { fabricLedgerService } from '../../apps/gateway-api/src/services/fabric-ledger.js';
-import { getLocalKafkaBrokers } from '../../providers/kafka/index.js';
-import { KafkaProducer } from '../../providers/kafka/KafkaProducer.js';
-import { KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '../../providers/kafka/topics.js';
+import { registerServiceWithGateway } from '@roadwatch/core';
+import { fabricLedgerService } from '@roadwatch/core';
+import { getLocalKafkaBrokers } from '@roadwatch/kafka';
+import { KafkaProducer } from '@roadwatch/kafka';
+import { KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '@roadwatch/kafka';
 
 type DbClient = Pool;
 
@@ -284,7 +284,7 @@ async function connectFabric(env: Env = process.env): Promise<{ gateway: Gateway
 }
 
 async function connectPostgres(env: Env = process.env): Promise<DbClient> {
-  const connectionString = env.DATABASE_URL || 'postgres://localhost:6432/roadwatch';
+  const connectionString = env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:16432/roadwatch';
 
   const pool = new Pool({
     connectionString,

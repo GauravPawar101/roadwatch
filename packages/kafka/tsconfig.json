@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "ignoreDeprecations": "5.0",
+    "noEmit": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@roadwatch/core": ["packages/core/src/index.ts"],
+      "@roadwatch/core/src/*": ["packages/core/src/*"]
+    }
+  },
+  "include": ["*.ts"]
+}

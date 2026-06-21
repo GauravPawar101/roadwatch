@@ -10,8 +10,9 @@ A small, standalone prototype service that accepts geotagged image submissions, 
 
 ## Status
 
-- Legacy / prototype: useful as a reference but not production-hardened.
-- Not registered in root orchestration by default. Re-integrate explicitly if needed.
+- Not in the default compose stack. Start with `docker compose --profile media up` from the repo root.
+- The service's previous standalone `docker-compose.yml` has been removed. The service is now defined as a `--profile media` entry in the root `docker-compose.yml`.
+- Not registered as a pnpm workspace member; run `pnpm install` from `services/media-ingest/` directly for local development.
 
 ## Features
 
@@ -75,19 +76,18 @@ Adjust these if the implementation differs; use the source code in this folder a
 
 ## Docker
 
-Build and run locally (prototype convenience):
+Build and run via the root compose with the `media` profile:
 
 ```bash
-docker build -t media-ingest-prototype .
-docker run --env-file .env -p 3000:3000 media-ingest-prototype
+docker compose --profile media up media-ingest
 ```
 
-There is a small `docker-compose` included for local DB + service if you need a repeatable local environment.
+The standalone `docker-compose.yml` previously in this folder has been removed. All compose configuration lives in the root `docker-compose.yml`.
 
 ## Integration notes
 
-- If you plan to re-integrate this service into the monorepo orchestration, add an entry in the top-level compose or service inventory and ensure `DATABASE_URL` and any secrets are provided via the shared secrets mechanism.
-- Consider hardening: auth, rate-limiting, virus scanning, more robust storage (S3/GCS) and background processing for heavy image work.
+- The service is wired into the root `docker-compose.yml` under a `media` profile. Start it with `docker compose --profile media up`.
+- For further hardening consider: auth, rate-limiting, virus scanning, more robust storage (S3/GCS) and background processing for heavy image work.
 
 ## Contributing / Maintainers
 

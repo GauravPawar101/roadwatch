@@ -1,0 +1,179 @@
+---
+# ── Scheduler ─────────────────────────────────────────────────
+# Pure cron worker — no HTTP port, no k8s Service object needed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: scheduler
+    app.kubernetes.io/part-of: roadwatch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scheduler
+  template:
+    metadata:
+      labels:
+        app: scheduler
+        app.kubernetes.io/name: scheduler
+    spec:
+      containers:
+        - name: scheduler
+          image: roadwatch/scheduler:local
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: infra-config
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: SERVICE_NAME
+              value: "scheduler"
+            - name: SERVICE_URL
+              value: "service://scheduler"
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+# ── Webhook Handler ───────────────────────────────────────────
+# Kafka consumer → DB updates + notification fan-out.
+# No HTTP port, no k8s Service object needed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: webhook
+    app.kubernetes.io/part-of: roadwatch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webhook
+  template:
+    metadata:
+      labels:
+        app: webhook
+        app.kubernetes.io/name: webhook
+    spec:
+      containers:
+        - name: webhook
+          image: roadwatch/webhook-handler:local
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: infra-config
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: SERVICE_NAME
+              value: "webhook"
+            - name: SERVICE_URL
+              value: "service://webhook"
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
+            - name: REDIS_URL
+              value: "redis://$(REDIS_HOST):$(REDIS_PORT)/1"
+            - name: KAFKA_GROUP_ID
+              value: "webhook-k8s"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+# ── Fabric Anchor Consumer ────────────────────────────────────
+# Kafka consumer → Hyperledger Fabric bridge.
+# No HTTP port, no k8s Service object needed.
+#
+# Fabric peers run on the Docker host (not in k8s).
+# deploy-kind.ps1 resolves the host IP and substitutes ${FABRIC_HOST_IP}
+# in hostAliases so the peer hostname resolves correctly inside the pod.
+# Certs are mounted read-only from the 'fabric-certs' Secret.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fabric-anchor
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: fabric-anchor
+    app.kubernetes.io/part-of: roadwatch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fabric-anchor
+  template:
+    metadata:
+      labels:
+        app: fabric-anchor
+        app.kubernetes.io/name: fabric-anchor
+    spec:
+      hostAliases:
+        - ip: "${FABRIC_HOST_IP}"
+          hostnames:
+            - "peer0.nhai.roadwatch.com"
+      containers:
+        - name: fabric-anchor
+          image: roadwatch/fabric-anchor-consumer:local
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: infra-config
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: SERVICE_NAME
+              value: "fabric-anchor"
+            - name: SERVICE_URL
+              value: "service://fabric-anchor"
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
+            - name: REDIS_URL
+              value: "redis://$(REDIS_HOST):$(REDIS_PORT)/2"
+            - name: KAFKA_CONSUMER_GROUP_ID
+              value: "fabric-anchor-k8s"
+            - name: KAFKA_CONSUMER_INSTANCE_ID
+              value: "fabric-anchor-k8s-1"
+            - name: FABRIC_PEER_ENDPOINT
+              value: "peer0.nhai.roadwatch.com:17051"
+          volumeMounts:
+            - name: fabric-certs
+              mountPath: /fabric
+              readOnly: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      volumes:
+        - name: fabric-certs
+          secret:
+            secretName: fabric-certs
+            items:
+              - key: tls-ca.crt
+                path: tls/ca.crt
+              - key: msp-cert.pem
+                path: msp/cert.pem
+              - key: msp-key.pem
+                path: msp/key.pem

@@ -15,6 +15,9 @@ docker compose --profile redis up -d
 # Full stack: Everything (Postgres + Kafka + Redis)
 docker compose --profile kafka --profile redis up -d
 
+# Media ingest service (optional)
+docker compose --profile media up -d
+
 # Fabric network (LevelDB, lightweight)
 cd fabric/network/docker
 docker compose up -d

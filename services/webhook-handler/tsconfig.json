@@ -3,7 +3,14 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./",
-    "module": "esnext"
+    "baseUrl": ".",
+    "module": "esnext",
+    "paths": {
+      "@roadwatch/core": ["../../packages/core/src/index.ts"],
+      "@roadwatch/core/src/*": ["../../packages/core/src/*"],
+      "@roadwatch/kafka": ["../../packages/kafka/index.ts"],
+      "@roadwatch/sidecar-auth": ["../../packages/sidecar-auth/src/index.ts"]
+    }
   },
   "include": ["./**/*.ts"],
   "exclude": ["node_modules", ".turbo"]

@@ -53,10 +53,12 @@ Complete index of all documentation in the RoadWatch system.
 |----------|-------------|----------|
 | **Core Domain** | Domain models and business logic | [services/core/README.md](./services/core/README.md) |
 | **Adapters** | Country-specific business logic | [services/adapters/README.md](./services/adapters/README.md) |
-| **Providers** | Infrastructure integrations | [services/providers/README.md](./services/providers/README.md) |
+| **Providers** | Infrastructure adapters (storage, streaming, map, AI, media, Fabric) | [services/providers/README.md](./services/providers/README.md) |
+| **Kafka** | KafkaJS client, producer, topic definitions (`@roadwatch/kafka`) | [services/providers/kafka-design-choices.md](./services/providers/kafka-design-choices.md) |
+| **Redis** | ioredis client, idempotency, backpressure (`@roadwatch/redis`) | [services/providers/redis-design-choices.md](./services/providers/redis-design-choices.md) |
 | **Packages** | Shared TypeScript packages and utilities | [services/packages/README.md](./services/packages/README.md) |
 | **Shared Packages** | Monorepo packages and shared libraries | [services/packages/shared-packages.md](./services/packages/shared-packages.md) |
-| **Redis Provider** | Caching and idempotency management | [services/redis-provider/README.md](./services/redis-provider/README.md) |
+| **Authority Node** | Fabric custodial signing, OTP audit layer, org cert management (`@roadwatch/authority-node`) | [services/authority-node/README.md](./services/authority-node/README.md) |
 
 ## 💡 Implementation Guides
 
@@ -148,6 +150,6 @@ When making changes to the system:
 
 ---
 
-**Last Updated:** May 9, 2026  
-**Total Documents:** 35+ comprehensive guides  
+**Last Updated:** June 5, 2026  
+**Total Documents:** 40+ comprehensive guides  
 **Coverage:** Complete system documentation

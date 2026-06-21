@@ -28,7 +28,7 @@ function getStatusIcon(status: string) {
   }
 }
 
-export default function AuthorityComplaintDetail(){
+export default function AuthorityComplaintDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [c, setC] = useState<any | null>(null)
@@ -38,7 +38,7 @@ export default function AuthorityComplaintDetail(){
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'overview' | 'finance' | 'audit'>('overview')
 
-  useEffect(()=>{
+  useEffect(() => {
     Promise.all([
       getRecord('complaints', String(id)),
       getRecord('repair_verifications', String(id)),
@@ -68,11 +68,11 @@ export default function AuthorityComplaintDetail(){
     }
   }
 
-  function assign(){
+  function assign() {
     navigate(`/authority/assign/${id}`)
   }
 
-  function updateStatus(s:string){
+  function updateStatus(s: string) {
     if (!c) return
     if (s === 'Resolved' && !verification?.repaired) {
       alert('Cannot resolve complaint until issue is verified as repaired by AI/location checks.')
@@ -110,38 +110,28 @@ export default function AuthorityComplaintDetail(){
   }, [c])
 
   const progress = statusProgress[displayStatus] || 0
-  const roadContext = resolveRoadContext({
-    roadId: c?.roadId,
-    assignedContractor: c?.assignedContractor,
-    assignedAuthority: c?.assignedAuthority,
-    severity: c?.severity,
-  })
+
+  const roadContext = useMemo(() => {
+    if (!c) return resolveRoadContext({})
+    return resolveRoadContext({
+      roadId: c.roadId,
+      assignedContractor: c.assignedContractor,
+      assignedAuthority: c.assignedAuthority,
+      severity: c.severity,
+    })
+  }, [c])
+
   const assignedAuthority = useMemo(() => {
     const lookup = String(c?.assignedAuthority || roadContext.officerName || '')
     return authorityProfiles.find((profile) => lookup.includes(profile.name) || lookup.includes(profile.role)) ?? authorityProfiles[1] ?? authorityProfiles[0]
   }, [c?.assignedAuthority, roadContext.officerName])
+
   const assignedContractor = useMemo(() => {
     const lookup = String(c?.assignedContractor || roadContext.contractorProfileName || '').toLowerCase()
     return contractorProfiles.find((profile) => lookup.includes(profile.name.toLowerCase()) || lookup.includes(profile.handle.toLowerCase())) ?? contractorProfiles[0]
   }, [c?.assignedContractor, roadContext.contractorProfileName])
-  const relatedEvents = timelineEvents.slice(0, 4)
-  const relatedProject = {
-    projectId: c?.complaintId || c?.id,
-    name: c?.title || `Complaint ${c?.id}`,
-    jurisdiction: c?.district || c?.routedTo || 'Authority queue',
-    assignedTo: assignedAuthority.name,
-    status: displayStatus === 'Resolved' ? 'Resolved' : displayStatus === 'In Progress' ? 'In Progress' : 'Assigned',
-    slaTarget: 72,
-    progressPct: progress,
-    lastUpdated: c?.updatedAt || c?.createdAt,
-  }
 
-  const pageShell: React.CSSProperties = {
-    minHeight: '100vh',
-    background:
-      'radial-gradient(circle at top right, rgba(76, 215, 246, 0.20), transparent 28%), radial-gradient(circle at top left, rgba(139, 92, 246, 0.24), transparent 30%), linear-gradient(180deg, #020817 0%, #07111f 48%, #020817 100%)',
-    color: '#dbeafe',
-  }
+  const relatedEvents = timelineEvents.slice(0, 4)
 
   const glass: React.CSSProperties = {
     border: '1px solid rgba(255,255,255,0.1)',
@@ -166,7 +156,6 @@ export default function AuthorityComplaintDetail(){
     textTransform: 'uppercase',
   }
 
-  const tone = c.severity <= 2 ? '#22c55e' : c.severity <= 3 ? '#f59e0b' : '#ef4444'
   const isOffline = typeof navigator !== 'undefined' && !navigator.onLine
 
   if (loading) {
@@ -177,19 +166,34 @@ export default function AuthorityComplaintDetail(){
     )
   }
 
-  if (!c) return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#020817', color: '#cbd5e1' }}>
-      <div>
-        <div style={{ fontSize: 18, fontWeight: 800, color: '#f8fafc', textAlign: 'center' }}>Complaint not found</div>
-        <div style={{ marginTop: 8, textAlign: 'center' }}>The complaint you’re looking for doesn’t exist.</div>
-        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
-          <button onClick={() => navigate('/dashboard/authority')} style={{ border: 'none', borderRadius: 14, padding: '12px 16px', fontWeight: 800, color: '#08111f', background: 'linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%)', cursor: 'pointer' }}>
-            Back to dashboard
-          </button>
+  if (!c) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#020817', color: '#cbd5e1' }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#f8fafc', textAlign: 'center' }}>Complaint not found</div>
+          <div style={{ marginTop: 8, textAlign: 'center' }}>The complaint you're looking for doesn't exist.</div>
+          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
+            <button onClick={() => navigate('/dashboard/authority')} style={{ border: 'none', borderRadius: 14, padding: '12px 16px', fontWeight: 800, color: '#08111f', background: 'linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%)', cursor: 'pointer' }}>
+              Back to dashboard
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  )
+    )
+  }
+
+  const tone = c.severity <= 2 ? '#22c55e' : c.severity <= 3 ? '#f59e0b' : '#ef4444'
+
+  const relatedProject = {
+    projectId: c?.complaintId || c?.id,
+    name: c?.title || `Complaint ${c?.id}`,
+    jurisdiction: c?.district || c?.routedTo || 'Authority queue',
+    assignedTo: assignedAuthority.name,
+    status: displayStatus === 'Resolved' ? 'Resolved' : displayStatus === 'In Progress' ? 'In Progress' : 'Assigned',
+    slaTarget: 72,
+    progressPct: progress,
+    lastUpdated: c?.updatedAt || c?.createdAt,
+  }
 
   return (
     <div className="page-radial-bg" style={{ minHeight: '100vh', color: '#dbeafe' }}>
@@ -267,144 +271,146 @@ export default function AuthorityComplaintDetail(){
             </div>
 
             {activeTab === 'overview' && (
-            <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Case summary</div>
-                  <h2 style={{ margin: '10px 0 0', color: '#f8fafc', fontSize: 24, fontWeight: 800 }}>Governance actions and route details</h2>
-                </div>
-                <button
-                  onClick={() => window.open(`https://explorer.example.com/tx/${c.txId || ''}`, '_blank')}
-                  style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: '10px 14px', fontWeight: 800, color: '#e2e8f0', background: 'rgba(255,255,255,0.04)', cursor: 'pointer' }}
-                >
-                  View on blockchain
-                </button>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14, marginTop: 16 }}>
-                <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Submitted</div>
-                  <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{new Date(c.createdAt).toLocaleString()}</div>
-                </div>
-                <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Location</div>
-                  <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>({c.location?.lat?.toFixed?.(4)}, {c.location?.lng?.toFixed?.(4)})</div>
-                </div>
-                <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Authority</div>
-                  <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{assignedAuthority.name}</div>
-                  <div style={{ marginTop: 6, color: '#cbd5e1', fontSize: 14 }}>{assignedAuthority.role}</div>
-                </div>
-                <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-
-              <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
-                <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Contractor</div>
-                  <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>
-                    <Link to={roadContext.contractorRoute} style={{ color: '#f8fafc', textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                      {assignedContractor.name}
-                    </Link>
-                  </div>
-                  <div style={{ marginTop: 6, color: '#cbd5e1', fontSize: 14 }}>{assignedContractor.handle} · {roadContext.roadType}</div>
-                </div>
-                <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Officer routing</div>
-                  <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{roadContext.officerLabel}</div>
-                  <div style={{ marginTop: 6, color: '#cbd5e1', fontSize: 14 }}>
-                    <Link to={`/authority/assign/${c.id}`} style={{ color: '#cfe8ff', textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                      Open the correct officer workflow
-                    </Link>
-                  </div>
-                </div>
-              </div>
-                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>SLA deadline</div>
-                  <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{new Date(c.slaDeadline).toLocaleString()}</div>
-                </div>
-              </div>
-
-              {c.notes && (
-                <div style={{ marginTop: 16, borderRadius: 22, padding: 18, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Notes</div>
-            )}
-                  <p style={{ margin: '10px 0 0', color: '#e2e8f0', lineHeight: 1.7 }}>{c.notes}</p>
-            {activeTab === 'finance' && (
-            <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
-              <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Finance snapshot</div>
-              <h3 style={{ margin: '10px 0 0', color: '#f8fafc', fontSize: 24, fontWeight: 800 }}>Road budget and lifecycle cost</h3>
-              {isOffline && (
-                <div style={{ marginTop: 12, borderRadius: 18, padding: 14, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.22)', color: '#bbf7d0' }}>
-                  Offline mode is active. This budget snapshot is served from the local record cache and can still be reviewed safely.
-                </div>
-              )}
-              <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
-                {[
-                  { label: 'Sanctioned budget', value: formatCurrencyINR(roadContext.finance.sanctionedBudgetINR) },
-                  { label: 'Released budget', value: formatCurrencyINR(roadContext.finance.releasedBudgetINR) },
-                  { label: 'Spent to date', value: formatCurrencyINR(roadContext.finance.spentBudgetINR) },
-                  { label: 'Pending balance', value: formatCurrencyINR(roadContext.finance.pendingBudgetINR) },
-                ].map((item) => (
-                  <div key={item.label} style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>{item.label}</div>
-                    <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{item.value}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ marginTop: 16, borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Lifecycle and controls</div>
-                <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{assignedContractor.name}</div>
-                <div style={{ marginTop: 6, color: '#cbd5e1' }}>
-                  Budget discipline score {assignedContractor.budgetDisciplineScore} · Proposal confidence {assignedContractor.proposalConfidence} · Road type specialization {assignedContractor.roadTypeSpecialization.slice(0, 2).join(', ')}
-                </div>
-                <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                  <Link to={`/authority/budget/${c.id}`} style={{ color: '#08111f', textDecoration: 'none' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 14, padding: '10px 14px', background: 'linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%)', fontWeight: 800 }}>Open full budget history</span>
-                  </Link>
-                  <Link to={roadContext.contractorRoute} style={{ color: '#e2e8f0', textDecoration: 'none' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 14, padding: '10px 14px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', fontWeight: 800 }}>Open contractor profile</span>
-                  </Link>
-                </div>
-              </div>
-            </section>
-            )}
-              )}
-            {activeTab === 'audit' && (
-            <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
-
-            <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
-              <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Related project</div>
-              <h3 style={{ margin: '10px 0 0', color: '#f8fafc', fontSize: 24, fontWeight: 800 }}>Linked assignment</h3>
-              <div style={{ marginTop: 16, borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                   <div>
-                    <div style={{ color: '#f8fafc', fontWeight: 800 }}>{relatedProject.name}</div>
-                    <div style={{ marginTop: 6, color: '#cbd5e1' }}>{relatedProject.jurisdiction}</div>
+                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Case summary</div>
+                    <h2 style={{ margin: '10px 0 0', color: '#f8fafc', fontSize: 24, fontWeight: 800 }}>Governance actions and route details</h2>
                   </div>
-                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>{relatedProject.status}</div>
+                  <button
+                    onClick={() => window.open(`https://explorer.example.com/tx/${c.txId || ''}`, '_blank')}
+                    style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: '10px 14px', fontWeight: 800, color: '#e2e8f0', background: 'rgba(255,255,255,0.04)', cursor: 'pointer' }}
+                  >
+                    View on blockchain
+                  </button>
                 </div>
-                <div style={{ marginTop: 12, height: 8, borderRadius: 9999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                  <div style={{ width: `${relatedProject.progressPct}%`, height: '100%', background: 'linear-gradient(90deg, #8b5cf6 0%, #06b6d4 100%)' }} />
-                </div>
-                <div style={{ marginTop: 12, display: 'grid', gap: 8, color: '#cbd5e1', fontSize: 14 }}>
-                  <div><strong style={{ color: '#f8fafc' }}>Project ID:</strong> {relatedProject.projectId}</div>
-                  <div><strong style={{ color: '#f8fafc' }}>Assigned to:</strong> {relatedProject.assignedTo}</div>
-                  <div><strong style={{ color: '#f8fafc' }}>SLA target:</strong> {relatedProject.slaTarget}h</div>
-                  <div><strong style={{ color: '#f8fafc' }}>Last updated:</strong> {relatedProject.lastUpdated}</div>
-                </div>
-              </div>
-            </section>
 
-            <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
-              <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Person contact</div>
-              <h3 style={{ margin: '10px 0 0', color: '#f8fafc', fontSize: 24, fontWeight: 800 }}>Assigned authority</h3>
-              <div style={{ marginTop: 16, borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ color: '#f8fafc', fontWeight: 800 }}>{assignedAuthority.name}</div>
-                <div style={{ marginTop: 6, color: '#cbd5e1' }}>{assignedAuthority.role}</div>
-                <div style={{ marginTop: 12, display: 'grid', gap: 6, color: '#cbd5e1', fontSize: 14 }}>
-                  <div><strong style={{ color: '#f8fafc' }}>Scope:</strong> {assignedAuthority.scope}</div>
-                  <div><strong style={{ color: '#f8fafc' }}>Level:</strong> {assignedAuthority.level}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14, marginTop: 16 }}>
+                  <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Submitted</div>
+                    <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{new Date(c.createdAt).toLocaleString()}</div>
+                  </div>
+                  <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Location</div>
+                    <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>({c.location?.lat?.toFixed?.(4)}, {c.location?.lng?.toFixed?.(4)})</div>
+                  </div>
+                  <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Authority</div>
+                    <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{assignedAuthority.name}</div>
+                    <div style={{ marginTop: 6, color: '#cbd5e1', fontSize: 14 }}>{assignedAuthority.role}</div>
+                  </div>
+                  <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>SLA deadline</div>
+                    <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{new Date(c.slaDeadline).toLocaleString()}</div>
+                  </div>
                 </div>
-              </div>
-            </section>
+
+                <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
+                  <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Contractor</div>
+                    <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>
+                      <Link to={roadContext.contractorRoute} style={{ color: '#f8fafc', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                        {assignedContractor.name}
+                      </Link>
+                    </div>
+                    <div style={{ marginTop: 6, color: '#cbd5e1', fontSize: 14 }}>{assignedContractor.handle} · {roadContext.roadType}</div>
+                  </div>
+                  <div style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Officer routing</div>
+                    <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{roadContext.officerLabel}</div>
+                    <div style={{ marginTop: 6, color: '#cbd5e1', fontSize: 14 }}>
+                      <Link to={`/authority/assign/${c.id}`} style={{ color: '#cfe8ff', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                        Open the correct officer workflow
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+
+                {c.notes && (
+                  <div style={{ marginTop: 16, borderRadius: 22, padding: 18, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Notes</div>
+                    <p style={{ margin: '10px 0 0', color: '#e2e8f0', lineHeight: 1.7 }}>{c.notes}</p>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {activeTab === 'finance' && (
+              <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
+                <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Finance snapshot</div>
+                <h3 style={{ margin: '10px 0 0', color: '#f8fafc', fontSize: 24, fontWeight: 800 }}>Road budget and lifecycle cost</h3>
+                {isOffline && (
+                  <div style={{ marginTop: 12, borderRadius: 18, padding: 14, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.22)', color: '#bbf7d0' }}>
+                    Offline mode is active. This budget snapshot is served from the local record cache and can still be reviewed safely.
+                  </div>
+                )}
+                <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
+                  {[
+                    { label: 'Sanctioned budget', value: formatCurrencyINR(roadContext.finance.sanctionedBudgetINR) },
+                    { label: 'Released budget', value: formatCurrencyINR(roadContext.finance.releasedBudgetINR) },
+                    { label: 'Spent to date', value: formatCurrencyINR(roadContext.finance.spentBudgetINR) },
+                    { label: 'Pending balance', value: formatCurrencyINR(roadContext.finance.pendingBudgetINR) },
+                  ].map((item) => (
+                    <div key={item.label} style={{ borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>{item.label}</div>
+                      <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 16, borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Lifecycle and controls</div>
+                  <div style={{ marginTop: 8, color: '#f8fafc', fontWeight: 800 }}>{assignedContractor.name}</div>
+                  <div style={{ marginTop: 6, color: '#cbd5e1' }}>
+                    Budget discipline score {assignedContractor.budgetDisciplineScore} · Proposal confidence {assignedContractor.proposalConfidence} · Road type specialization {assignedContractor.roadTypeSpecialization.slice(0, 2).join(', ')}
+                  </div>
+                  <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    <Link to={`/authority/budget/${c.id}`} style={{ color: '#08111f', textDecoration: 'none' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 14, padding: '10px 14px', background: 'linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%)', fontWeight: 800 }}>Open full budget history</span>
+                    </Link>
+                    <Link to={roadContext.contractorRoute} style={{ color: '#e2e8f0', textDecoration: 'none' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 14, padding: '10px 14px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', fontWeight: 800 }}>Open contractor profile</span>
+                    </Link>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {activeTab === 'audit' && (
+              <section style={{ ...glass, borderRadius: 28, padding: 22 }}>
+                <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Related project</div>
+                <h3 style={{ margin: '10px 0 0', color: '#f8fafc', fontSize: 24, fontWeight: 800 }}>Linked assignment</h3>
+                <div style={{ marginTop: 16, borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ color: '#f8fafc', fontWeight: 800 }}>{relatedProject.name}</div>
+                      <div style={{ marginTop: 6, color: '#cbd5e1' }}>{relatedProject.jurisdiction}</div>
+                    </div>
+                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>{relatedProject.status}</div>
+                  </div>
+                  <div style={{ marginTop: 12, height: 8, borderRadius: 9999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                    <div style={{ width: `${relatedProject.progressPct}%`, height: '100%', background: 'linear-gradient(90deg, #8b5cf6 0%, #06b6d4 100%)' }} />
+                  </div>
+                  <div style={{ marginTop: 12, display: 'grid', gap: 8, color: '#cbd5e1', fontSize: 14 }}>
+                    <div><strong style={{ color: '#f8fafc' }}>Project ID:</strong> {relatedProject.projectId}</div>
+                    <div><strong style={{ color: '#f8fafc' }}>Assigned to:</strong> {relatedProject.assignedTo}</div>
+                    <div><strong style={{ color: '#f8fafc' }}>SLA target:</strong> {relatedProject.slaTarget}h</div>
+                    <div><strong style={{ color: '#f8fafc' }}>Last updated:</strong> {relatedProject.lastUpdated}</div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 20 }}>
+                  <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Person contact</div>
+                  <h3 style={{ margin: '10px 0 0', color: '#f8fafc', fontSize: 24, fontWeight: 800 }}>Assigned authority</h3>
+                  <div style={{ marginTop: 16, borderRadius: 22, padding: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ color: '#f8fafc', fontWeight: 800 }}>{assignedAuthority.name}</div>
+                    <div style={{ marginTop: 6, color: '#cbd5e1' }}>{assignedAuthority.role}</div>
+                    <div style={{ marginTop: 12, display: 'grid', gap: 6, color: '#cbd5e1', fontSize: 14 }}>
+                      <div><strong style={{ color: '#f8fafc' }}>Scope:</strong> {assignedAuthority.scope}</div>
+                      <div><strong style={{ color: '#f8fafc' }}>Level:</strong> {assignedAuthority.level}</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
             )}
 
             {upload?.ipfs && (
@@ -460,7 +466,7 @@ export default function AuthorityComplaintDetail(){
                   value={reviewComments}
                   onChange={(event) => setReviewComments(event.target.value)}
                   placeholder="Optional authority comments"
-                  style={{ width: '100%', minHeight: 92, borderRadius: 16, padding: 14, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: '#e2e8f0', resize: 'vertical' }}
+                  style={{ width: '100%', minHeight: 92, borderRadius: 16, padding: 14, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: '#e2e8f0', resize: 'vertical', boxSizing: 'border-box' }}
                 />
               </div>
               <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
@@ -498,4 +504,3 @@ export default function AuthorityComplaintDetail(){
     </div>
   )
 }
-

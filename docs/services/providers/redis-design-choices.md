@@ -1,21 +1,23 @@
 **Provider: redis**
 
 Summary
-- Package: `@roadwatch/redis` — thin wrapper around `@upstash/redis` for cache and ephemeral storage.
+- Package: `@roadwatch/redis` — thin wrapper around `ioredis` for cache, idempotency, and backpressure.
+- **Location:** `packages/redis/` (previously `providers/redis/` at repo root, outside the pnpm workspace).
 
 Why these choices
-- **Local Redis**: Docker-backed Redis for development and repeatable local deployments. Rationale: keeps the runtime simple and matches the repo's local-first setup.
+- **ioredis**: Docker-backed Redis for development and repeatable local deployments. Keeps the runtime simple and matches the repo's local-first setup.
 
 Pros
 - Minimal operational overhead, straightforward API, good fit for caching and short-lived state.
+- Now a proper workspace member — importable by other packages via `@roadwatch/redis`.
 
 Cons / Tradeoffs
-- Upstash-specific APIs and pricing model can create lock-in. For high-throughput or complex data needs, managed Redis (AWS Elasticache, Azure Cache) or self-hosted Redis may be preferable.
+- For high-throughput or complex data needs, managed Redis (AWS Elasticache, Azure Cache) or self-hosted Redis cluster may be preferable.
 
 Files of interest
-- `providers/redis/package.json` — lists `@upstash/redis`.
+- `packages/redis/package.json` — lists `ioredis`.
 
 Recommendation / Alternatives
-- Keep provider adapter thin and abstract the Redis client usage behind the `@roadwatch/redis` API to allow swapping implementations.
+- Keep the provider adapter thin and abstract the Redis client usage behind the `@roadwatch/redis` API to allow swapping implementations.
 
-Tradeoffs summary: Upstash chosen for low ops cost but abstractions should be maintained to avoid lock-in.
+Tradeoffs summary: ioredis chosen for simplicity and local-first dev; abstraction layer maintained to avoid lock-in.

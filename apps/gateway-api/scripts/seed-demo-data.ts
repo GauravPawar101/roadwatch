@@ -4,8 +4,8 @@ import dotenv from 'dotenv';
 import { readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { KafkaProducer } from '../../../providers/kafka/KafkaProducer.js';
-import { KafkaTopics, type ComplaintSubmittedEvent } from '../../../providers/kafka/topics.js';
+import { KafkaProducer } from '@roadwatch/kafka';
+import { KafkaTopics, type ComplaintSubmittedEvent } from '@roadwatch/kafka';
 
 dotenv.config();
 process.env.ROADWATCH_SKIP_MINI_SEED = '1';

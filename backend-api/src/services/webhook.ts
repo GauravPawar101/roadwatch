@@ -1,6 +1,6 @@
 import express from 'express';
 import { z } from 'zod';
-import { pool } from '../../../apps/gateway-api/src/postgres.js';
+import { pool } from '@roadwatch/core';
 
 const router = express.Router();
 

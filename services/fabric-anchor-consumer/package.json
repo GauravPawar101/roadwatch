@@ -6,11 +6,15 @@
   "main": "index.ts",
   "scripts": {
     "dev": "tsx index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.0",
     "@hyperledger/fabric-gateway": "^1.10.1",
+    "@roadwatch/core": "workspace:*",
+    "@roadwatch/kafka": "workspace:*",
     "drizzle-orm": "^0.44.2",
     "dotenv": "^16.6.1",
     "kafkajs": "^2.2.4",

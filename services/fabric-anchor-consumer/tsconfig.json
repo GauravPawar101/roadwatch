@@ -1,8 +1,16 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "ignoreDeprecations": "5.0",
-    "noEmit": true
+    "baseUrl": ".",
+    "noEmit": true,
+    "paths": {
+      "@roadwatch/core": ["../../packages/core/src/index.ts"],
+      "@roadwatch/core/src/*": ["../../packages/core/src/*"],
+      "@roadwatch/kafka": ["../../packages/kafka/index.ts"],
+      "@roadwatch/kafka/src/*": ["../../packages/kafka/*"],
+      "@roadwatch/redis": ["../../packages/redis/index.ts"],
+      "@roadwatch/sidecar-auth": ["../../packages/sidecar-auth/src/index.ts"]
+    }
   },
   "include": ["index.ts"]
 }

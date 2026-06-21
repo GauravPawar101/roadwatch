@@ -2,7 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["node"]
+    "baseUrl": "../..",
+    "types": ["node"],
+    "paths": {
+      "@roadwatch/core": ["packages/core/src/index.ts"],
+      "@roadwatch/core/src/*": ["packages/core/src/*"]
+    }
   },
   "include": ["src", "models"]
 }

@@ -18,8 +18,10 @@ Before running any seeding or development, complete these steps in order.
 
 - [ ] **Clone/Initialize repo**
   ```bash
-  cd roadWatch
+  cd roadwatch
   pnpm install
+  # Or via the setup script which also copies .env files and checks prerequisites:
+  pnpm setup
   ```
 
 ---

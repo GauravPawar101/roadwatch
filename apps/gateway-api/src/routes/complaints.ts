@@ -1,5 +1,6 @@
 import express from 'express';
 import { z } from 'zod';
+import { countryAdapter, RoadType, Severity, ComplaintStatus, mapIndianRoadToDomainType } from '@roadwatch/adapters';
 import { trackAnalyticsEvent } from '../analytics/service.js';
 import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
 import { createAndFanoutNotification } from '../notifications/service.js';
@@ -9,7 +10,11 @@ import { broadcastComplaintEvent } from '../realtime/sse.js';
 import { uuidv7 } from '../uuid.js';
 
 const router = express.Router();
-const MERGE_ESCALATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// Use the adapter's SLA baseline (72 h for India) as the merge escalation window.
+// A complaint that has been open longer than its SLA baseline is eligible for escalation.
+const MERGE_ESCALATION_WINDOW_MS =
+  countryAdapter.calculateSLA(Severity.MODERATE, RoadType.URBAN) * 60 * 60 * 1000;
 
 // Validation schemas
 const complaintSchema = z.object({
@@ -434,7 +439,7 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(claimed.statusCode).json(claimed.body as any);
     }
 
-    const complaintId = `GRI-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const complaintId = uuidv7();
 
     const client = await pool.connect();
     let existingComplaintId: string | null = null;
@@ -498,8 +503,16 @@ router.post('/', requireAuth, async (req, res) => {
         finalSeverity = getComplaintSeverity(existing.metadata, data.severity);
         if (shouldEscalate) {
           escalated = true;
+          // Use adapter escalation path to confirm ESCALATED is a valid next status
+          const escalationPath = countryAdapter.getEscalationPath(
+            isResolvedRecurrence ? ComplaintStatus.RESOLVED : ComplaintStatus.IN_PROGRESS
+          );
+          const nextStatus = escalationPath.includes(ComplaintStatus.ESCALATED)
+            ? 'Escalated'
+            : finalStatus;
+          finalStatus = nextStatus;
+          // Severity bump: recurrence after resolution is more severe (+2), active recurrence is +1
           finalSeverity = Math.min(finalSeverity + (isResolvedRecurrence ? 2 : 1), 5);
-          finalStatus = 'Escalated';
           mergeReason = isResolvedRecurrence ? 'resolved-within-24h' : 'active-over-24h';
         } else {
           finalStatus = existing.status;

@@ -4,7 +4,8 @@ import express from 'express';
 import morgan from 'morgan';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SidecarAuthClient } from '../../packages/sidecar-auth/dist/index.js';
+import { SidecarAuthClient } from '@roadwatch/sidecar-auth';
+import { pool } from '@roadwatch/core';
 import { auditAccess } from './middleware/rbac.js';
 import { permissiveSidecarAuth } from './middleware/sidecarFallback.js';
 import analyticsRouter from './routes/analytics.js';
@@ -15,9 +16,6 @@ import webhookRouter from './services/webhook.js';
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 loadEnv({ path: resolve(workspaceRoot, 'apps/gateway-api/.env'), override: true });
-
-const { pool } = await import('../../apps/gateway-api/src/postgres.js');
-const { registerServiceWithGateway } = await import('../../apps/gateway-api/src/services/discovery.js');
 
 const app = express();
 const port = Number(process.env.BACKEND_PORT ?? 4001);

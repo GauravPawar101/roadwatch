@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: roadwatch
+
+resources:
+  - namespace.yaml
+  - configmap-infra.yaml
+  - configmap-app.yaml
+  - configmap-postgres-init.yaml
+  - secret.yaml
+  - postgres.yaml
+  - pgbouncer.yaml
+  - redis.yaml
+  - kafka.yaml
+  - gateway-api.yaml
+  - backend-api.yaml
+  - frontend.yaml
+  - services.yaml

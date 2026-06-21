@@ -221,6 +221,27 @@ services:
       retries: 3
       start_period: 20s
 
+  # Media Ingest - Image/video processing service
+  # Start with: docker compose --profile media up
+  media-ingest:
+    build:
+      context: .
+      dockerfile: services/media-ingest/Dockerfile
+    container_name: roadwatch_media_ingest
+    restart: unless-stopped
+    profiles:
+      - media
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
+    ports:
+      - "${MEDIA_BACKEND_HOST_PORT:-4000}:4000"
+    networks:
+      - roadwatch
+
 networks:
   roadwatch:
     driver: bridge

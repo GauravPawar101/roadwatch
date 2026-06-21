@@ -3,21 +3,22 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
+    "baseUrl": ".",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "types": ["node"],
     "noEmit": false,
-    
-    /* 1. Set the base for path resolution */
-    "baseUrl": ".", 
-    
-    /* 2. Map the @roadwatch namespace to the source code */
+    "verbatimModuleSyntax": true,
     "paths": {
-      "@roadwatch/core": ["../core/src/index.ts"],
-      "@roadwatch/core/*": ["../core/src/*"]
-    },
-    /* 3. Explicitly enable this to match your monorepo rules */
-    "verbatimModuleSyntax": true 
+      "@roadwatch/core": ["../../packages/core/src/index.ts"],
+      "@roadwatch/core/src/*": ["../../packages/core/src/*"],
+      "@roadwatch/adapters": ["../../packages/adapters/src/index.ts"],
+      "@roadwatch/adapters/src/*": ["../../packages/adapters/src/*"],
+      "@roadwatch/kafka": ["../../packages/kafka/index.ts"],
+      "@roadwatch/kafka/src/*": ["../../packages/kafka/*"],
+      "@roadwatch/redis": ["../../packages/redis/index.ts"],
+      "@roadwatch/sidecar-auth": ["../../packages/sidecar-auth/src/index.ts"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "scripts"]
 }

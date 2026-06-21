@@ -1,4 +1,4 @@
-import { pool } from '../../../apps/gateway-api/src/postgres.js';
+import { pool } from '@roadwatch/core';
 import { emitComplaintEvent } from './kafka.js';
 
 type DbLike = {

@@ -6,8 +6,11 @@ The RoadWatch system uses a monorepo structure with shared packages that provide
 ## Package Structure
 
 ### Core Packages
-- **`packages/core/`** - Core business logic and domain models
+- **`packages/core/`** - Core business logic, domain models, escalation engine, and AI prompt templates
 - **`packages/config/`** - Configuration management and environment handling
+- **`packages/kafka/`** - KafkaJS client, producer, topic definitions (`@roadwatch/kafka`) — previously `providers/kafka/`
+- **`packages/redis/`** - ioredis client, idempotency key claiming, backpressure (`@roadwatch/redis`) — previously `providers/redis/`
+- **`packages/authority-node/`** - Fabric custodial signer, OTP audit layer, org cert manager (`@roadwatch/authority-node`) — previously `authority-node/` root with no package.json
 - **`packages/providers/`** - Infrastructure provider abstractions
 - **`packages/adapters/`** - Country and platform-specific adapters
 
@@ -465,8 +468,22 @@ export class MockServices {
 {
   "name": "roadwatch-monorepo",
   "workspaces": [
-    "packages/*",
     "apps/*",
+    "backend-api",
+    "frontend",
+    "chaincode",
+    "services/*",
+    "packages/*",
+    "packages/core",
+    "packages/config",
+    "packages/features/*",
+    "packages/providers/*",
+    "packages/adapters/*",
+    "packages/kafka",
+    "packages/redis",
+    "packages/authority-node"
+  ]
+}
     "services/*"
   ],
   "scripts": {

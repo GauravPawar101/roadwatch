@@ -1,15 +1,15 @@
 import type { Request, Response } from 'express';
 import express from 'express';
 import * as crypto from 'node:crypto';
-import { pool } from '../../../apps/gateway-api/src/postgres.js';
+import { pool } from '@roadwatch/core';
 import {
     ImageSubmissionDB,
     KarmaDB,
     NonceDB,
     PrivacyDB,
     VerificationAuditDB,
-} from '../../../packages/core/src/db-helpers.ts';
-import type { GenerateNonceRequest, VerificationConfig } from '../../../packages/core/src/image-types';
+} from '@roadwatch/core/src/db-helpers.js';
+import type { GenerateNonceRequest, VerificationConfig } from '@roadwatch/core/src/image-types.js';
 import {
     applyDuplicatePenalty,
     applyValidSubmissionBonus,
@@ -18,24 +18,24 @@ import {
     escalatePenalty,
     getTierFromScore,
     type KarmaConfig
-} from '../../../packages/core/src/karma-service';
+} from '@roadwatch/core/src/karma-service.js';
 import {
     canGenerateNonce,
     createNonceRecord,
     getTimeRemaining,
     isNonceFresh,
-} from '../../../packages/core/src/nonce-service';
+} from '@roadwatch/core/src/nonce-service.js';
 import {
     canReadSubmission,
     filterImageSubmissionByRole,
     type PrivacyContext
-} from '../../../packages/core/src/privacy-service';
+} from '@roadwatch/core/src/privacy-service.js';
 import {
     generatePerceptualHash,
     hammingDistance,
     performVerification,
-} from '../../../packages/core/src/verification-service';
-import { requireUserContext, type AuthenticatedRequest } from '../../../packages/sidecar-auth/dist/index.js';
+} from '@roadwatch/core/src/verification-service.js';
+import { requireUserContext, type AuthenticatedRequest } from '@roadwatch/sidecar-auth';
 import { ensureAuthenticated } from '../middleware/auth.js';
 import { requireAuthority } from '../middleware/rbac.js';
 import { permissiveSidecarAuth } from '../middleware/sidecarFallback.js';

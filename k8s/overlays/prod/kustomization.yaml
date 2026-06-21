@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Prod overlay: build on base with production overrides.
+# Secrets should be supplied via a secret manager (Vault, Sealed Secrets, etc.)
+# not from the base secret.yaml.
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      - op: replace
+        path: /data/LOG_LEVEL
+        value: warn
+      - op: replace
+        path: /data/ALLOW_DEV_OTP_ECHO
+        value: "false"
+    target:
+      kind: ConfigMap
+      name: app-config

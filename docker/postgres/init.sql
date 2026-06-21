@@ -84,7 +84,7 @@ CREATE INDEX IF NOT EXISTS refresh_tokens_user_id_idx ON refresh_tokens (user_id
 CREATE TABLE IF NOT EXISTS complaints (
   id               uuid        PRIMARY KEY,
   road_id          text,
-  phone_masked    text,
+  phone_masked     text,
   district         text,
   zone             text,
   status           text        NOT NULL DEFAULT 'FILED',
@@ -105,7 +105,6 @@ CREATE TABLE IF NOT EXISTS complaints (
   last_authority_action text,
   fabric_txid      text,
   created_at       timestamptz NOT NULL DEFAULT NOW(),
-  ADD COLUMN IF NOT EXISTS phone_masked text,
   updated_at       timestamptz NOT NULL DEFAULT NOW()
 );
 

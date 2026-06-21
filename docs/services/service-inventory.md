@@ -4,8 +4,8 @@
 
 This document provides a comprehensive inventory of all services in the RoadWatch system, including their responsibilities, dependencies, ports, and health status.
 
-**Generated:** May 8, 2026  
-**System Status:** Transitioning from Upstash to local Docker-based Kafka + Zookeeper  
+**Generated:** June 5, 2026  
+**System Status:** Local Docker-based Kafka + Zookeeper  
 **Container Orchestration:** Docker Compose with resource limits and health checks
 
 ---
@@ -421,19 +421,22 @@ Response:
 
 ```bash
 # Start core services only (postgres always runs)
-docker-compose up
+docker compose up
 
 # Start with Kafka and message services
-docker-compose --profile kafka up
+docker compose --profile kafka up
 
 # Start with Redis cache layer
-docker-compose --profile redis up
+docker compose --profile redis up
 
 # Start with all services
-docker-compose --profile kafka --profile redis up
+docker compose --profile kafka --profile redis up
 
-# Start with Fabric network (separate compose file)
-docker-compose -f fabric/network/docker/docker-compose.yaml up
+# Start media ingest service (optional, separate profile)
+docker compose --profile media up
+
+# Start Fabric network (separate compose file)
+docker compose -f fabric/network/docker/docker-compose.yaml up
 ```
 
 ---

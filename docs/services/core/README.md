@@ -1,14 +1,14 @@
 # Core Domain Service
 
 ## Overview
-Shared domain models, business logic, and validation rules used across all RoadWatch services. Provides consistent data structures, enums, and utility functions for complaint management, user roles, and geographic operations.
+Shared domain models, business logic, escalation subsystem, and AI prompt templates used across all RoadWatch services. Provides consistent data structures, enums, utility functions, and a full prompt template library for all AI agent personas.
 
 ## Architecture
 - **Language**: TypeScript
 - **Pattern**: Domain-Driven Design (DDD)
 - **Validation**: Zod schemas
 - **Utilities**: Geographic calculations, permission management
-- **Exports**: Domain entities, enums, validators, utilities
+- **Exports**: Domain entities, enums, validators, utilities, escalation engine, prompt templates
 
 ## Key Components
 
@@ -24,6 +24,24 @@ Shared domain models, business logic, and validation rules used across all RoadW
 - `ComplaintValidator` - Complaint validation rules
 - `SLACalculator` - Service level agreement calculations
 - `NotificationTopicGenerator` - FCM topic generation
+
+### Escalation Subsystem (`src/escalation/`)
+- `EscalationRecord` — Escalation entity (ID, tiers, delivery status, Fabric TX ID)
+- `EscalationEngine` — SLA breach detection, escalation action generation, chronic complaint detection
+- `IEscalationProvider` / `INotificationProvider` / `ILocalStore` — Escalation provider interfaces
+
+> Previously orphaned in `core/` at repo root (not in workspace). Migrated into `packages/core/src/escalation/` — now properly importable as `@roadwatch/core`.
+
+### AI Prompt Templates (`src/prompts/`)
+Complete library of typed prompt templates used by the LangGraph agent and mobile AI features.
+
+- `types.ts` — `PromptTemplate<TInput, TOutput>` interface
+- `system/` — `roadwatch-agent.ts` (preamble builder), `damage-classification`, `deduplication-check`, `escalation-message`, `severity-assessment`
+- `citizen/` — `complaint-filing`, `escalation-help`, `road-info-query`, `rti-guidance`, `status-query`
+- `authority/` — `budget-query`, `complaint-summary`, `jurisdiction-report`, `repair-schedule`, `sla-analysis`
+- `offline/` — `faq-responses`, `intent-routing`
+
+> Previously orphaned in `core/prompts/` at repo root (not in workspace). Migrated into `packages/core/src/prompts/` — now properly importable as `@roadwatch/core`.
 
 ### Enums & Constants
 - `ComplaintStatus` - Complaint lifecycle states

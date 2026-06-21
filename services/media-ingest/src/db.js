@@ -1,6 +1,6 @@
 const { Pool } = require('pg')
 
-const connectionString = process.env.DATABASE_URL || 'postgres://localhost:6432/roadwatch'
+const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:16432/roadwatch'
 
 const pool = new Pool({
   connectionString,

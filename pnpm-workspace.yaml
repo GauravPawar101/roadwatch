@@ -1,13 +1,15 @@
 packages:
+  # Apps
   - "apps/*"
+  # Standalone services
   - "backend-api"
   - "frontend"
   - "chaincode"
-  - "providers/*"
+  # Microservices
   - "services/*"
+  # Shared packages
   - "packages/*"
-  - "packages/core"
-  - "packages/config"
   - "packages/features/*"
   - "packages/providers/*"
   - "packages/adapters/*"
+  - "packages/platforms/*"

@@ -13,6 +13,9 @@ export {
 export {
     createServiceRegistry,
     createSidecarServiceRoutes,
+    registerServiceWithGateway,
+    requestServiceAccessToken,
+    requireRegistrySecret,
     signServiceAccessToken,
     signServiceRegistrationToken,
     verifyServiceAccessToken,

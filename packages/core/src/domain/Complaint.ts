@@ -1,11 +1,5 @@
-import { GeoCoordinate } from './GeoCoordinate';
-
-export enum ComplaintStatus {
-  Open = 'Open',
-  InProgress = 'InProgress',
-  Resolved = 'Resolved',
-  Dismissed = 'Dismissed',
-}
+import { DB_COMPLAINT_STATUS } from './Enums.js';
+import { GeoCoordinate } from './GeoCoordinate.js';
 
 export class Complaint {
   private constructor(
@@ -15,7 +9,7 @@ export class Complaint {
     public readonly description: string,
     public readonly location: GeoCoordinate,
     public readonly timestamp: number,
-    public readonly status: ComplaintStatus,
+    public readonly status: string,
     public readonly imageHashes: string[]
   ) {}
 
@@ -28,15 +22,15 @@ export class Complaint {
     imageHashes: string[] = []
   ): Complaint {
     if (!id.trim() || !roadId.trim() || !authorId.trim()) {
-      throw new Error("Complaint ID, Road ID, and Author ID cannot be empty.");
+      throw new Error('Complaint ID, Road ID, and Author ID cannot be empty.');
     }
 
     if (!description.trim() || description.length < 10) {
-      throw new Error("Complaint description must be at least 10 characters long.");
+      throw new Error('Complaint description must be at least 10 characters long.');
     }
 
     if (imageHashes.length > 5) {
-      throw new Error("A road quality complaint can have a maximum of 5 images attached.");
+      throw new Error('A road quality complaint can have a maximum of 5 images attached.');
     }
 
     return new Complaint(
@@ -46,12 +40,12 @@ export class Complaint {
       description,
       location,
       Date.now(),
-      ComplaintStatus.Open,
+      DB_COMPLAINT_STATUS.FILED,
       imageHashes
     );
   }
 
-  public updateStatus(newStatus: ComplaintStatus): Complaint {
+  public updateStatus(newStatus: string): Complaint {
     return new Complaint(
       this.id,
       this.roadId,

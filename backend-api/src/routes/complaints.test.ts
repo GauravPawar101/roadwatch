@@ -25,13 +25,13 @@ const kafkaMock = vi.hoisted(() => ({
   emitComplaintEvent: vi.fn()
 }));
 
-vi.mock('../../../apps/gateway-api/src/postgres.js', () => postgresMock);
-vi.mock('../middleware/auth', () => authMock);
-vi.mock('../middleware/rateLimiter', () => rateLimiterMock);
+vi.mock('@roadwatch/core', () => postgresMock);
+vi.mock('../middleware/auth.js', () => authMock);
+vi.mock('../middleware/rateLimiter.js', () => rateLimiterMock);
 vi.mock('../services/complaintOutbox.js', () => complaintOutboxMock);
 vi.mock('../services/kafka.js', () => kafkaMock);
 
-import { analyzeComplaintText, summarizeRoadTextIntel } from '../../../packages/core/src/engines/complaintTextIntel.ts';
+import { analyzeComplaintText, summarizeRoadTextIntel } from '@roadwatch/core/src/engines/complaintTextIntel.js';
 import complaintsRouter from './complaints.js';
 
 const poolMock = postgresMock.pool;

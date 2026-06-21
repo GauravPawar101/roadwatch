@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { extractUserContext } from '../../../packages/sidecar-auth/dist/index.js';
+import { extractUserContext } from '@roadwatch/sidecar-auth';
 import { validateJWT, validateServiceJWT } from './jwt.js';
 
 /**

@@ -8,7 +8,7 @@ const postgresMock = vi.hoisted(() => ({
   }
 }));
 
-vi.mock('../../../apps/gateway-api/src/postgres.js', () => postgresMock);
+vi.mock('@roadwatch/core', () => postgresMock);
 
 import webhookRouter from './webhook.js';
 

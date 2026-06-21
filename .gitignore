@@ -55,13 +55,32 @@ apps/mobile-host/android/local.properties
 *.aab
 *.hprof
 
-# Hyperledger Fabric generated artifacts (do not commit keys/certs)
+# Hyperledger Fabric generated artifacts (do not commit keys/certs/blocks)
 fabric/network/organizations/
-fabric/network/channel-artifacts/
+fabric/network/channel-artifacts/*
+!fabric/network/channel-artifacts/.gitkeep
 fabric/network/*.tar.gz
 fabric/network/**/*.tar.gz
 fabric/network/**/*.block
 fabric/network/**/*.tx
+fabric/network/.env
+
+# fabric-samples submodule is checked out empty — ignore its contents
+fabric-samples/
+
+# Fabric channel config artifacts (generated — do not commit)
+config_block.json
+config_block.pb
+core.yaml
+
+# Hyperledger Fabric peer binaries (downloaded at setup time — do not commit)
+bin/
+
+# Runtime PID files
+.pids/
+
+# Local service logs
+logs/
 
 # OS
 .DS_Store

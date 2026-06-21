@@ -247,6 +247,85 @@ export function verifyServiceAccessToken(
   }) as ServiceAccessClaims;
 }
 
+/**
+ * Standalone middleware to gate an endpoint behind the SERVICE_REGISTRY_SECRET header.
+ * Useful for admin-style endpoints outside the main services router.
+ */
+export function requireRegistrySecret(options?: SidecarServiceRoutesOptions) {
+  return (req: any, res: any, next: any) => {
+    const expectedSecret = getRegistrySecret(options);
+    if (!expectedSecret) return next();
+
+    const providedSecret =
+      (req.header ? req.header('x-service-registry-secret') : req.headers?.['x-service-registry-secret'])?.trim();
+    if (!providedSecret || providedSecret !== expectedSecret) {
+      return res.status(401).json({ error: 'Unauthorized service registration' });
+    }
+
+    return next();
+  };
+}
+
+/**
+ * HTTP client helper — register this service remotely with the gateway.
+ * Returns the registered service details and the registration token to use in future calls.
+ */
+export async function registerServiceWithGateway(input: {
+  gatewayUrl: string;
+  service: ServiceRegistrationInput;
+  registrySecret?: string;
+}): Promise<{ service: RegisteredService; registrationToken: string }> {
+  const url = `${input.gatewayUrl.replace(/\/$/, '')}/services/register`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(input.registrySecret ? { 'x-service-registry-secret': input.registrySecret } : {})
+    },
+    body: JSON.stringify(input.service)
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Service registration failed (${response.status}): ${body}`);
+  }
+
+  return response.json() as Promise<{ service: RegisteredService; registrationToken: string }>;
+}
+
+/**
+ * HTTP client helper — request a short-lived access token from the gateway to call another service.
+ */
+export async function requestServiceAccessToken(input: {
+  gatewayUrl: string;
+  registrationToken: string;
+  targetService: string;
+  method?: string;
+  path?: string;
+  ttlSeconds?: number;
+}): Promise<{ service: RegisteredService; token: string; expiresIn: number }> {
+  const url = `${input.gatewayUrl.replace(/\/$/, '')}/services/${encodeURIComponent(input.targetService)}/token`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${input.registrationToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      method: input.method,
+      path: input.path,
+      ttlSeconds: input.ttlSeconds
+    })
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Service authorization failed (${response.status}): ${body}`);
+  }
+
+  return response.json() as Promise<{ service: RegisteredService; token: string; expiresIn: number }>;
+}
+
 export function createSidecarServiceRoutes(options: SidecarServiceRoutesOptions = {}) {
   const router = express.Router();
   const registry = createServiceRegistry();

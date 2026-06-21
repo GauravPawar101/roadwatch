@@ -42,7 +42,7 @@ async function registerServiceWithGateway(input: {
 
 const { Pool } = pg;
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgres://localhost:6432/roadwatch',
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:16432/roadwatch',
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
@@ -244,15 +244,18 @@ async function handleComplaintAnchored(message: KafkaMessage): Promise<void> {
 async function handleComplaintStatusChanged(message: KafkaMessage): Promise<void> {
   try {
     const event = JSON.parse(message.value || '{}');
-    console.log('[webhook] Processing complaint-status-changed:', event.complaintId, 'to', event.newStatus);
+    // ComplaintStatusChangedEvent uses `toStatus`, not `newStatus`
+    const newStatus: string | undefined = event.toStatus ?? event.newStatus;
+    console.log('[webhook] Processing complaint-status-changed:', event.complaintId, 'to', newStatus);
 
-    // Update complaint status
-    await pool.query(
-      `UPDATE complaints 
-       SET status = $1, updated_at = NOW()
-       WHERE id = $2`,
-      [event.newStatus, event.complaintId]
-    );
+    if (newStatus) {
+      await pool.query(
+        `UPDATE complaints 
+         SET status = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [newStatus, event.complaintId]
+      );
+    }
 
     // Notify relevant users based on status
     const roleMap: Record<string, string> = {
@@ -263,7 +266,7 @@ async function handleComplaintStatusChanged(message: KafkaMessage): Promise<void
       rejected: 'citizen'
     };
 
-    const notifyRole = roleMap[event.newStatus] || 'authority';
+    const notifyRole = roleMap[(newStatus ?? '').toLowerCase()] || 'authority';
 
     // Fan out through the gateway first. If the gateway is unavailable, fall back locally.
     const roleIsUuid = typeof notifyRole === 'string' && /^[0-9a-fA-F-]{36}$/.test(notifyRole);
@@ -272,17 +275,17 @@ async function handleComplaintStatusChanged(message: KafkaMessage): Promise<void
           message: {
             type: 'complaint_status_changed',
             title: 'Complaint Status Updated',
-            body: `Complaint #${event.complaintId} status is now: ${event.newStatus}`,
+            body: `Complaint #${event.complaintId} status is now: ${newStatus}`,
             audience: { kind: 'user', userId: notifyRole },
-            data: { complaintId: event.complaintId, status: event.newStatus }
+            data: { complaintId: event.complaintId, status: newStatus }
           }
         })
       : await sendInternalNotification({
           recipient_role: notifyRole,
           type: 'complaint_status_changed',
           title: 'Complaint Status Updated',
-          body: `Complaint #${event.complaintId} status is now: ${event.newStatus}`,
-          data: { complaintId: event.complaintId, status: event.newStatus }
+          body: `Complaint #${event.complaintId} status is now: ${newStatus}`,
+          data: { complaintId: event.complaintId, status: newStatus }
         });
 
     if (!handledByGateway) {
@@ -294,8 +297,8 @@ async function handleComplaintStatusChanged(message: KafkaMessage): Promise<void
             notifyRole,
             'complaint_status_changed',
             'Complaint Status Updated',
-            `Complaint #${event.complaintId} status is now: ${event.newStatus}`,
-            JSON.stringify({ complaintId: event.complaintId, status: event.newStatus })
+            `Complaint #${event.complaintId} status is now: ${newStatus}`,
+            JSON.stringify({ complaintId: event.complaintId, status: newStatus })
           ]
         );
         const nid = insertRes2.rows[0]?.id;
@@ -311,8 +314,8 @@ async function handleComplaintStatusChanged(message: KafkaMessage): Promise<void
             notifyRole,
             'complaint_status_changed',
             'Complaint Status Updated',
-            `Complaint #${event.complaintId} status is now: ${event.newStatus}`,
-            JSON.stringify({ complaintId: event.complaintId, status: event.newStatus })
+            `Complaint #${event.complaintId} status is now: ${newStatus}`,
+            JSON.stringify({ complaintId: event.complaintId, status: newStatus })
           ]
         );
         const nid = insertRes3.rows[0]?.id;

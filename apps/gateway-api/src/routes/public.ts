@@ -11,7 +11,7 @@ import {
     renderPublicRoadsPdf,
     toCsv
 } from '../analytics/service.js';
-  import { analyzeComplaintText, summarizeRoadTextIntel } from '../../../../packages/core/src/engines/complaintTextIntel.ts';
+  import { analyzeComplaintText, summarizeRoadTextIntel } from '@roadwatch/core/src/engines/complaintTextIntel.js';
 import {
     getDistrictOfflineManifest,
     listCountries,
@@ -145,7 +145,7 @@ router.get('/roads/segments.geojson', async (req, res) => {
   }
 
   // Prefetch all road assignments
-  const roadIds = roadsRes.rows.map((r: any) => r.id);
+  roadIds = roadsRes.rows.map((r: any) => r.id);
   const assignmentsRes = await pool.query(
     `SELECT road_id, contractor_id, engineer_user_id, starts_on, ends_on, assigned_at
      FROM road_assignments

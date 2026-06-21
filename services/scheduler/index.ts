@@ -50,7 +50,7 @@ function getConfig(): SchedulerConfig {
 const config = getConfig();
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgres://localhost:6432/roadwatch',
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:16432/roadwatch',
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000
@@ -196,7 +196,7 @@ async function recalculateKarmaScores(): Promise<void> {
       `WITH user_stats AS (
          SELECT
            u.id,
-           COALESCE(SUM(CASE WHEN c.status = 'resolved' THEN 1 ELSE 0 END), 0) as resolved_count,
+           COALESCE(SUM(CASE WHEN c.status = 'RESOLVED' THEN 1 ELSE 0 END), 0) as resolved_count,
            COALESCE(SUM(CASE WHEN c.created_at > $1 THEN 1 ELSE 0 END), 0) as recent_count,
            COALESCE(AVG(kl.delta), 50) as avg_verification
          FROM users u
@@ -260,10 +260,10 @@ async function checkSlaBreaches(): Promise<void> {
 
     const breachedComplaints = result.rows.map((r: any) => r.complaint_id);
 
-    // Update complaint status for all breached items
+    // Update complaint status for all breached items using canonical uppercase status
     await pool.query(
       `UPDATE complaints
-       SET status = 'sla_breached', updated_at = $1
+       SET status = 'SLA_BREACHED', updated_at = $1
        WHERE id = ANY($2)`,
       [now, breachedComplaints]
     );
@@ -347,12 +347,12 @@ async function generateReports(): Promise<void> {
        SELECT
          $3,
          SUM(count),
-         COALESCE((SELECT count FROM daily_stats WHERE status = 'resolved'), 0),
-         SUM(CASE WHEN status != 'resolved' THEN count ELSE 0 END),
+         COALESCE((SELECT count FROM daily_stats WHERE status = 'RESOLVED'), 0),
+         SUM(CASE WHEN status != 'RESOLVED' THEN count ELSE 0 END),
          jsonb_build_object(
            'total', SUM(count),
-           'resolved', COALESCE((SELECT count FROM daily_stats WHERE status = 'resolved'), 0),
-           'pending', SUM(CASE WHEN status != 'resolved' THEN count ELSE 0 END),
+           'resolved', COALESCE((SELECT count FROM daily_stats WHERE status = 'RESOLVED'), 0),
+           'pending', SUM(CASE WHEN status != 'RESOLVED' THEN count ELSE 0 END),
            'by_status', jsonb_object_agg(status, count)
          ),
          NOW()
