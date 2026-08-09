@@ -1,0 +1,140 @@
+# ── Webhook Handler — Deployment ─────────────────────────────────────────────
+# Kafka consumer that fans events out to the DB and notification system.
+# Stateless — it commits Kafka offsets and writes to Postgres.
+# Uses Redis db 1 for idempotency.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: webhook
+    app.kubernetes.io/part-of: roadwatch
+    layer: ingest-hlf
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webhook
+  template:
+    metadata:
+      labels:
+        app: webhook
+        app.kubernetes.io/name: webhook
+        layer: ingest-hlf
+    spec:
+      containers:
+        - name: webhook
+          image: roadwatch/webhook-handler:local
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: infra-config
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: SERVICE_NAME
+              value: "webhook"
+            - name: SERVICE_URL
+              value: "service://webhook"
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
+            # db 1 — webhook-handler partition
+            - name: REDIS_URL
+              value: "redis://redis-0.redis.roadwatch.svc.cluster.local:6379/1"
+            - name: KAFKA_EVENTS_BROKERS
+              value: "kafka-events:29092"
+            - name: KAFKA_BROKERS
+              value: "kafka-events:29092"
+            - name: KAFKA_GROUP_ID
+              value: "webhook-handler-k8s"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+# ── Fabric Anchor Consumer — Deployment ──────────────────────────────────────
+# Kafka consumer that batches complaint events into Merkle roots and submits
+# SubmitMerkleRoot transactions to the Hyperledger Fabric chaincode.
+#
+# This is the bridge between the fast ingest path and the slow HLF ledger.
+# Fabric peers run on the Docker host — reachable via hostAliases (FABRIC_HOST_IP
+# injected by deploy-kind.ps1). Certs mounted from the fabric-certs Secret.
+#
+# Uses Redis db 2 for its idempotency window.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fabric-anchor
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: fabric-anchor
+    app.kubernetes.io/part-of: roadwatch
+    layer: ingest-hlf
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fabric-anchor
+  template:
+    metadata:
+      labels:
+        app: fabric-anchor
+        app.kubernetes.io/name: fabric-anchor
+        layer: ingest-hlf
+    spec:
+      # hostAliases.ip is set from cluster-config.FABRIC_HOST_IP via kustomize replacements
+      hostAliases:
+        - ip: "172.17.0.1"
+          hostnames:
+            - "peer0.nhai.roadwatch.com"
+      containers:
+        - name: fabric-anchor
+          image: roadwatch/fabric-anchor-consumer:local
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: infra-config
+            - configMapRef:
+                name: app-config
+            - configMapRef:
+                name: fabric-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: SERVICE_NAME
+              value: "fabric-anchor"
+            - name: SERVICE_URL
+              value: "service://fabric-anchor"
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
+            # db 2 — fabric-anchor partition
+            - name: REDIS_URL
+              value: "redis://redis-0.redis.roadwatch.svc.cluster.local:6379/2"
+          volumeMounts:
+            - name: fabric-certs
+              mountPath: /fabric
+              readOnly: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      volumes:
+        - name: fabric-certs
+          secret:
+            secretName: fabric-certs
+            items:
+              - key: tls-ca.crt
+                path: tls/ca.crt
+              - key: msp-cert.pem
+                path: msp/cert.pem
+              - key: msp-key.pem
+                path: msp/key.pem

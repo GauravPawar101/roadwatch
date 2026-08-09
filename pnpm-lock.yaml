@@ -47,12 +47,21 @@ importers:
       '@langchain/langgraph':
         specifier: ^0.4.3
         version: 0.4.9(@langchain/core@0.3.80)(react-dom@18.2.0)(react@18.2.0)
+      '@roadwatch/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
+      '@roadwatch/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@roadwatch/kafka':
         specifier: workspace:*
         version: link:../../packages/kafka
       '@roadwatch/redis':
         specifier: workspace:*
         version: link:../../packages/redis
+      '@roadwatch/sidecar-auth':
+        specifier: workspace:*
+        version: link:../../packages/sidecar-auth
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
@@ -126,6 +135,9 @@ importers:
       '@types/node':
         specifier: ^22.15.3
         version: 22.19.17
+      '@types/node-forge':
+        specifier: ^1.3.11
+        version: 1.3.14
       '@types/pdfkit':
         specifier: ^0.13.9
         version: 0.13.9
@@ -272,18 +284,27 @@ importers:
         specifier: ^3.21.4
         version: 3.25.76
     devDependencies:
+      '@types/cors':
+        specifier: ^2.8.19
+        version: 2.8.19
       '@types/express':
         specifier: ^4.17.23
         version: 4.17.25
       '@types/express-serve-static-core':
         specifier: ^4.19.0
         version: 4.19.8
+      '@types/jsonwebtoken':
+        specifier: ^9.0.10
+        version: 9.0.10
+      '@types/morgan':
+        specifier: ^1.9.10
+        version: 1.9.10
       '@types/node':
         specifier: ^22.15.3
         version: 22.19.17
       typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
+        specifier: ^5.9.3
+        version: 5.9.3
 
   chaincode:
     dependencies:
@@ -537,6 +558,9 @@ importers:
 
   packages/kafka:
     dependencies:
+      '@roadwatch/core':
+        specifier: workspace:*
+        version: link:../core
       kafkajs:
         specifier: ^2.2.4
         version: 2.2.4
@@ -617,6 +641,9 @@ importers:
       '@types/express':
         specifier: ^4.17.21
         version: 4.17.25
+      '@types/express-serve-static-core':
+        specifier: ^4.19.0
+        version: 4.19.8
       '@types/jsonwebtoken':
         specifier: ^9.0.5
         version: 9.0.10
@@ -651,6 +678,9 @@ importers:
       '@roadwatch/kafka':
         specifier: workspace:*
         version: link:../../packages/kafka
+      '@roadwatch/sidecar-auth':
+        specifier: workspace:*
+        version: link:../../packages/sidecar-auth
       dotenv:
         specifier: ^16.6.1
         version: 16.6.1
@@ -664,6 +694,9 @@ importers:
         specifier: ^8.13.1
         version: 8.21.0
     devDependencies:
+      '@types/node':
+        specifier: ^22.15.3
+        version: 22.19.17
       '@types/pg':
         specifier: ^8.11.10
         version: 8.20.0
@@ -700,6 +733,9 @@ importers:
 
   services/scheduler:
     dependencies:
+      '@roadwatch/sidecar-auth':
+        specifier: workspace:*
+        version: link:../../packages/sidecar-auth
       dotenv:
         specifier: ^16.6.1
         version: 16.6.1
@@ -728,6 +764,9 @@ importers:
 
   services/webhook-handler:
     dependencies:
+      '@roadwatch/sidecar-auth':
+        specifier: workspace:*
+        version: link:../../packages/sidecar-auth
       axios:
         specifier: ^1.7.7
         version: 1.16.0
@@ -4303,6 +4342,12 @@ packages:
 
   /@types/node-cron@3.0.11:
     resolution: {integrity: sha512-0ikrnug3/IyneSHqCBeslAhlK2aBfYek1fGo4bP4QnZPmiqSGRK+Oy7ZMisLWkesffJvQ1cqAcBnJC+8+nxIAg==}
+    dev: true
+
+  /@types/node-forge@1.3.14:
+    resolution: {integrity: sha512-mhVF2BnD4BO+jtOp7z1CdzaK4mbuK0LLQYAvdOLqHTavxFNq4zA1EmYkpnFjP8HOUzedfQkRnp0E2ulSAYSzAw==}
+    dependencies:
+      '@types/node': 22.19.17
     dev: true
 
   /@types/node@16.18.126:
@@ -9663,12 +9708,6 @@ packages:
 
   /typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
-    engines: {node: '>=14.17'}
-    hasBin: true
-    dev: true
-
-  /typescript@6.0.3:
-    resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
     dev: true

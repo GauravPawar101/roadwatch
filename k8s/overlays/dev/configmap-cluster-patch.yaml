@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-config
+  namespace: roadwatch
+data:
+  FABRIC_HOST_IP: "172.17.0.1"

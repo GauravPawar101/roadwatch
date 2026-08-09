@@ -1,0 +1,15 @@
+# Replace these with your AWS managed service endpoints before deploying.
+# RDS → postgres, ElastiCache → redis, MSK → kafka-hlf / kafka-events (or single MSK cluster with two topics).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: infra-config
+  namespace: roadwatch
+data:
+  POSTGRES_HOST: "REPLACE_WITH_RDS_ENDPOINT"
+  PGBOUNCER_HOST: "REPLACE_WITH_PGBOUNCER_OR_RDS_PROXY"
+  REDIS_URL: "redis://REPLACE_WITH_ELASTICACHE:6379/0"
+  KAFKA_HLF_BROKERS: "REPLACE_WITH_MSK_BROKER:9092"
+  KAFKA_EVENTS_BROKERS: "REPLACE_WITH_MSK_BROKER:9092"
+  KAFKA_BROKER: "REPLACE_WITH_MSK_BROKER:9092"
+  KAFKA_BROKERS: "REPLACE_WITH_MSK_BROKER:9092"

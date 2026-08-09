@@ -1,21 +1,35 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
-# Prod overlay: build on base with production overrides.
-# Secrets should be supplied via a secret manager (Vault, Sealed Secrets, etc.)
-# not from the base secret.yaml.
+namespace: roadwatch
 
 resources:
   - ../../base
 
 patches:
+  - path: configmap-app-patch.yaml
+  - path: configmap-cluster-patch.yaml
+  - path: resource-limits-patch.yaml
   - patch: |-
-      - op: replace
-        path: /data/LOG_LEVEL
-        value: warn
-      - op: replace
-        path: /data/ALLOW_DEV_OTP_ECHO
-        value: "false"
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: gateway-hpa
+        namespace: roadwatch
+      spec:
+        minReplicas: 2
+        maxReplicas: 10
     target:
+      kind: HorizontalPodAutoscaler
+      name: gateway-hpa
+
+replacements:
+  - source:
       kind: ConfigMap
-      name: app-config
+      name: cluster-config
+      fieldPath: data.FABRIC_HOST_IP
+    targets:
+      - select:
+          kind: Deployment
+          name: fabric-anchor
+        fieldPaths:
+          - spec.template.spec.hostAliases.0.ip

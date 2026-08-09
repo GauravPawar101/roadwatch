@@ -1,0 +1,114 @@
+# ── Backend API — Deployment + HPA ───────────────────────────────────────────
+# Internal data-layer API. Stateless — all state in Postgres + Redis.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: roadwatch
+    layer: ingest-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        app.kubernetes.io/name: backend
+        layer: ingest-api
+    spec:
+      containers:
+        - name: backend
+          image: roadwatch/backend-api:local
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 4001
+          envFrom:
+            - configMapRef:
+                name: infra-config
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: SERVICE_NAME
+              value: "backend"
+            - name: SERVICE_URL
+              value: "http://backend:4001"
+            - name: PORT
+              value: "4001"
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: roadwatch
+    layer: ingest-api
+spec:
+  selector:
+    app: backend
+  type: NodePort
+  ports:
+    - name: http
+      port: 4001
+      targetPort: http
+      nodePort: 30401
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend-hpa
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: ingest-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 60

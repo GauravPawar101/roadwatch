@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: infra-config
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+data:
+  # ── Postgres ───────────────────────────────────────────────────
+  POSTGRES_HOST: "postgres-0.postgres.roadwatch.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB:   "roadwatch"
+  POSTGRES_USER: "postgres"
+
+  # ── PgBouncer ──────────────────────────────────────────────────
+  PGBOUNCER_HOST: "pgbouncer"
+  PGBOUNCER_PORT: "6432"
+
+  # ── Redis ──────────────────────────────────────────────────────
+  REDIS_HOST: "redis-0.redis.roadwatch.svc.cluster.local"
+  REDIS_PORT: "6379"
+  # db 0 = gateway (default); consumers override per-pod (db 1, db 2)
+  REDIS_URL:  "redis://redis-0.redis.roadwatch.svc.cluster.local:6379/0"
+
+  # ── Kafka — dual cluster (layer-2-ingest-hlf) ───────────────────────────────
+  # HLF cluster: backpressure buffer in front of Fabric anchoring.
+  KAFKA_HLF_BROKERS: "kafka-hlf:29092"
+  # Events cluster: SLA, notifications, triggers, webhook fan-out.
+  KAFKA_EVENTS_BROKERS: "kafka-events:29092"
+  # Legacy aliases — default producers/consumers to the events cluster.
+  KAFKA_BROKER:  "kafka-events:29092"
+  KAFKA_BROKERS: "kafka-events:29092"
+
+  # ── Internal service discovery ─────────────────────────────────
+  GATEWAY_URL: "http://gateway:3100"
+  BACKEND_URL: "http://backend:4001"

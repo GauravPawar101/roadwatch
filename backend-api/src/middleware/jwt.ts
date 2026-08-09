@@ -1,6 +1,6 @@
-import { NextFunction, Request, Response } from "express";
+import type { NextFunction, Request, Response } from 'express-serve-static-core';
 import * as fs from 'fs';
-import * as jwt from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 
 interface JWTPayload {
   sub: string;
@@ -95,19 +95,20 @@ export function validateJWT(req: Request, res: Response, next: NextFunction) {
     console.log(`[JWT] Authenticated user: ${payload.sub} with role: ${payload.role || 'none'}`);
     next();
     
-  } catch (error) {
-    console.error('[JWT] Token validation failed:', error.message);
+  } catch (error: unknown) {
+    const err = error as Error & { name?: string };
+    console.error('[JWT] Token validation failed:', err.message ?? error);
     
     let errorCode = 'INVALID_TOKEN';
     let errorMessage = 'Invalid token';
     
-    if (error.name === 'TokenExpiredError') {
+    if (err.name === 'TokenExpiredError') {
       errorCode = 'TOKEN_EXPIRED';
       errorMessage = 'Token has expired';
-    } else if (error.name === 'JsonWebTokenError') {
+    } else if (err.name === 'JsonWebTokenError') {
       errorCode = 'MALFORMED_TOKEN';
       errorMessage = 'Malformed token';
-    } else if (error.name === 'NotBeforeError') {
+    } else if (err.name === 'NotBeforeError') {
       errorCode = 'TOKEN_NOT_ACTIVE';
       errorMessage = 'Token not active yet';
     }

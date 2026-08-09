@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { listRecords, saveRecord } from '../lib/offlineStore'
+import { useComplaints } from '../hooks/useComplaints'
 
 type Complaint = {
   id: string
@@ -17,8 +17,17 @@ type Complaint = {
 
 export default function MyComplaints() {
   const navigate = useNavigate()
-  const [items, setItems] = useState<Complaint[]>([])
-  const [loading, setLoading] = useState(true)
+  const { complaints, loading, error, refetch } = useComplaints({ limit: 100 })
+  const items: Complaint[] = complaints.map((c) => ({
+    id: c.id,
+    roadId: c.roadId,
+    title: c.title,
+    status: c.status,
+    createdAt: c.createdAt,
+    severity: c.severity,
+    damageType: c.damageType,
+    description: c.description,
+  }))
   
   // Filters State
   const [searchQuery, setSearchQuery] = useState('')
@@ -30,56 +39,6 @@ export default function MyComplaints() {
 
   const [showToast, setShowToast] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
-
-  useEffect(() => {
-    listRecords<Complaint>('complaints')
-      .then((records) => {
-        // Seed with high-fidelity mock data matching Stitch mockup exactly if empty
-        if (records.length === 0) {
-          const seed: Complaint[] = [
-            {
-              id: 'GRI-92381',
-              roadId: 'Sector 4, North Ring Road (Near Junction 12)',
-              title: 'Major Pothole Cluster on Main St.',
-              status: 'Under Review',
-              createdAt: '2026-05-18T10:24:00Z',
-              severity: 5,
-              damageType: 'Potholes & Roads',
-              description: 'Multiple deep depressions across three lanes causing significant traffic slowdown and vehicle damage.',
-              slaRemaining: '48h remaining'
-            },
-            {
-              id: 'GRI-92385',
-              roadId: 'Oakwood Avenue, West Wing',
-              title: 'Streetlight Failure - Sector 7',
-              status: 'Pending Verification',
-              createdAt: '2026-05-17T02:15:00Z',
-              severity: 3,
-              damageType: 'Street Lighting',
-              description: 'Three consecutive streetlights are out, making the pedestrian crossing hazardous during night hours.',
-              slaRemaining: 'Overdue (12h)'
-            },
-            {
-              id: 'GRI-92102',
-              roadId: 'Riverside Drive',
-              title: 'Clogged Storm Drain',
-              status: 'Resolved',
-              createdAt: '2026-05-15T12:00:00Z',
-              severity: 2,
-              damageType: 'Water & Sewage',
-              description: 'Debris build-up preventing water flow during light rain. Maintenance completed on Oct 18.',
-              slaRemaining: 'Closed: Oct 20, 2024'
-            }
-          ]
-          // Save seeds to store
-          seed.forEach(item => saveRecord('complaints', item.id, item))
-          setItems(seed)
-        } else {
-          setItems(records)
-        }
-      })
-      .finally(() => setLoading(false))
-  }, [])
 
   // Apply search & advanced filter logic
   const handleApplyFilters = () => {
@@ -153,6 +112,11 @@ export default function MyComplaints() {
             <p className="text-[16px] leading-[24px] text-[#43474e] max-w-2xl">
               Manage and monitor your reported infrastructure issues. Radical transparency for institutional accountability.
             </p>
+            {error && (
+              <p className="mt-2 text-sm text-error">
+                {error} — <button type="button" onClick={() => refetch()} className="underline">Retry</button>
+              </p>
+            )}
           </div>
           <div className="flex gap-4">
             <div className="bg-surface-container-lowest border border-outline-variant shadow-sm px-6 py-3 rounded-[10px] flex items-center gap-3">

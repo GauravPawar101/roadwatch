@@ -1,17 +1,15 @@
 import 'dotenv/config';
 
+import crypto from 'crypto';
 import * as grpc from '@grpc/grpc-js';
 import { connect, signers, type Contract, type Gateway } from '@hyperledger/fabric-gateway';
-import crypto from 'crypto';
 import { promises as fs } from 'fs';
 import { Kafka as KafkaJS } from 'kafkajs';
 import { Pool } from 'pg';
 
-import { registerServiceWithGateway } from '@roadwatch/core';
 import { fabricLedgerService } from '@roadwatch/core';
-import { getLocalKafkaBrokers } from '@roadwatch/kafka';
-import { KafkaProducer } from '@roadwatch/kafka';
-import { KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '@roadwatch/kafka';
+import { registerServiceWithGateway } from '@roadwatch/sidecar-auth';
+import { getHlfKafkaBrokers, KafkaProducer, KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '@roadwatch/kafka';
 
 type DbClient = Pool;
 
@@ -359,8 +357,9 @@ async function main(): Promise<void> {
       name: env.SERVICE_NAME ?? consumerId,
       address: env.SERVICE_URL ?? `service://${env.SERVICE_NAME ?? consumerId}`,
       description: 'RoadWatch Fabric anchor consumer'
-    },
-    registrySecret: env.SERVICE_REGISTRY_SECRET
+    }
+  }).then(() => {
+    console.log(`[${consumerId}] registered with gateway`);
   }).catch(error => {
     console.warn(`[${consumerId}] service registration failed:`, error instanceof Error ? error.message : String(error));
   });
@@ -371,9 +370,9 @@ async function main(): Promise<void> {
   const { contract } = await connectFabric(env);
 
   const consumer: PollConsumer = (() => {
-    const brokers = getLocalKafkaBrokers(env);
+    const brokers = getHlfKafkaBrokers(env);
     if (!brokers) {
-      throw new Error('Kafka consumer requires local KAFKA_BROKER(S)');
+      throw new Error('Kafka consumer requires KAFKA_HLF_BROKERS (or legacy KAFKA_BROKER/S)');
     }
     const consumerGroupId = (env.KAFKA_CONSUMER_GROUP_ID ?? 'fabric-anchor-consumer-v1').trim();
     const instanceId = (env.KAFKA_CONSUMER_INSTANCE_ID ?? `fabric-anchor-${process.pid}`).trim();

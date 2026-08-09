@@ -1,5 +1,6 @@
 import initSqlJs from 'sql.js'
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
+import { deleteOfflineMedia, getOfflineMedia } from './offlineMedia'
 
 type SqlJsDatabase = {
   run: (sql: string, params?: Array<string | number | null>) => void
@@ -158,13 +159,100 @@ export async function markQueueItemSynced(id: number) {
   persistDatabase(db)
 }
 
+let autoSyncStarted = false
+let autoSyncRunning = false
+
+function getApiBase(apiBase?: string) {
+  return apiBase || (import.meta as any).env?.VITE_API_BASE || 'http://localhost:3100'
+}
+
+async function uploadQueuedMedia(
+  base: string,
+  token: string | null,
+  payload: Record<string, unknown>
+): Promise<{ imageCid?: string; imageSha256?: string }> {
+  const localMediaId = payload.localMediaId as string | undefined
+  if (!localMediaId) {
+    return {
+      imageCid: payload.imageCid as string | undefined,
+      imageSha256: payload.imageSha256 as string | undefined,
+    }
+  }
+
+  const stored = await getOfflineMedia(localMediaId)
+  if (!stored) {
+    throw new Error(`Offline media not found: ${localMediaId}`)
+  }
+
+  const form = new FormData()
+  form.append('image', stored.blob, stored.filename)
+  form.append('capturedLat', String(payload.capturedLat ?? stored.capturedLat))
+  form.append('capturedLng', String(payload.capturedLng ?? stored.capturedLng))
+  form.append('capturedAt', String(payload.capturedAt ?? stored.capturedAt))
+  form.append('offlineQueued', 'true')
+
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const resp = await fetch(`${base}/citizen/media/upload`, { method: 'POST', headers, body: form })
+  if (!resp.ok) {
+    throw new Error(await resp.text())
+  }
+
+  const data = await resp.json()
+  await deleteOfflineMedia(localMediaId)
+  return { imageCid: data.cid, imageSha256: data.sha256 }
+}
+
+async function submitComplaintPayload(
+  base: string,
+  token: string | null,
+  payload: Record<string, unknown>,
+  attachments: { imageCid?: string; imageSha256?: string }
+) {
+  const lat = (payload.location as { lat?: number } | undefined)?.lat ?? payload.lat
+  const lng = (payload.location as { lng?: number } | undefined)?.lng ?? payload.lng
+  const offlineQueued = Boolean(payload.offlineQueued || payload.localMediaId)
+
+  const body: Record<string, unknown> = {
+    roadId: payload.roadId,
+    description: payload.description,
+    lat,
+    lng,
+    capturedLat: payload.capturedLat ?? lat,
+    capturedLng: payload.capturedLng ?? lng,
+    capturedAt: payload.capturedAt,
+    offlineQueued,
+    imageCid: attachments.imageCid ?? payload.imageCid,
+    imageSha256: attachments.imageSha256 ?? payload.imageSha256,
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const resp = await fetch(`${base}/citizen/complaints`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+
+  if (!resp.ok) {
+    throw new Error(await resp.text())
+  }
+
+  return resp.json()
+}
+
 /**
  * Process pending outbox queue items and attempt to send them to the gateway API.
- * Currently implements `submit-complaint` action.
- * Returns an object with counts: { attempted, succeeded, failed }
+ * Uploads cached media first, then submits complaints with geotag metadata.
  */
 export async function processQueue(apiBase?: string) {
-  const base = apiBase || (window as any).ENV?.VITE_API_BASE || 'http://localhost:3100'
+  if (!navigator.onLine) {
+    return { attempted: 0, succeeded: 0, failed: 0, skipped: 'offline' as const }
+  }
+
+  const base = getApiBase(apiBase)
   const pending = await getPendingQueueItems()
   let attempted = 0
   let succeeded = 0
@@ -176,36 +264,14 @@ export async function processQueue(apiBase?: string) {
     attempted += 1
     try {
       if (item.action === 'submit-complaint') {
-        const p = item.payload as any
-        const body: any = {
-          roadId: p.roadId,
-          description: p.description,
-          lat: p.location?.lat ?? p.lat,
-          lng: p.location?.lng ?? p.lng,
-          capturedLat: p.capturedLat ?? undefined,
-          capturedLng: p.capturedLng ?? undefined,
-          capturedAt: p.capturedAt ?? undefined,
-          imageCid: p.imageCid ?? undefined,
-          imageSha256: p.imageSha256 ?? undefined
-        }
-
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-        if (token) headers['Authorization'] = `Bearer ${token}`
-
-        const resp = await fetch(`${base}/citizen/complaints`, { method: 'POST', headers, body: JSON.stringify(body) })
-        if (!resp.ok) {
-          console.warn('[offline] submit-complaint failed', await resp.text())
-          failed += 1
-          continue
-        }
-
-        // mark item synced
+        const p = item.payload as Record<string, unknown>
+        const attachments = await uploadQueuedMedia(base, token, p)
+        await submitComplaintPayload(base, token, p, attachments)
         await markQueueItemSynced(item.id)
         succeeded += 1
         continue
       }
 
-      // Unknown action: mark as failed for now
       console.warn('[offline] unknown queue action:', item.action)
       failed += 1
     } catch (err) {
@@ -214,7 +280,35 @@ export async function processQueue(apiBase?: string) {
     }
   }
 
+  if (succeeded > 0) {
+    await updateSyncMeta({ lastSyncAt: new Date().toISOString() })
+  }
+
   return { attempted, succeeded, failed }
+}
+
+/** Drain the outbox when connectivity returns (low-network / offline areas). */
+export function startAutoSyncOnReconnect(apiBase?: string) {
+  if (autoSyncStarted || typeof window === 'undefined') return
+  autoSyncStarted = true
+
+  const run = async () => {
+    if (!navigator.onLine || autoSyncRunning) return
+    autoSyncRunning = true
+    try {
+      await processQueue(apiBase)
+    } finally {
+      autoSyncRunning = false
+    }
+  }
+
+  window.addEventListener('online', () => {
+    void run()
+  })
+
+  if (navigator.onLine) {
+    void run()
+  }
 }
 
 export async function getPendingQueueCount() {

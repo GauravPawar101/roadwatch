@@ -1,11 +1,12 @@
 import express from 'express';
+import type { Request, Response } from 'express-serve-static-core';
 import { z } from 'zod';
 import { pool } from '@roadwatch/core';
 
 const router = express.Router();
 
 // POST /webhook/fabric-state-change
-router.post('/fabric-state-change', async (req, res) => {
+router.post('/fabric-state-change', async (req: Request, res: Response) => {
   try {
     const body = z
       .object({

@@ -1,5 +1,5 @@
 import * as grpc from '@grpc/grpc-js';
-import { connect, Contract, Gateway, signers } from '@hyperledger/fabric-gateway';
+import { connect, signers, type Contract, type Gateway } from '@hyperledger/fabric-gateway';
 import * as crypto from 'crypto';
 import { promises as fs } from 'fs';
 
@@ -104,9 +104,10 @@ export class FabricDelegator {
             const result = await this.smartContract.evaluateTransaction('GetComplaintHistory', complaintId);
             const history = JSON.parse(result.toString()) as Array<{ value?: unknown }>;
             return history.at(-1)?.value ?? null;
-        } catch (error) {
+        } catch (error: unknown) {
             console.error('[FabricDelegator] Error retrieving complaint:', error);
-            throw new Error(`Failed to retrieve complaint from blockchain: ${error.message}`);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to retrieve complaint from blockchain: ${message}`);
         }
     }
 
@@ -137,9 +138,10 @@ export class FabricDelegator {
 
             console.log(`[FabricDelegator] Complaint status updated. TxID: ${status.transactionId}`);
             return status.transactionId;
-        } catch (error) {
+        } catch (error: unknown) {
             console.error('[FabricDelegator] Error updating complaint status:', error);
-            throw new Error(`Failed to update complaint status: ${error.message}`);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to update complaint status: ${message}`);
         }
     }
 

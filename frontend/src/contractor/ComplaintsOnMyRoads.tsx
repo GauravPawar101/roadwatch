@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -15,7 +15,8 @@ import {
   Plus
 } from 'lucide-react'
 import { Badge, Button, Card, CardBody, Container, Spinner } from '../components/UIComponents'
-import { enqueueAction, listRecords, saveRecord } from '../lib/offlineStore'
+import { useContractorComplaints } from '../hooks/useContractorComplaints'
+import { apiFetch } from '../lib/api'
 
 type Complaint = {
   id: string
@@ -27,92 +28,47 @@ type Complaint = {
   date: string
 }
 
-const seedComplaints: Complaint[] = [
-  {
-    id: 'RW-2024-00431',
-    title: 'Major structural fissure - KM 42.5',
-    desc: 'Deep crack spanning two lanes; posing immediate risk to heavy transport vehicles.',
-    severity: 4,
-    status: 'Pending',
-    roadName: 'M4 East - Primary Corridor',
-    date: '2026-05-18'
-  },
-  {
-    id: 'RW-2024-00444',
-    title: 'Downed Directional Signage - Sector Exit',
-    desc: 'The main exit sign for Sector 7 has been damaged by high winds and is blocking the shoulder.',
-    severity: 2,
-    status: 'Pending',
-    roadName: 'Sector 7 Loop - Industrial Zone',
-    date: '2026-05-17'
-  },
-  {
-    id: 'RW-2024-00392',
-    title: 'Clogged Drainage Outlet - Junction 9',
-    desc: 'Water accumulation across all shoulder lanes due to heavy organic matter blockage in standard drains.',
-    severity: 3,
-    status: 'In Progress',
-    roadName: 'M4 East - Primary Corridor',
-    date: '2026-05-15'
-  },
-  {
-    id: 'RW-2024-00381',
-    title: 'Potholes in inner lane - KM 12.4',
-    desc: 'Rapidly expanding pothole cluster causing drivers to swerve abruptly into center divider.',
-    severity: 5,
-    status: 'Resolved',
-    roadName: 'Sector 7 Loop - Industrial Zone',
-    date: '2026-05-14'
-  }
-]
+function mapAssignmentStatus(status: string | null, complaintStatus: string): Complaint['status'] {
+  const s = String(status || complaintStatus).toUpperCase()
+  if (s.includes('RESOLV') || s === 'COMPLETED') return 'Resolved'
+  if (s.includes('ACCEPT') || s.includes('PROGRESS') || s === 'INPROGRESS') return 'In Progress'
+  return 'Pending'
+}
 
 export default function ComplaintsOnMyRoads() {
   const navigate = useNavigate()
-  const [complaints, setComplaints] = useState<Complaint[]>([])
-  const [loading, setLoading] = useState(true)
+  const { complaints: apiComplaints, loading, error, refetch } = useContractorComplaints()
   const [filter, setFilter] = useState<'All' | 'Pending' | 'In Progress' | 'Resolved'>('All')
 
-  const contractorId = localStorage.getItem('roadwatch_contractor_id') || 'Global Infra Corp'
-
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const records = await listRecords('contractor_complaints')
-        if (records.length === 0) {
-          // Seed the database with mock records matching the visual mock
-          await Promise.all(seedComplaints.map((c) => saveRecord('contractor_complaints', c.id, c)))
-          setComplaints(seedComplaints)
-        } else {
-          setComplaints(records as Complaint[])
-        }
-      } catch (err) {
-        console.error('Error reading offline data:', err)
-        setComplaints(seedComplaints)
-      } finally {
-        setLoading(false)
-      }
-    }
-    loadData()
-  }, [])
+  const complaints: Complaint[] = useMemo(
+    () =>
+      apiComplaints.map((c) => ({
+        id: c.id,
+        title: c.description?.slice(0, 60) || `Complaint ${c.id}`,
+        desc: c.description || '',
+        severity: c.progressPct != null ? Math.min(5, Math.ceil(c.progressPct / 20)) : 3,
+        status: mapAssignmentStatus(c.assignmentStatus, c.status),
+        roadName: [c.district, c.zone].filter(Boolean).join(' · ') || c.id,
+        date: c.updatedAt ? new Date(c.updatedAt).toLocaleDateString() : '—',
+      })),
+    [apiComplaints],
+  )
 
   async function updateStatus(id: string, newStatus: 'In Progress' | 'Resolved') {
-    const updated = complaints.map((c) => {
-      if (c.id === id) {
-        const item = { ...c, status: newStatus }
-        saveRecord('contractor_complaints', id, item)
-        return item
+    try {
+      if (newStatus === 'In Progress') {
+        await apiFetch(`/contractor/complaints/${id}/accept`, { method: 'POST' })
+        alert(`Dispatch for ${id} accepted.`)
+      } else {
+        await apiFetch(`/contractor/complaints/${id}/complete`, {
+          method: 'POST',
+          body: JSON.stringify({ resolutionReport: { note: 'Marked complete from portal' } }),
+        })
+        alert(`Resolution submitted for ${id}.`)
       }
-      return c
-    })
-    setComplaints(updated)
-
-    // Log corresponding offline action queue entry
-    if (newStatus === 'In Progress') {
-      await enqueueAction('contractor.complaint.accept', { complaintId: id })
-      alert(`Dispatch for ${id} accepted. Status updated to In Progress.`)
-    } else {
-      await enqueueAction('contractor.complaint.resolve', { complaintId: id })
-      alert(`Resolution submitted for ${id}. Status set to Resolved.`)
+      refetch()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Action failed')
     }
   }
 

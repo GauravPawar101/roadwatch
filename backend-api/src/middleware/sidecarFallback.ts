@@ -1,4 +1,4 @@
-import { NextFunction, Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express-serve-static-core';
 import jwt from 'jsonwebtoken';
 import { extractUserContext } from '@roadwatch/sidecar-auth';
 import { validateJWT, validateServiceJWT } from './jwt.js';

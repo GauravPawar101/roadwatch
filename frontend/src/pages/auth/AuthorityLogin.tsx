@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, type AuthUser } from '../../contexts/AuthContext';
+import { resolvePostLoginPath } from '../../lib/authRedirect';
 
 export default function AuthorityLogin() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
+  const next = new URLSearchParams(location.search).get('next');
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -89,7 +91,7 @@ export default function AuthorityLogin() {
 
       login(data.token, user);
       localStorage.setItem('roadwatch_authority_id', data.user.username || data.user.email);
-      navigate('/dashboard/authority');
+      navigate(resolvePostLoginPath(user.role, next));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

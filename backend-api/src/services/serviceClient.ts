@@ -1,5 +1,3 @@
-import type { RequestInit } from 'node-fetch';
-
 type ServiceInfo = {
   name: string;
   address: string;

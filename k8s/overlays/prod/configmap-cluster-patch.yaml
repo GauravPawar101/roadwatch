@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-config
+  namespace: roadwatch
+data:
+  # Set to the host IP where Fabric peers are reachable from the cluster.
+  FABRIC_HOST_IP: "172.17.0.1"

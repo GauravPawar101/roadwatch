@@ -1,4 +1,5 @@
 import express from 'express';
+import type { Request, Response } from 'express-serve-static-core';
 import { z } from 'zod';
 import { validateServiceJWT } from '../middleware/jwt.js';
 
@@ -11,7 +12,7 @@ const payloadSchema = z.object({
 }).passthrough();
 
 // Simple collector endpoint. Intended as a local/dev stub.
-router.post('/collect', validateServiceJWT, (req, res) => {
+router.post('/collect', validateServiceJWT, (req: Request, res: Response) => {
   try {
     const body = payloadSchema.parse(req.body);
     // Light logging for local inspection. In production, forward to analytics provider.

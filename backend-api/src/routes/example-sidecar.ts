@@ -1,10 +1,11 @@
 import { requireUserContext, requireUserRole, validateServiceAuth, type AuthenticatedRequest } from '@roadwatch/sidecar-auth';
 import express from 'express';
+import type { Response } from 'express-serve-static-core';
 
 const router = express.Router();
 
 // Example route that requires user context (any authenticated user)
-router.get('/profile', requireUserContext, (req: AuthenticatedRequest, res) => {
+router.get('/profile', requireUserContext, (req: AuthenticatedRequest, res: Response) => {
   const { userContext } = req;
   
   res.json({
@@ -20,7 +21,7 @@ router.get('/profile', requireUserContext, (req: AuthenticatedRequest, res) => {
 });
 
 // Example route that requires specific roles
-router.get('/authority-only', requireUserRole(['CE', 'EE']), (req: AuthenticatedRequest, res) => {
+router.get('/authority-only', requireUserRole(['CE', 'EE']), (req: AuthenticatedRequest, res: Response) => {
   const { userContext, serviceAuth } = req;
   
   res.json({
@@ -36,7 +37,7 @@ router.get('/authority-only', requireUserRole(['CE', 'EE']), (req: Authenticated
 });
 
 // Example route that works with service-to-service calls (no user context required)
-router.get('/service-info', validateServiceAuth, (req: AuthenticatedRequest, res) => {
+router.get('/service-info', validateServiceAuth, (req: AuthenticatedRequest, res: Response) => {
   const { serviceAuth, userContext } = req;
   
   res.json({
@@ -52,7 +53,7 @@ router.get('/service-info', validateServiceAuth, (req: AuthenticatedRequest, res
 });
 
 // Example route for contractors only
-router.post('/contractor-action', requireUserRole(['CONTRACTOR']), (req: AuthenticatedRequest, res) => {
+router.post('/contractor-action', requireUserRole(['CONTRACTOR']), (req: AuthenticatedRequest, res: Response) => {
   const { userContext } = req;
   
   res.json({

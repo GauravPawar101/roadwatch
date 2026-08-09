@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { NextFunction, Request, Response } from 'express-serve-static-core';
 
 export function errorHandler(err: any, req: Request, res: Response, next: NextFunction) {
   console.error(err);

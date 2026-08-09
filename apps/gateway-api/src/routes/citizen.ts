@@ -96,6 +96,20 @@ function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: 
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+/** Live captures: 5 min. Offline-queued sync: 7 days (low-network areas). */
+function validateCaptureTimestamp(capturedAt: string, offlineQueued?: boolean): string | null {
+  const ageMs = Date.now() - new Date(capturedAt).getTime();
+  const maxAgeMs = offlineQueued ? 7 * 24 * 60 * 60 * 1000 : 5 * 60 * 1000;
+  if (!Number.isFinite(ageMs)) return 'Invalid capture timestamp';
+  if (ageMs < 0) return 'Capture timestamp cannot be in the future';
+  if (ageMs > maxAgeMs) {
+    return offlineQueued
+      ? 'Offline capture too old (max 7 days). Please retake the photo on-site.'
+      : 'Capture timestamp too old. Please take a fresh photo on-site.';
+  }
+  return null;
+}
+
 function minDistanceToGeometryMeters(point: { lat: number; lng: number }, geometry: any): number {
   if (!geometry || typeof geometry !== 'object') return Number.POSITIVE_INFINITY;
 
@@ -127,16 +141,15 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
       capturedLat: z.coerce.number().optional(),
       capturedLng: z.coerce.number().optional(),
       capturedAt: z.string().datetime().optional(),
+      offlineQueued: z.coerce.boolean().optional(),
       imageCid: z.string().optional(),
       imageSha256: z.string().optional()
     })
     .parse(req.body);
 
   if (body.capturedAt) {
-    const ageMs = Date.now() - new Date(body.capturedAt).getTime();
-    if (Number.isFinite(ageMs) && ageMs > 5 * 60 * 1000) {
-      return res.status(400).json({ error: 'Capture timestamp too old. Please take a fresh photo on-site.' });
-    }
+    const tsError = validateCaptureTimestamp(body.capturedAt, body.offlineQueued);
+    if (tsError) return res.status(400).json({ error: tsError });
   }
 
   if (body.capturedLat != null && body.capturedLng != null) {
@@ -399,17 +412,16 @@ router.post('/media/upload', requireAuth, requireRole(['CITIZEN']), upload.singl
     .object({
       capturedLat: z.coerce.number(),
       capturedLng: z.coerce.number(),
-      capturedAt: z.string().datetime()
+      capturedAt: z.string().datetime(),
+      offlineQueued: z.coerce.boolean().optional()
     })
     .parse(req.body);
 
   const file = (req as any).file as Express.Multer.File | undefined;
   if (!file?.path) return res.status(400).json({ error: 'image file is required' });
 
-  const ageMs = Date.now() - new Date(body.capturedAt).getTime();
-  if (Number.isFinite(ageMs) && ageMs > 5 * 60 * 1000) {
-    return res.status(400).json({ error: 'Capture timestamp too old. Please capture again.' });
-  }
+  const tsError = validateCaptureTimestamp(body.capturedAt, body.offlineQueued);
+  if (tsError) return res.status(400).json({ error: tsError });
 
   const uploaded = await uploadFileToSupabaseStorage(file.path, file.mimetype ?? 'application/octet-stream');
   res.json({ ok: true, cid: uploaded.cid, sha256: uploaded.hash, provider: uploaded.provider, url: uploaded.url });

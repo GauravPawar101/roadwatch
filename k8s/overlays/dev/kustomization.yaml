@@ -1,22 +1,22 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
-# Dev overlay: builds on base with dev-specific overrides.
-# Images use :local tags (loaded via kind load docker-image).
-# All NodePort mappings match kind-config.yaml extraPortMappings.
+namespace: roadwatch
 
 resources:
   - ../../base
 
-# Dev: single replica, relaxed resource limits, debug logging
 patches:
-  - patch: |-
-      - op: replace
-        path: /data/LOG_LEVEL
-        value: debug
-      - op: replace
-        path: /data/ALLOW_DEV_OTP_ECHO
-        value: "true"
-    target:
+  - path: configmap-app-patch.yaml
+  - path: configmap-cluster-patch.yaml
+
+replacements:
+  - source:
       kind: ConfigMap
-      name: app-config
+      name: cluster-config
+      fieldPath: data.FABRIC_HOST_IP
+    targets:
+      - select:
+          kind: Deployment
+          name: fabric-anchor
+        fieldPaths:
+          - spec.template.spec.hostAliases.0.ip

@@ -1,4 +1,4 @@
-import type { Request, Response } from 'express';
+import type { Request, Response } from 'express-serve-static-core';
 import express from 'express';
 import * as crypto from 'node:crypto';
 import { pool } from '@roadwatch/core';
@@ -8,33 +8,26 @@ import {
     NonceDB,
     PrivacyDB,
     VerificationAuditDB,
-} from '@roadwatch/core/src/db-helpers.js';
-import type { GenerateNonceRequest, VerificationConfig } from '@roadwatch/core/src/image-types.js';
-import {
+    type GenerateNonceRequest,
+    type VerificationConfig,
     applyDuplicatePenalty,
     applyValidSubmissionBonus,
     calculateNewScore,
     canUserSubmit,
     escalatePenalty,
     getTierFromScore,
-    type KarmaConfig
-} from '@roadwatch/core/src/karma-service.js';
-import {
+    type KarmaConfig,
     canGenerateNonce,
     createNonceRecord,
     getTimeRemaining,
     isNonceFresh,
-} from '@roadwatch/core/src/nonce-service.js';
-import {
     canReadSubmission,
     filterImageSubmissionByRole,
-    type PrivacyContext
-} from '@roadwatch/core/src/privacy-service.js';
-import {
+    type PrivacyContext,
     generatePerceptualHash,
     hammingDistance,
     performVerification,
-} from '@roadwatch/core/src/verification-service.js';
+} from '@roadwatch/core';
 import { requireUserContext, type AuthenticatedRequest } from '@roadwatch/sidecar-auth';
 import { ensureAuthenticated } from '../middleware/auth.js';
 import { requireAuthority } from '../middleware/rbac.js';
@@ -100,7 +93,7 @@ export function initializeImageRoutes(pool: Pool): typeof router {
 router.post('/submissions/nonce', permissiveSidecarAuth, requireUserContext, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.userContext!.id;
-    const { request_id, ttl_seconds } = req.body as GenerateNonceRequest;
+    const { request_id, ttl_seconds } = req.body as unknown as GenerateNonceRequest;
 
     if (!userId || !request_id) {
       return res.status(400).json({ error: 'Missing userId or request_id' });
@@ -186,10 +179,11 @@ router.post(
       if (!userId || !request_id || !nonce) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
+      const submitterId = String(userId);
 
       // Check user karma and submission limits
       const karma = await db.karma.getOrCreateRecord(userId);
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = new Date().toISOString().slice(0, 10);
       const canSubmit = canUserSubmit(karma, KARMA_CONFIG, karma.last_submission_date);
       if (!canSubmit.allowed) {
         return res.status(403).json({
@@ -331,7 +325,7 @@ router.post(
       await db.nonce.markNonceUsed(nonce as string);
 
       // Update daily submission count
-      await db.karma.incrementDailySubmissionCount(userId, todayStr);
+      await db.karma.incrementDailySubmissionCount(submitterId, todayStr);
 
       return res.status(201).json({
         id: submission.id,
@@ -359,6 +353,9 @@ router.get('/submissions/:id', ensureAuthenticated, async (req: Request, res: Re
     const userId = (req as any).userId;
     const userRoles = [(req as any).userRole || 'citizen'];
     const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'Missing submission id' });
+    }
 
     const submission = await db.image.getSubmissionById(id);
     if (!submission) {
@@ -456,6 +453,9 @@ router.get('/submissions', ensureAuthenticated, requireAuthority, async (req: Re
 router.get('/karma/:userId', ensureAuthenticated, async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
+    if (!userId) {
+      return res.status(400).json({ error: 'Missing user id' });
+    }
     const requestingUserId = (req as any).userId;
     const userRoles = [(req as any).userRole || 'citizen'];
 

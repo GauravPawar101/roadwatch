@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+data:
+  # ── Runtime ────────────────────────────────────────────────────
+  NODE_ENV:  "production"
+  LOG_LEVEL: "info"
+
+  # ── Gateway API ────────────────────────────────────────────────
+  PORT:               "3100"
+  OTP_TTL_SECONDS:    "300"
+  ALLOW_DEV_OTP_ECHO: "false"
+  LLM_FALLBACK_ORDER: "gemini,ollama,llamacpp"
+  SUPABASE_STORAGE_BUCKET: "roadwatch-media"
+
+  # ── Backend API ────────────────────────────────────────────────
+  BACKEND_PORT: "4001"
+
+  # ── Scheduler cron schedules ───────────────────────────────────
+  CRON_SYNC_QUEUE:        "*/5 * * * *"
+  CRON_KARMA_RECALC:      "0 * * * *"
+  CRON_SLA_CHECK:         "*/30 * * * *"
+  CRON_AUDIT_CLEANUP:     "0 2 * * *"
+  CRON_REPORT_GENERATION: "0 1 * * *"
+
+  # ── CORS (presentation layer origins) ──────────────────────────
+  CORS_ORIGINS: "http://localhost:30080,http://localhost:5173"
+
+  # ── Kafka consumer tuning ──────────────────────────────────────
+  KAFKA_GROUP_ID:           "webhook-handler-k8s"
+  KAFKA_CONSUMER_TIMEOUT:   "3000"
+
+  # ── Background workers ─────────────────────────────────────────
+  NOTIFICATION_DISPATCH_INTERVAL_MS: "10000"

@@ -156,6 +156,26 @@ class FabricLedgerService {
     const result = await this.contract!.evaluateTransaction('GetComplaintHistory', complaintId);
     return parseHistoryPayload(result);
   }
+
+  /**
+   * Submit a Merkle root anchoring a batch of complaints to the ledger.
+   * Returns both the transaction ID and the proposal transaction ID so callers
+   * can build merkle proof records before the tx is committed.
+   */
+  async submitMerkleRoot(merkleRoot: string, regionCode: string, batchSize: number): Promise<{ txId: string; proposalTxId: string }> {
+    await this.ensureConnected();
+    const proposal = this.contract!.newProposal('SubmitMerkleRoot', {
+      arguments: [merkleRoot, regionCode, batchSize.toString()]
+    });
+    const proposalTxId = proposal.getTransactionId();
+    const endorsed = await proposal.endorse();
+    const submitted = await endorsed.submit();
+    const status = await submitted.getStatus();
+    if (!status.successful) {
+      throw new Error(`Fabric SubmitMerkleRoot failed: ${status.transactionId}`);
+    }
+    return { txId: status.transactionId, proposalTxId };
+  }
 }
 
 export const fabricLedgerService = new FabricLedgerService();

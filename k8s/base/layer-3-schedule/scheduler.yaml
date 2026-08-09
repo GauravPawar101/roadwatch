@@ -1,0 +1,55 @@
+# ── Scheduler — StatefulSet ───────────────────────────────────────────────────
+# Cron worker that runs periodic jobs directly against Postgres.
+# StatefulSet with replicas=1 ensures exactly one instance is ever running.
+# A Deployment with replicas>1 would double-fire every cron job.
+#
+# No Kafka involvement — the scheduler only reads/writes Postgres state.
+# It lives in its own layer because its trigger is time, not inbound events.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: scheduler
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: scheduler
+    app.kubernetes.io/part-of: roadwatch
+    layer: schedule
+spec:
+  serviceName: scheduler
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scheduler
+  template:
+    metadata:
+      labels:
+        app: scheduler
+        app.kubernetes.io/name: scheduler
+        layer: schedule
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: scheduler
+          image: roadwatch/scheduler:local
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: infra-config
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: SERVICE_NAME
+              value: "scheduler"
+            - name: SERVICE_URL
+              value: "service://scheduler"
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

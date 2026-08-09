@@ -1,3 +1,4 @@
+export * from './clusters.js';
 export * from './config.js';
 export * from './KafkaClient.js';
 export * from './KafkaProducer.js';

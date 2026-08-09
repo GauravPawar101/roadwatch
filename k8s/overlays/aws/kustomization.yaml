@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: roadwatch
+
+resources:
+  - ../prod
+
+# AWS-specific patches — replace placeholder endpoints with your managed services.
+patches:
+  - path: configmap-infra-patch.yaml

@@ -1,0 +1,94 @@
+# ── PgBouncer — Deployment ────────────────────────────────────────────────────
+# Stateless connection pooler — no local state, safe to restart anytime.
+# Points at postgres-rw:5432 (the ClusterIP alias for the Postgres StatefulSet).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+        app.kubernetes.io/name: pgbouncer
+        layer: platform
+    spec:
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:latest
+          ports:
+            - name: pgbouncer
+              containerPort: 6432
+          env:
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: infra-config
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+            # Point at the ClusterIP alias, not the headless service,
+            # so PgBouncer round-trips to the primary only.
+            - name: DB_HOST
+              value: "postgres-rw"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: infra-config
+                  key: POSTGRES_DB
+            - name: POOL_MODE
+              value: "transaction"
+            - name: MAX_CLIENT_CONN
+              value: "400"
+            - name: DEFAULT_POOL_SIZE
+              value: "50"
+            - name: RESERVE_POOL_SIZE
+              value: "10"
+            - name: LISTEN_PORT
+              value: "6432"
+            - name: AUTH_TYPE
+              value: "scram-sha-256"
+          readinessProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  selector:
+    app: pgbouncer
+  ports:
+    - name: pgbouncer
+      port: 6432
+      targetPort: pgbouncer

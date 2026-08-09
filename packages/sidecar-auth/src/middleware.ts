@@ -1,3 +1,4 @@
+import type { Request } from 'express';
 import jwt from 'jsonwebtoken';
 
 export type ServiceJwtPayload = {
@@ -20,10 +21,10 @@ export type UserContext = {
   zones?: string[];
 };
 
-export type AuthenticatedRequest = Request & {
+export interface AuthenticatedRequest extends Request {
   serviceAuth: ServiceJwtPayload;
   userContext?: UserContext;
-};
+}
 
 function getHeaderValue(headers: Record<string, unknown>, key: string): string | undefined {
   const direct = headers[key];

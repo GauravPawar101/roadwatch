@@ -31,7 +31,7 @@ vi.mock('../middleware/rateLimiter.js', () => rateLimiterMock);
 vi.mock('../services/complaintOutbox.js', () => complaintOutboxMock);
 vi.mock('../services/kafka.js', () => kafkaMock);
 
-import { analyzeComplaintText, summarizeRoadTextIntel } from '@roadwatch/core/src/engines/complaintTextIntel.js';
+import { analyzeComplaintText, summarizeRoadTextIntel } from '@roadwatch/core';
 import complaintsRouter from './complaints.js';
 
 const poolMock = postgresMock.pool;

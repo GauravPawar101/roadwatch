@@ -1,0 +1,121 @@
+# ── Gateway API — Deployment + HPA ───────────────────────────────────────────
+# Stateless HTTP gateway. Auth, routing, service registry, Kafka event outbox.
+# Scales horizontally — no local state (all state in Postgres + Redis).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/part-of: roadwatch
+    layer: ingest-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+        app.kubernetes.io/name: gateway
+        layer: ingest-api
+    spec:
+      containers:
+        - name: gateway
+          image: roadwatch/gateway-api:local
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 3100
+          envFrom:
+            - configMapRef:
+                name: infra-config
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: SERVICE_NAME
+              value: "gateway"
+            - name: SERVICE_URL
+              value: "http://gateway:3100"
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
+            - name: REDIS_URL
+              value: "redis://redis-0.redis.roadwatch.svc.cluster.local:6379/0"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/part-of: roadwatch
+    layer: ingest-api
+spec:
+  selector:
+    app: gateway
+  type: NodePort
+  ports:
+    - name: http
+      port: 3100
+      targetPort: http
+      nodePort: 30100
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway-hpa
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: ingest-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gateway
+  minReplicas: 1
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 60

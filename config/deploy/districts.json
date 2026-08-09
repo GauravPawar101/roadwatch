@@ -1,0 +1,17 @@
+{
+  "default": "MH-MUM",
+  "districts": {
+    "MH-MUM": {
+      "id": "7a01f2c1-2e3b-4c19-9e15-0a1d0d66be33",
+      "name": "Mumbai",
+      "stateCode": "MH",
+      "countryCode": "IN"
+    },
+    "DL-ND": {
+      "id": "b8b5c1d6-3f1e-4c73-9a09-2b2d74c18b6e",
+      "name": "New Delhi",
+      "stateCode": "DL",
+      "countryCode": "IN"
+    }
+  }
+}

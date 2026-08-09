@@ -1,18 +1,50 @@
+# RoadWatch Kubernetes Base Configuration — Layer-Based Architecture
+#
+# Resources are organized by architectural layer for clarity and maintainability.
+# Each component lives in the layer that matches its logical purpose.
+
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: roadwatch
 
+# ── Resource Deployment Order (by layer) ──────────────────────────────────────
+# Apply in order: platform → ingest → HLF buffer → schedule → presentation
+
 resources:
-  - namespace.yaml
-  - configmap-infra.yaml
-  - configmap-app.yaml
-  - configmap-postgres-init.yaml
-  - secret.yaml
-  - postgres.yaml
-  - pgbouncer.yaml
-  - redis.yaml
-  - kafka.yaml
-  - gateway-api.yaml
-  - backend-api.yaml
-  - frontend.yaml
-  - services.yaml
+  # Layer 0 — Platform / Storage (pure persistence, no business logic)
+  - layer-0-platform/namespace.yaml
+  - layer-0-platform/configmap-infra.yaml
+  - layer-0-platform/configmap-app.yaml
+  - layer-0-platform/configmap-cluster.yaml
+  - layer-0-platform/configmap-postgres-init.yaml
+  - layer-0-platform/secret.yaml
+  - layer-0-platform/postgres.yaml
+  - layer-0-platform/pgbouncer.yaml
+  - layer-0-platform/redis.yaml
+
+  # Layer 1 — Ingest / API (receives citizen events, persists, fans out)
+  - layer-1-ingest-api/gateway-api.yaml
+  - layer-1-ingest-api/backend-api.yaml
+
+  # Layer 2 — Ingest.HLF (backpressure buffer between fast DB and slow HLF)
+  - layer-2-ingest-hlf/configmap-fabric.yaml
+  - layer-2-ingest-hlf/kafka-hlf.yaml
+  - layer-2-ingest-hlf/kafka-events.yaml
+  - layer-2-ingest-hlf/consumers.yaml
+
+  # Layer 3 — Schedule (cron jobs on DB state, not event-driven)
+  - layer-3-schedule/scheduler.yaml
+
+  # Layer 4 — Presentation (stateless nginx bundle)
+  - layer-4-presentation/configmap-frontend.yaml
+  - layer-4-presentation/frontend.yaml
+
+# ── ConfigMap Generators ───────────────────────────────────────────────────────
+# postgres-init-sql is populated at deploy time from docker/postgres/init.sql
+
+configMapGenerator:
+  - name: postgres-init-sql
+    namespace: roadwatch
+    behavior: merge
+    files:
+      - init.sql=../../docker/postgres/init.sql

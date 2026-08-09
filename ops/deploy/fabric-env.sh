@@ -14,3 +14,12 @@ set +a
 export FABRIC_CFG_PATH="${FABRIC_CFG_PATH:-$NETWORK_DIR}"
 export REPO_ROOT
 export NETWORK_DIR
+
+# Ensure Fabric binaries are findable.
+# Prefer WSL-native copy (/usr/local/bin/fabric) over Windows-mounted path
+# because DrvFs (/mnt/c/...) doesn't honour Linux execute bits for PATH lookups.
+if [ -d "/usr/local/bin/fabric" ]; then
+  export PATH="/usr/local/bin/fabric:$PATH"
+elif [ -d "$REPO_ROOT/bin" ]; then
+  export PATH="$REPO_ROOT/bin:$PATH"
+fi

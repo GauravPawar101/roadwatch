@@ -1,8 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import ResumableUpload from '../components/ResumableUpload'
+import ResumableUpload, { type MediaCaptureResult } from '../components/ResumableUpload'
 import { useAuth } from '../contexts/AuthContext'
+import { captureGeoPosition, formatCoords } from '../lib/geoCapture'
 import { enqueueAction, saveRecord } from '../lib/offlineStore'
 import { resolveRoadContext } from '../lib/roadContext'
 
@@ -26,8 +27,22 @@ export default function ComplaintWizard() {
   const [damageType, setDamageType] = useState('Potholes & Roads')
   const [severity, setSeverity] = useState(3)
   const [description, setDescription] = useState('')
-  const [mediaAsset, setMediaAsset] = useState<{ uploadId?: string; ipfs?: string; sha?: string; filename?: string } | null>(null)
-  const [status, setStatus] = useState<'draft' | 'submitting' | 'submitted'>('draft')
+  const [mediaAsset, setMediaAsset] = useState<MediaCaptureResult | null>(null)
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [locating, setLocating] = useState(true)
+  const [status, setStatus] = useState<'draft' | 'submitting' | 'submitted' | 'queued'>('draft')
+
+  useEffect(() => {
+    let mounted = true
+    captureGeoPosition().then((capture) => {
+      if (!mounted) return
+      setLocation({ lat: capture.lat, lng: capture.lng })
+      setLocating(false)
+    })
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   // Auth loading state
   if (loading) {
@@ -76,6 +91,12 @@ export default function ComplaintWizard() {
 
   async function submit() {
     setStatus('submitting')
+    const pin = location ?? { lat: 18.5204, lng: 73.8567 }
+    const capturedLat = mediaAsset?.capturedLat ?? pin.lat
+    const capturedLng = mediaAsset?.capturedLng ?? pin.lng
+    const capturedAt = mediaAsset?.capturedAt ?? new Date().toISOString()
+    const offlineQueued = Boolean(mediaAsset?.offline || mediaAsset?.localMediaId)
+
     const payload = {
       id: complaintId,
       roadId: id || 'r1',
@@ -91,7 +112,12 @@ export default function ComplaintWizard() {
       routedTo: roadContext.officerLabel,
       assignedAuthority: roadContext.officerLabel,
       assignedContractor: roadContext.contractorProfileName,
-      location: { lat: 18.5204, lng: 73.8567 },
+      location: pin,
+      capturedLat,
+      capturedLng,
+      capturedAt,
+      offlineQueued,
+      localMediaId: mediaAsset?.localMediaId,
       media: mediaAsset,
       slaRemaining: severity >= 4 ? '24h remaining' : severity === 3 ? '48h remaining' : '14-day SLA',
       financeSnapshot: roadContext.finance,
@@ -100,7 +126,7 @@ export default function ComplaintWizard() {
     const apiBase = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:3100'
     const token = localStorage.getItem('roadwatch_token')
 
-    if (navigator.onLine && token) {
+    if (navigator.onLine && token && !offlineQueued) {
       try {
         const res = await fetch(`${apiBase}/citizen/complaints`, {
           method: 'POST',
@@ -108,12 +134,15 @@ export default function ComplaintWizard() {
           body: JSON.stringify({
             roadId: payload.roadId,
             description: payload.description,
-            lat: payload.location.lat,
-            lng: payload.location.lng,
+            lat: pin.lat,
+            lng: pin.lng,
+            capturedLat,
+            capturedLng,
+            capturedAt,
             imageCid: mediaAsset?.ipfs,
             imageSha256: mediaAsset?.sha,
             uploadId: mediaAsset?.uploadId,
-          })
+          }),
         })
         if (res.ok) {
           const data = await res.json()
@@ -128,28 +157,25 @@ export default function ComplaintWizard() {
 
     await saveRecord('complaints', complaintId, payload)
     await enqueueAction('submit-complaint', payload)
-    setStatus('submitted')
+    setStatus('queued')
   }
 
-  async function onMediaComplete(result: any) {
-    const nextMedia = {
-      uploadId: result?.uploadId,
-      ipfs: result?.ipfs,
-      sha: result?.sha,
-      filename: result?.filename || 'evidence_attachment.jpg',
+  async function onMediaComplete(result: MediaCaptureResult) {
+    setMediaAsset(result)
+    if (result.capturedLat != null && result.capturedLng != null) {
+      setLocation({ lat: result.capturedLat, lng: result.capturedLng })
     }
-    setMediaAsset(nextMedia)
     await saveRecord('complaint_uploads', complaintId, {
       complaintId,
       roadId: id || 'r1',
       roadName: roadContext.roadName,
-      ...nextMedia,
+      ...result,
       completedAt: new Date().toISOString(),
     })
   }
 
-  // Submitted success state
-  if (status === 'submitted') {
+  // Submitted / queued success state
+  if (status === 'submitted' || status === 'queued') {
     return (
       <div className="page-radial-bg min-h-screen text-on-surface flex items-center justify-center p-6 font-sans">
         <motion.div
@@ -162,11 +188,13 @@ export default function ComplaintWizard() {
           </div>
           <div>
             <span className="px-3 py-1 rounded-[8px] bg-tertiary-fixed text-on-tertiary-fixed text-[12px] font-semibold uppercase tracking-wider mb-3 inline-block">
-              Saved Offline First
+              {status === 'queued' ? 'Saved Offline First' : 'Submitted'}
             </span>
             <h1 className="text-[24px] font-bold text-primary tracking-tight mb-2">Grievance Logged</h1>
             <p className="text-on-surface-variant text-[14px] leading-[20px]">
-              Your structural grievance has been encrypted and saved in the secure device database. Offline outbox will automatically broadcast it to local authorities upon cellular connectivity.
+              {status === 'queued'
+                ? 'Your report and geotagged photo are stored on this device. They will sync automatically when you have network connectivity.'
+                : 'Your structural grievance has been submitted to local authorities.'}
             </p>
           </div>
           <div className="w-full flex flex-col gap-3">
@@ -372,7 +400,9 @@ export default function ComplaintWizard() {
                       </div>
                     </div>
                     <div className="absolute bottom-4 right-4 bg-white/90 border border-[#c4c6cf] px-3 py-1 rounded text-[13px] font-medium text-[#0b1c30]">
-                      18.5204° N, 73.8567° E (Road Segment: {id || 'r1'})
+                      {locating
+                        ? 'Locating…'
+                        : `${formatCoords(location?.lat ?? 0, location?.lng ?? 0)} (Road Segment: ${id || 'r1'})`}
                     </div>
                   </div>
                 </section>
@@ -429,8 +459,18 @@ export default function ComplaintWizard() {
                     <div className="p-4 rounded-xl bg-[#eff4ff] border border-[#d3e4fe]">
                       <div className="text-[11px] uppercase tracking-widest text-[#74777f] font-bold">Current upload state</div>
                       <div className="mt-2 text-[14px] font-semibold text-[#002045]">
-                        {mediaAsset ? 'Photo captured and queued for submission' : 'Waiting for the first photo'}
+                        {mediaAsset
+                          ? mediaAsset.offline
+                            ? 'Photo cached on device (geotagged)'
+                            : 'Photo captured and queued for submission'
+                          : 'Waiting for the first photo'}
                       </div>
+                      {mediaAsset?.capturedAt && (
+                        <div className="mt-1 text-[12px] text-[#43474e]">
+                          {formatCoords(mediaAsset.capturedLat, mediaAsset.capturedLng)} ·{' '}
+                          {new Date(mediaAsset.capturedAt).toLocaleString()}
+                        </div>
+                      )}
                     </div>
                     {mediaAsset && (
                       <div className="flex items-center justify-between p-3 bg-[#eff4ff] border border-[#c4c6cf] border-l-4 border-l-[#1960a3] rounded-lg">

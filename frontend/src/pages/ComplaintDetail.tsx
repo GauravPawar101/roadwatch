@@ -1,74 +1,43 @@
-import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { getRecord } from '../lib/offlineStore'
-
-type Complaint = {
-  id: string
-  title: string
-  roadId: string
-  damageType: string
-  severity: number
-  status: string
-  anchored_at?: string | null
-  anchored_tx_hash?: string | null
-  fabric_txid?: string | null
-  createdAt: string
-  slaDeadline: string
-  routedTo: string
-  location?: { lat?: number; lng?: number }
-  media?: Array<{ id: string; type: 'photo' | 'video'; dataUrl?: string; status: string; timestamp: string }>
-  notes?: string
-}
-
-type ComplaintUpload = {
-  complaintId: string
-  roadId?: string
-  uploadId?: string
-  ipfs?: string
-  sha?: string
-  filename?: string
-  completedAt?: string
-}
+import { useComplaint } from '../hooks/useComplaints'
 
 export default function ComplaintDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const [complaint, setComplaint] = useState<Complaint | null>(null)
-  const [upload, setUpload] = useState<ComplaintUpload | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    Promise.all([
-      getRecord('complaints', String(id)),
-      getRecord('complaint_uploads', String(id)),
-    ])
-      .then(([found, foundUpload]) => {
-        setComplaint((found as Complaint) || null)
-        setUpload((foundUpload as ComplaintUpload) || null)
-      })
-      .finally(() => setLoading(false))
-  }, [id])
+  const { complaint, loading, error } = useComplaint(String(id ?? ''))
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f8f9ff] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1960a3]" />
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-secondary" />
       </div>
     )
   }
 
-  const currentComplaint = complaint || {
-    id: id || 'IGP-88291-TX',
-    title: 'Major Pothole & Structural Degradation: West 14th St',
-    roadId: 'West 14th St, Austin, TX',
-    damageType: 'Pothole',
-    severity: 5,
-    status: 'In Progress',
-    createdAt: '2026-05-18T10:24:00Z',
-    slaDeadline: '2026-05-25T10:24:00Z',
-    routedTo: 'Austin Road Services (Team B)',
-    location: { lat: 30.2672, lng: -97.7431 },
-    notes: 'Severe safety hazard observed near intersection. Highly prone to accidents.'
+  if (!complaint || error) {
+    return (
+      <div className="container-max flex min-h-[60vh] flex-col items-center justify-center text-center">
+        <p className="text-title-lg font-semibold text-on-surface">Complaint not found</p>
+        <p className="mt-2 text-body-md text-on-surface-variant">{error || 'This complaint may have been removed or you lack access.'}</p>
+        <button type="button" onClick={() => navigate('/complaints')} className="btn-primary mt-6">
+          Back to my reports
+        </button>
+      </div>
+    )
+  }
+
+  const currentComplaint = {
+    id: complaint.id,
+    title: complaint.title,
+    roadId: complaint.roadId,
+    damageType: complaint.damageType,
+    severity: complaint.severity,
+    status: complaint.status,
+    createdAt: complaint.createdAt,
+    slaDeadline: complaint.updatedAt,
+    routedTo: complaint.district || 'Assigned authority',
+    location: { lat: complaint.lat, lng: complaint.lng },
+    notes: complaint.description,
   }
 
   function normalizeStatusDisplay(status: string) {

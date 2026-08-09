@@ -1,6 +1,7 @@
 import cors from 'cors';
 import { config as loadEnv } from 'dotenv';
 import express from 'express';
+import type { Request, Response } from 'express-serve-static-core';
 import morgan from 'morgan';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,8 +49,8 @@ app.use(cors({
 app.use(express.json({ limit: '2mb' }));
 app.use(morgan('dev'));
 
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
-app.get('/health/db', async (_req, res) => {
+app.get('/health', (_req: Request, res: Response) => res.json({ status: 'ok' }));
+app.get('/health/db', async (_req: Request, res: Response) => {
   try {
     await pool.query('SELECT 1');
     res.json({ status: 'ok' });

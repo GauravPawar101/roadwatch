@@ -1,4 +1,5 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import AgentChatAuthority from './authority/AgentChatAuthority'
 import Analytics from './authority/Analytics'
 import AssignInspector from './authority/AssignInspector'
@@ -11,7 +12,7 @@ import RoadProfileAdmin from './authority/RoadProfileAdmin'
 import FloatingAssistant from './components/FloatingAssistant'
 import HeaderClean from './components/HeaderClean'
 import OfflineBanner from './components/OfflineBanner'
-import { AuthorityGuard, CitizenGuard, ContractorGuard } from './components/ProtectedRoute'
+import { AuthorityGuard, CitizenGuard, ContractorGuard, GuestOnly } from './components/ProtectedRoute'
 import AgentChatContractor from './contractor/AgentChatContractor'
 import ContractorComplaintDetail from './contractor/ComplaintDetail'
 import ComplaintsOnMyRoads from './contractor/ComplaintsOnMyRoads'
@@ -44,14 +45,24 @@ import CitizenLogin from './pages/auth/CitizenLogin'
 import CitizenSignup from './pages/auth/CitizenSignup'
 import ContractorLogin from './pages/auth/ContractorLogin'
 import ContractorSignup from './pages/auth/ContractorSignup'
+import NotFound from './pages/NotFound'
+import { startAutoSyncOnReconnect } from './lib/offlineStore'
 
-export default function App() {
+function AppChrome() {
+  const location = useLocation();
+  const isAuthPage = location.pathname.startsWith('/auth/') || location.pathname === '/login';
+  const showAssistant = !isAuthPage;
+
+  useEffect(() => {
+    startAutoSyncOnReconnect()
+  }, [])
+
   return (
-    <BrowserRouter>
+    <>
       <OfflineBanner />
-      <FloatingAssistant />
+      {showAssistant && <FloatingAssistant />}
       <HeaderClean />
-      <main className="page-radial-bg min-h-[calc(100vh-64px)]">
+      <main className="min-h-[calc(100vh-64px)] bg-white">
         <Routes>
           {/* Public Dashboard - No Login Required */}
           <Route path="/" element={<CitizenDashboard />} />
@@ -63,12 +74,12 @@ export default function App() {
           <Route path="/road/:id/history" element={<RoadHistory />} />
 
           {/* Canonical auth routes */}
-          <Route path="/auth/citizen/login" element={<CitizenLogin />} />
-          <Route path="/auth/citizen/signup" element={<CitizenSignup />} />
-          <Route path="/auth/authority/login" element={<AuthorityLogin />} />
-          <Route path="/auth/authority/signup" element={<AuthoritySignup />} />
-          <Route path="/auth/contractor/login" element={<ContractorLogin />} />
-          <Route path="/auth/contractor/signup" element={<ContractorSignup />} />
+          <Route path="/auth/citizen/login" element={<GuestOnly><CitizenLogin /></GuestOnly>} />
+          <Route path="/auth/citizen/signup" element={<GuestOnly><CitizenSignup /></GuestOnly>} />
+          <Route path="/auth/authority/login" element={<GuestOnly><AuthorityLogin /></GuestOnly>} />
+          <Route path="/auth/authority/signup" element={<GuestOnly><AuthoritySignup /></GuestOnly>} />
+          <Route path="/auth/contractor/login" element={<GuestOnly><ContractorLogin /></GuestOnly>} />
+          <Route path="/auth/contractor/signup" element={<GuestOnly><ContractorSignup /></GuestOnly>} />
 
           {/* Backward-compatible auth redirects */}
           <Route path="/login" element={<AuthHub />} />
@@ -124,10 +135,18 @@ export default function App() {
           <Route path="/super-admin" element={<Navigate to="/dashboard/super-admin" replace />} />
 
           {/* Catch all */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppChrome />
     </BrowserRouter>
-  )
+  );
 }
 

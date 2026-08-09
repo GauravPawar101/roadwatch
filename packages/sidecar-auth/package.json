@@ -3,8 +3,15 @@
   "version": "1.0.0",
   "description": "Sidecar authentication middleware for Roadwatch microservices",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -16,6 +23,7 @@
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
+    "@types/express-serve-static-core": "^4.19.0",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.10.5",
     "typescript": "^5.3.3"

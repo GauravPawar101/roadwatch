@@ -20,5 +20,5 @@
       "@roadwatch/sidecar-auth": ["../../packages/sidecar-auth/src/index.ts"]
     }
   },
-  "include": ["src", "scripts"]
+  "include": ["src"]
 }

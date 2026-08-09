@@ -1,44 +1,57 @@
 import { Kafka as KafkaJS, Partitioners } from 'kafkajs';
-import type { IEventBus } from '@roadwatch/core/src/interfaces/IEventBus.js';
-import { getLocalKafkaBrokers } from './config.js';
+import type { IEventBus, PublishOptions } from '@roadwatch/core';
+import { type KafkaCluster, getPublishClustersForTopic } from './clusters.js';
+import { getEventsKafkaBrokers, getHlfKafkaBrokers } from './config.js';
 
-export type PublishOptions = {
-  key?: string;
-  headers?: Record<string, string>;
+type ClusterProducer = {
+  producer: ReturnType<KafkaJS['producer']>;
+  connected: boolean;
 };
 
-function approxBytes(value: string): number {
-  return Buffer.byteLength(value, 'utf8');
-}
-
 export class KafkaProducer implements IEventBus {
-  private localProducer: ReturnType<KafkaJS['producer']> | null = null;
-  private localConnected = false;
+  private readonly clusterProducers = new Map<KafkaCluster, ClusterProducer>();
 
-  private async ensureLocalConnected(): Promise<void> {
-    if (this.localConnected) return;
-
-    const brokers = getLocalKafkaBrokers();
+  private brokersForCluster(cluster: KafkaCluster): string[] {
+    const brokers = cluster === 'hlf' ? getHlfKafkaBrokers() : getEventsKafkaBrokers();
     if (!brokers) {
-      throw new Error('Kafka is required but KAFKA_BROKER(S) is not set');
+      throw new Error(
+        cluster === 'hlf'
+          ? 'HLF Kafka is required but KAFKA_HLF_BROKERS is not set'
+          : 'Events Kafka is required but KAFKA_EVENTS_BROKERS is not set'
+      );
     }
-
-    if (!this.localProducer) {
-      const kafka = new KafkaJS({ clientId: 'roadwatch', brokers });
-      this.localProducer = kafka.producer({
-        createPartitioner: Partitioners.LegacyPartitioner
-      });
-    }
-
-    await this.localProducer.connect();
-    this.localConnected = true;
+    return brokers;
   }
 
-  async publish(topic: string, event: unknown, options?: PublishOptions): Promise<void> {
-    const serialized = JSON.stringify(event);
+  private async ensureClusterConnected(cluster: KafkaCluster): Promise<ClusterProducer> {
+    const existing = this.clusterProducers.get(cluster);
+    if (existing?.connected) return existing;
 
-    await this.ensureLocalConnected();
-    await this.localProducer!.send({
+    const brokers = this.brokersForCluster(cluster);
+    const entry = existing ?? {
+      producer: new KafkaJS({ clientId: `roadwatch-${cluster}`, brokers }).producer({
+        createPartitioner: Partitioners.LegacyPartitioner
+      }),
+      connected: false
+    };
+
+    if (!entry.connected) {
+      await entry.producer.connect();
+      entry.connected = true;
+    }
+
+    this.clusterProducers.set(cluster, entry);
+    return entry;
+  }
+
+  private async sendToCluster(
+    cluster: KafkaCluster,
+    topic: string,
+    serialized: string,
+    options?: PublishOptions
+  ): Promise<void> {
+    const { producer } = await this.ensureClusterConnected(cluster);
+    await producer.send({
       topic,
       messages: [
         {
@@ -50,40 +63,49 @@ export class KafkaProducer implements IEventBus {
     });
   }
 
+  async publish(topic: string, event: unknown, options?: PublishOptions): Promise<void> {
+    const serialized = JSON.stringify(event);
+    const clusters = getPublishClustersForTopic(topic);
+
+    await Promise.all(clusters.map(cluster => this.sendToCluster(cluster, topic, serialized, options)));
+  }
+
   async publishMany(
     events: Array<{ topic: string; event: unknown; key?: string; headers?: Record<string, string> }>
   ): Promise<void> {
-    await this.ensureLocalConnected();
-
-    const byTopic = new Map<
-      string,
-      Array<{ value: string; key?: string; headers?: Record<string, string> }>
-    >();
+    const grouped = new Map<KafkaCluster, Map<string, Array<{ value: string; key?: string; headers?: Record<string, string> }>>>();
 
     for (const item of events) {
       const serialized = JSON.stringify(item.event);
-      const list = byTopic.get(item.topic) ?? [];
-      list.push({ value: serialized, key: item.key, headers: item.headers });
-      byTopic.set(item.topic, list);
+      const message = { value: serialized, key: item.key, headers: item.headers };
+
+      for (const cluster of getPublishClustersForTopic(item.topic)) {
+        const byTopic = grouped.get(cluster) ?? new Map();
+        const list = byTopic.get(item.topic) ?? [];
+        list.push(message);
+        byTopic.set(item.topic, list);
+        grouped.set(cluster, byTopic);
+      }
     }
 
     await Promise.all(
-      Array.from(byTopic.entries()).map(([topic, messages]) =>
-        this.localProducer!.send({ topic, messages })
+      Array.from(grouped.entries()).flatMap(([cluster, byTopic]) =>
+        Array.from(byTopic.entries()).map(async ([topic, messages]) => {
+          const { producer } = await this.ensureClusterConnected(cluster);
+          await producer.send({ topic, messages });
+        })
       )
     );
   }
 
   async disconnect(): Promise<void> {
-    if (!this.localProducer) {
-      return;
-    }
-
-    if (this.localConnected) {
-      await this.localProducer.disconnect();
-    }
-
-    this.localConnected = false;
-    this.localProducer = null;
+    await Promise.all(
+      Array.from(this.clusterProducers.values()).map(async entry => {
+        if (entry.connected) {
+          await entry.producer.disconnect();
+        }
+      })
+    );
+    this.clusterProducers.clear();
   }
 }

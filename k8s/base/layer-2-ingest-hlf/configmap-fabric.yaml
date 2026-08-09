@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fabric-config
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: ingest-hlf
+data:
+  # ── Fabric Network ─────────────────────────────────────────────
+  FABRIC_MSP_ID:          "NHAIMSP"
+  FABRIC_CHANNEL_NAME:    "roadwatch-india"
+  FABRIC_CHAINCODE_NAME:  "complaint-anchor"
+  FABRIC_PEER_HOST_ALIAS: "peer0.nhai.roadwatch.com"
+  FABRIC_PEER_ENDPOINT:   "peer0.nhai.roadwatch.com:17051"
+
+  # ── Certificate mount paths (from fabric-certs Secret) ─────────
+  FABRIC_TLS_CERT_PATH:  "/fabric/tls/ca.crt"
+  FABRIC_X509_CERT_PATH: "/fabric/msp/cert.pem"
+  FABRIC_X509_KEY_PATH:  "/fabric/msp/key.pem"
+
+  # ── Kafka consumer identity for HLF anchor consumer ────────────
+  KAFKA_CONSUMER_GROUP_ID:  "fabric-anchor-consumer-k8s"
+  KAFKA_CONSUMER_INSTANCE_ID: "fabric-anchor-k8s-0"

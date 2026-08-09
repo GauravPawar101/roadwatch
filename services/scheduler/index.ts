@@ -2,30 +2,7 @@ import 'dotenv/config';
 
 import cron from 'node-cron';
 import { Pool } from 'pg';
-
-async function registerServiceWithGateway(input: {
-  gatewayUrl: string;
-  service: {
-    name: string;
-    address: string;
-    description?: string;
-  };
-  registrySecret?: string;
-}): Promise<void> {
-  const response = await fetch(`${input.gatewayUrl.replace(/\/$/, '')}/services/register`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(input.registrySecret ? { 'x-service-registry-secret': input.registrySecret } : {})
-    },
-    body: JSON.stringify(input.service)
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Service registration failed (${response.status}): ${body}`);
-  }
-}
+import { registerServiceWithGateway } from '@roadwatch/sidecar-auth';
 
 interface SchedulerConfig {
   serviceName: string;
@@ -431,8 +408,9 @@ async function initializeScheduler(): Promise<void> {
       name: config.serviceName,
       address: process.env.SERVICE_URL ?? `service://${config.serviceName}`,
       description: 'RoadWatch scheduler worker'
-    },
-    registrySecret: process.env.SERVICE_REGISTRY_SECRET
+    }
+  }).then(() => {
+    console.log(`[${config.serviceName}] registered with gateway`);
   }).catch(error => {
     console.warn(`[${config.serviceName}] service registration failed:`, error instanceof Error ? error.message : String(error));
   });

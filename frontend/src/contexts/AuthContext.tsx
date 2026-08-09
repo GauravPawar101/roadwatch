@@ -1,5 +1,6 @@
 /* @refresh reset */
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { isOfflineToken, parseStoredUser } from '../lib/authRedirect';
 
 export type Role = 'CITIZEN' | 'CE' | 'EE' | 'CONTRACTOR' | 'SUPER_ADMIN';
 
@@ -26,98 +27,126 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function normalizeRole(role: Role | string) {
+  if (!role) return 'citizen';
+  const r = String(role).toUpperCase();
+  if (r === 'CONTRACTOR') return 'contractor';
+  if (r === 'CITIZEN') return 'citizen';
+  return 'authority';
+}
+
+function normalizeUser(data: unknown): AuthUser | null {
+  if (!data || typeof data !== 'object') return null;
+  const record = data as Record<string, unknown>;
+  const nested = record.user;
+  const source = nested && typeof nested === 'object' ? (nested as Record<string, unknown>) : record;
+  if (!source.id || !source.role) return null;
+  return {
+    id: String(source.id),
+    email: source.email ? String(source.email) : undefined,
+    phone: source.phone ? String(source.phone) : undefined,
+    username: source.username ? String(source.username) : undefined,
+    role: String(source.role).toUpperCase() as Role,
+    fabricVerified: Boolean(source.fabricVerified),
+    districts: Array.isArray(source.districts) ? source.districts.map(String) : undefined,
+    zones: Array.isArray(source.zones) ? source.zones.map(String) : undefined,
+  };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    const stored = localStorage.getItem('roadwatch_user');
+    return parseStoredUser(stored);
+  });
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('roadwatch_token'));
   const [loading, setLoading] = useState(true);
 
-  function normalizeRole(role: Role | string) {
-    if (!role) return 'citizen'
-    const r = String(role).toUpperCase()
-    if (r === 'CONTRACTOR') return 'contractor'
-    if (r === 'CITIZEN') return 'citizen'
-    // CE/EE and other authority variants map to authority
-    return 'authority'
-  }
-
-  // Load auth from localStorage on mount and validate/refresh with API
   useEffect(() => {
     let mounted = true;
 
     async function initAuth() {
       const storedToken = localStorage.getItem('roadwatch_token');
-      const storedUser = localStorage.getItem('roadwatch_user');
+      const storedUser = parseStoredUser(localStorage.getItem('roadwatch_user'));
+
+      if (!storedToken || !storedUser) {
+        if (mounted) setLoading(false);
+        return;
+      }
+
+      // Restore session immediately so navigation/back works while we validate
+      if (mounted) {
+        setToken(storedToken);
+        setUser(storedUser);
+      }
+
+      // Offline/demo tokens — keep local session, skip API validation
+      if (isOfflineToken(storedToken)) {
+        if (mounted) setLoading(false);
+        return;
+      }
+
       const apiBase = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:3100';
 
-      if (storedToken && storedUser) {
-        try {
-          // Validate token with backend
-          const response = await fetch(`${apiBase}/auth/me`, {
-            headers: {
-              'Authorization': `Bearer ${storedToken}`,
-              'Content-Type': 'application/json'
-            }
+      try {
+        const response = await fetch(`${apiBase}/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${storedToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const validated = normalizeUser(data) ?? storedUser;
+          if (mounted) {
+            setToken(storedToken);
+            setUser(validated);
+            localStorage.setItem('roadwatch_user', JSON.stringify(validated));
+            localStorage.setItem('roadwatch_role', normalizeRole(validated.role));
+          }
+        } else if (response.status === 401) {
+          const refreshResponse = await fetch(`${apiBase}/auth/refresh`, {
+            method: 'POST',
+            credentials: 'include',
           });
 
-          if (response.ok) {
-            const userData = await response.json();
+          if (refreshResponse.ok) {
+            const payload = await refreshResponse.json();
+            const refreshedUser = normalizeUser(payload) ?? storedUser;
+            const newToken = payload.token ?? storedToken;
             if (mounted) {
-              setToken(storedToken);
-              setUser(userData);
+              localStorage.setItem('roadwatch_token', newToken);
+              localStorage.setItem('roadwatch_user', JSON.stringify(refreshedUser));
+              localStorage.setItem('roadwatch_role', normalizeRole(refreshedUser.role));
+              setToken(newToken);
+              setUser(refreshedUser);
             }
-          } else if (response.status === 401) {
-            // Token expired, try to refresh
-            const refreshResponse = await fetch(`${apiBase}/auth/refresh`, {
-              method: 'POST',
-              credentials: 'include' // Include refresh token cookie
-            });
-
-            if (refreshResponse.ok) {
-              const { token: newToken, user: refreshedUser } = await refreshResponse.json();
-              if (mounted) {
-                localStorage.setItem('roadwatch_token', newToken);
-                localStorage.setItem('roadwatch_user', JSON.stringify(refreshedUser));
-                setToken(newToken);
-                setUser(refreshedUser);
-              }
-            } else {
-              // Refresh failed, clear auth
-              if (mounted) {
-                localStorage.removeItem('roadwatch_token');
-                localStorage.removeItem('roadwatch_user');
-                setToken(null);
-                setUser(null);
-              }
-            }
+          } else if (mounted) {
+            // Only clear on confirmed auth failure
+            localStorage.removeItem('roadwatch_token');
+            localStorage.removeItem('roadwatch_user');
+            localStorage.removeItem('roadwatch_role');
+            setToken(null);
+            setUser(null);
           }
-        } catch (error) {
-          console.error('Auth validation failed:', error);
-          if (mounted) {
-            // Keep stored auth for offline usage
-            try {
-              const parsedUser = JSON.parse(storedUser);
-              setToken(storedToken);
-              setUser(parsedUser);
-            } catch (parseError) {
-              localStorage.removeItem('roadwatch_token');
-              localStorage.removeItem('roadwatch_user');
-            }
-          }
+        }
+        // Other errors (5xx, offline): keep stored session
+      } catch {
+        // Network error — keep stored session for offline use
+        if (mounted) {
+          setToken(storedToken);
+          setUser(storedUser);
         }
       }
 
-      if (mounted) {
-        setLoading(false);
-      }
+      if (mounted) setLoading(false);
     }
 
     initAuth();
-
     return () => {
       mounted = false;
     };
   }, []);
-
 
   const login = (newToken: string, newUser: AuthUser) => {
     setToken(newToken);
@@ -156,7 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated: !!token && !!user,
         login,
         logout,
-        setUser: updateUser
+        setUser: updateUser,
       }}
     >
       {children}
@@ -172,9 +201,6 @@ export function useAuth() {
   return context;
 }
 
-/**
- * Hook to fetch current user from API
- */
 export function useCurrentUser() {
   const { user, token } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -189,7 +215,7 @@ export function useCurrentUser() {
     try {
       const apiBase = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:3100';
       const response = await fetch(`${apiBase}/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!response.ok) {
@@ -197,7 +223,7 @@ export function useCurrentUser() {
       }
 
       const data = await response.json();
-      return data.user;
+      return normalizeUser(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch user';
       setError(message);

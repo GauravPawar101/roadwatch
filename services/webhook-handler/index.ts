@@ -4,6 +4,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { Kafka } from 'kafkajs';
 import pg from 'pg';
+import { registerServiceWithGateway } from '@roadwatch/sidecar-auth';
 
 type NotificationSendEvent = {
   idempotencyKey: string;
@@ -13,32 +14,6 @@ type NotificationSendEvent = {
   params: Record<string, string>;
   priority?: 'low' | 'normal' | 'high';
 };
-
-type ServiceRegistrationInput = {
-  name: string;
-  address: string;
-  description?: string;
-};
-
-async function registerServiceWithGateway(input: {
-  gatewayUrl: string;
-  service: ServiceRegistrationInput;
-  registrySecret?: string;
-}): Promise<void> {
-  const response = await fetch(`${input.gatewayUrl.replace(/\/$/, '')}/services/register`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(input.registrySecret ? { 'x-service-registry-secret': input.registrySecret } : {})
-    },
-    body: JSON.stringify(input.service)
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Service registration failed (${response.status}): ${body}`);
-  }
-}
 
 const { Pool } = pg;
 const pool = new Pool({
@@ -76,7 +51,7 @@ interface Config {
 }
 
 function getConfig(): Config {
-  const brokers = (process.env.KAFKA_BROKERS || '127.0.0.1:9094').split(',');
+  const brokers = (process.env.KAFKA_EVENTS_BROKERS || process.env.KAFKA_BROKERS || '127.0.0.1:9095').split(',');
   return {
     kafkaBrokers: brokers,
     kafkaGroupId: process.env.KAFKA_GROUP_ID || 'webhook-handler',
@@ -519,8 +494,9 @@ async function initializeWebhookHandler(): Promise<void> {
         name: config.serviceName,
         address: process.env.SERVICE_URL ?? `service://${config.serviceName}`,
         description: 'RoadWatch Kafka webhook handler'
-      },
-      registrySecret: process.env.SERVICE_REGISTRY_SECRET
+      }
+    }).then(() => {
+      console.log(`[${config.serviceName}] registered with gateway`);
     }).catch(error => {
       console.warn(`[${config.serviceName}] service registration failed:`, error instanceof Error ? error.message : String(error));
     });

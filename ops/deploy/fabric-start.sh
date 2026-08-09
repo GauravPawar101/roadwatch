@@ -100,6 +100,9 @@ fi
 cp -f "$ROOT_DIR/config/core.yaml" "$NETWORK_DIR/core.yaml"
 export FABRIC_CFG_PATH="$NETWORK_DIR"
 
+# Change to the network directory for all subsequent relative paths
+cd "$NETWORK_DIR"
+
 ORDERER_CA="$NETWORK_DIR/organizations/ordererOrganizations/orderer.roadwatch.com/orderers/orderer1.orderer.roadwatch.com/msp/tlscacerts/tlsca.orderer.roadwatch.com-cert.pem"
 
 setPeerContext() {

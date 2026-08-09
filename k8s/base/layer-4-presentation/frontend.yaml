@@ -1,0 +1,70 @@
+# ── Frontend — Deployment ─────────────────────────────────────────────────────
+# Stateless nginx bundle. VITE_API_BASE is baked in at image build time.
+# Completely safe to scale, roll, or restart without any data concern.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: roadwatch
+    layer: presentation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        app.kubernetes.io/name: frontend
+        layer: presentation
+    spec:
+      containers:
+        - name: frontend
+          image: roadwatch/frontend:local
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: roadwatch
+    layer: presentation
+spec:
+  selector:
+    app: frontend
+  type: NodePort
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30080

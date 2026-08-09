@@ -36,6 +36,7 @@ export type SidecarServiceRoutesOptions = {
   issuer?: string;
   serviceAuthSecret?: string;
   serviceRegistrySecret?: string;
+  registry?: ReturnType<typeof createServiceRegistry>;
 };
 
 function getServiceSecret(options?: SidecarServiceRoutesOptions): string {
@@ -266,6 +267,13 @@ export function requireRegistrySecret(options?: SidecarServiceRoutesOptions) {
   };
 }
 
+const registrationAttempts = 8;
+const registrationBaseDelayMs = 250;
+
+function resolveRegistrySecret(explicit?: string): string | undefined {
+  return explicit?.trim() || process.env.SERVICE_REGISTRY_SECRET?.trim() || undefined;
+}
+
 /**
  * HTTP client helper — register this service remotely with the gateway.
  * Returns the registered service details and the registration token to use in future calls.
@@ -276,21 +284,34 @@ export async function registerServiceWithGateway(input: {
   registrySecret?: string;
 }): Promise<{ service: RegisteredService; registrationToken: string }> {
   const url = `${input.gatewayUrl.replace(/\/$/, '')}/services/register`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(input.registrySecret ? { 'x-service-registry-secret': input.registrySecret } : {})
-    },
-    body: JSON.stringify(input.service)
-  });
+  const registrySecret = resolveRegistrySecret(input.registrySecret);
 
-  if (!response.ok) {
+  for (let attempt = 1; attempt <= registrationAttempts; attempt += 1) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(registrySecret ? { 'x-service-registry-secret': registrySecret } : {})
+      },
+      body: JSON.stringify(input.service)
+    });
+
+    if (response.ok) {
+      return response.json() as Promise<{ service: RegisteredService; registrationToken: string }>;
+    }
+
     const body = await response.text();
-    throw new Error(`Service registration failed (${response.status}): ${body}`);
+    const error = new Error(`Service registration failed (${response.status}): ${body}`);
+    const isLastAttempt = attempt === registrationAttempts;
+    if (isLastAttempt) {
+      throw error;
+    }
+
+    const delayMs = Math.min(registrationBaseDelayMs * 2 ** (attempt - 1), 2000);
+    await new Promise(resolve => setTimeout(resolve, delayMs));
   }
 
-  return response.json() as Promise<{ service: RegisteredService; registrationToken: string }>;
+  throw new Error('Service registration failed after retries');
 }
 
 /**
@@ -328,7 +349,7 @@ export async function requestServiceAccessToken(input: {
 
 export function createSidecarServiceRoutes(options: SidecarServiceRoutesOptions = {}) {
   const router = express.Router();
-  const registry = createServiceRegistry();
+  const registry = options.registry ?? createServiceRegistry();
 
   function requireRegistrySecret(req: any, res: any, next: any) {
     const expectedSecret = getRegistrySecret(options);

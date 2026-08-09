@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: roadwatch
+data:
+  NODE_ENV: "production"
+  LOG_LEVEL: "warn"
+  ALLOW_DEV_OTP_ECHO: "false"

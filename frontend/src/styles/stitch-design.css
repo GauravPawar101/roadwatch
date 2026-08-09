@@ -1,60 +1,4 @@
-/* Stitch Design System Variables & Utilities */
-
-:root {
-  --surface-dim: #dbd9dd;
-  --outline: #74777f;
-  --tertiary: #000c02;
-  --surface: #faf9fc;
-  --tertiary-container: #00270c;
-  --background: #faf9fc;
-  --on-surface: #1a1b1e;
-  --on-surface-variant: #44474e;
-  --primary: #00091b;
-  --secondary: #515f74;
-  --surface-container-highest: #e3e2e6;
-  --surface-container-high: #e9e7eb;
-  --surface-container: #efedf1;
-  --surface-container-lowest: #ffffff;
-  --surface-bright: #faf9fc;
-  --error: #ba1a1a;
-  --error-container: #ffdad6;
-  --secondary-container: #d5e3fc;
-  --on-secondary-container: #57657a;
-  --outline-variant: #c4c6cf;
-  --status-pending: #fff7ed;
-  --status-pending-text: #7c2d12;
-  --status-resolved: #003f25;
-  --status-resolved-text: #ffffff;
-  --on-tertiary-container: #009d46;
-}
-
-/* Base page styles */
-body {
-  font-family: 'Inter', sans-serif;
-  background-color: var(--background);
-  color: var(--on-surface);
-}
-
-/* Color utilities (used by stitch markup) */
-.text-on-surface { color: var(--on-surface) !important; }
-.text-on-surface-variant { color: var(--on-surface-variant) !important; }
-.text-tertiary { color: var(--tertiary) !important; }
-.text-primary { color: var(--primary) !important; }
-.text-secondary { color: var(--secondary) !important; }
-.bg-surface-container-high { background: var(--surface-container-high) !important; }
-.bg-surface-container-highest { background: var(--surface-container-highest) !important; }
-.bg-surface-container-lowest { background: var(--surface-container-lowest) !important; }
-.bg-secondary-container { background: var(--secondary-container) !important; color: var(--on-secondary-container) !important; }
-.border-outline-variant { border-color: var(--outline-variant) !important; }
-
-/* Utility for subtle translucent backgrounds used across stitch screens */
-.glass-panel {
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--outline-variant);
-  border-radius: 0.5rem;
-  box-shadow: 0 4px 18px rgba(0, 9, 27, 0.05);
-}
+/* Stitch legacy utilities — design tokens live in index.css :root */
 
 /* Layout utilities */
 .p-lg { padding: 22px !important; }
@@ -63,7 +7,7 @@ body {
 .rounded-xl { border-radius: 12px !important; }
 .rounded-2xl { border-radius: 16px !important; }
 .container-max { max-width: 1440px; margin: 0 auto; padding: 32px 24px 48px; }
-.page-radial-bg { background: radial-gradient(circle at top right, rgba(0, 32, 69, 0.06), transparent 35%), radial-gradient(circle at top left, rgba(129, 140, 248, 0.03), transparent 35%), var(--background); }
+.page-radial-bg { background: #ffffff; }
 .grid-two-col { display: grid; grid-template-columns: 1.25fr 0.9fr; gap: 20px; }
 
 /* Shadow variants */

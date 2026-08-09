@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-config
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+data:
+  # Docker-host IP for Fabric peer hostAliases (kind default).
+  # Overlay patches update this per cluster; kustomize replacements wire it into fabric-anchor.
+  FABRIC_HOST_IP: "172.17.0.1"

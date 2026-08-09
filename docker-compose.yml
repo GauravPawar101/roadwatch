@@ -52,10 +52,10 @@ services:
     networks:
       - roadwatch
 
-  # Kafka - Message Broker
-  zookeeper:
+  # Kafka HLF — backpressure buffer in front of Fabric anchoring
+  zookeeper-hlf:
     image: confluentinc/cp-zookeeper:7.7.0
-    container_name: roadwatch_zookeeper
+    container_name: roadwatch_zookeeper_hlf
     restart: unless-stopped
     environment:
       ZK_SERVER_HEAP: "-Xms128m -Xmx256m"
@@ -64,7 +64,7 @@ services:
       ZOOKEEPER_SYNC_LIMIT: 5
       ZOOKEEPER_INIT_LIMIT: 10
     ports:
-      - "${TOP_ZOOKEEPER_HOST_PORT:-2181}:2181"
+      - "${TOP_ZOOKEEPER_HLF_HOST_PORT:-2181}:2181"
     healthcheck:
       test: ["CMD-SHELL", "echo ruok | nc localhost 2181 || exit 1"]
       interval: 10s
@@ -73,19 +73,19 @@ services:
     networks:
       - roadwatch
 
-  kafka:
+  kafka-hlf:
     image: confluentinc/cp-kafka:7.7.0
-    container_name: roadwatch_kafka
+    container_name: roadwatch_kafka_hlf
     restart: unless-stopped
     depends_on:
-      zookeeper:
+      zookeeper-hlf:
         condition: service_healthy
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_HEAP_OPTS: "-Xms128m -Xmx512m"
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-hlf:2181
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9094,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9094,PLAINTEXT_INTERNAL://kafka-hlf:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
       KAFKA_NUM_PARTITIONS: 3
@@ -93,13 +93,64 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
       KAFKA_LOG_RETENTION_HOURS: 24
     ports:
-      - "${TOP_KAFKA_HOST_PORT:-9094}:9092"
+      - "${TOP_KAFKA_HLF_HOST_PORT:-9094}:9092"
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
+      interval: 30s
+      timeout: 60s
+      retries: 10
+      start_period: 180s
+    networks:
+      - roadwatch
+
+  # Kafka Events — SLA, notifications, triggers, webhook fan-out
+  zookeeper-events:
+    image: confluentinc/cp-zookeeper:7.7.0
+    container_name: roadwatch_zookeeper_events
+    restart: unless-stopped
+    environment:
+      ZK_SERVER_HEAP: "-Xms128m -Xmx256m"
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 5
+      ZOOKEEPER_INIT_LIMIT: 10
+    ports:
+      - "${TOP_ZOOKEEPER_EVENTS_HOST_PORT:-2182}:2181"
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
+    networks:
+      - roadwatch
+
+  kafka-events:
+    image: confluentinc/cp-kafka:7.7.0
+    container_name: roadwatch_kafka_events
+    restart: unless-stopped
+    depends_on:
+      zookeeper-events:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_HEAP_OPTS: "-Xms128m -Xmx512m"
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-events:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9095,PLAINTEXT_INTERNAL://kafka-events:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG_RETENTION_HOURS: 24
+    ports:
+      - "${TOP_KAFKA_EVENTS_HOST_PORT:-9095}:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
+      interval: 30s
+      timeout: 60s
+      retries: 10
+      start_period: 180s
     networks:
       - roadwatch
 
@@ -130,7 +181,7 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      kafka:
+      kafka-events:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -139,7 +190,8 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
       SERVICE_NAME: scheduler
       REDIS_URL: redis://redis:6379/0
-      KAFKA_BROKERS: kafka:29092
+      KAFKA_EVENTS_BROKERS: kafka-events:29092
+      KAFKA_BROKERS: kafka-events:29092
       CRON_SYNC_QUEUE: "*/5 * * * *"
       CRON_KARMA_RECALC: "0 * * * *"
       CRON_SLA_CHECK: "*/30 * * * *"
@@ -165,14 +217,15 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      kafka:
+      kafka-events:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
-      KAFKA_BROKERS: kafka:29092
+      KAFKA_EVENTS_BROKERS: kafka-events:29092
+      KAFKA_BROKERS: kafka-events:29092
       KAFKA_GROUP_ID: webhook-handler-prod
       KAFKA_CONSUMER_TIMEOUT: "3000"
       SERVICE_NAME: webhook-handler
@@ -197,14 +250,18 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
-      kafka:
+      kafka-hlf:
+        condition: service_healthy
+      kafka-events:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
-      KAFKA_BROKERS: kafka:29092
+      KAFKA_HLF_BROKERS: kafka-hlf:29092
+      KAFKA_EVENTS_BROKERS: kafka-events:29092
+      KAFKA_BROKERS: kafka-hlf:29092
       KAFKA_GROUP_ID: fabric-anchor-consumer-prod
       REDIS_URL: redis://redis:6379/2
       FABRIC_PEER_ENDPOINT: peer0.nhai.example.com:7051

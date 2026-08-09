@@ -46,6 +46,7 @@ export {
 // module load time so the whole gateway process shares a single registry.
 const _registry = createServiceRegistry();
 
+export const serviceRegistry = _registry;
 export const registerService     = _registry.registerService;
 export const listRegisteredServices = _registry.listRegisteredServices;
 export const getRegisteredService   = _registry.getRegisteredService;

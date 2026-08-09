@@ -1,0 +1,129 @@
+# ── Redis — StatefulSet ───────────────────────────────────────────────────────
+# Session tokens, OTP cache, rate-limiter windows, and idempotency keys all
+# live here. Loss of Redis causes auth failures and double-processing of events,
+# so we persist it to a PVC and use a stable StatefulSet identity.
+#
+# DB partitioning (matches docker-compose.yml and start-all.ps1):
+#   db 0 — gateway-api  (sessions, rate limits, idempotency)
+#   db 1 — webhook-handler
+#   db 2 — fabric-anchor-consumer
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        app.kubernetes.io/name: redis
+        layer: platform
+    spec:
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 999:999 /data"]
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          securityContext:
+            runAsUser: 0
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          command:
+            - redis-server
+            - "--appendonly"
+            - "yes"
+            - "--maxmemory"
+            - "256mb"
+            - "--maxmemory-policy"
+            - "allkeys-lru"
+            - "--save"
+            - "900 1"
+            - "--save"
+            - "300 10"
+          ports:
+            - name: redis
+              containerPort: 6379
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "384Mi"
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app.kubernetes.io/part-of: roadwatch
+          layer: platform
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+# Headless service for StatefulSet DNS (redis-0.redis.roadwatch)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  clusterIP: None
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+# ClusterIP alias — services that just need "redis:6379"
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-rw
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: presentation
+data:
+  # Baked into the frontend image at build time (see deploy-kind.ps1).
+  # kind NodePort for gateway-api.
+  VITE_API_BASE: "http://localhost:30100"

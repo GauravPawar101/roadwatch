@@ -59,13 +59,15 @@ export class SidecarAuthClient {
    */
   async registerService(options: ServiceRegistrationOptions): Promise<{ service: ServiceInfo; registrationToken: string }> {
     const url = `${this.gatewayUrl}/services/register`;
+    const registrySecret = process.env.SERVICE_REGISTRY_SECRET?.trim();
 
     for (let attempt = 1; attempt <= SidecarAuthClient.registrationAttempts; attempt += 1) {
       try {
         const response = await fetch(url, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...(registrySecret ? { 'x-service-registry-secret': registrySecret } : {})
           },
           body: JSON.stringify(options)
         });
