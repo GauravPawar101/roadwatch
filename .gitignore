@@ -10,10 +10,25 @@ node_modules
 docker/.env
 fabric/network/.env
 SECRETS.md
+**/SECRETS.md
 credentials.txt
+**/credentials.txt
 scripts/test-ids.env
 apps/mobile-host/ios/.xcode.env
 services/media-ingest/.supabase.env
+*.secret
+*.secrets
+*secret*.local
+*.local.env
+.env.local
+.env.*.local
+
+# Fabric private keystore files (often extensionless)
+**/keystore/
+**/priv_sk
+**/*_sk
+**/IssuerSecretKey
+**/IssuerRevocationPrivateKey
 
 # ── Build outputs / caches ───────────────────────────────────────────────────
 dist
@@ -110,7 +125,10 @@ postgres_data/
 # ── Kubernetes / deploy temp ───────────────────────────────────────────────
 kubeconfig*
 .kube/local/
+.kube/
 *.kubeconfig
+*-kubeconfig.yaml
+*-kubeconfig.yml
 
 # ── OS ─────────────────────────────────────────────────────────────────────
 .DS_Store
