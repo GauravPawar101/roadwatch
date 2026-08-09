@@ -1,27 +1,45 @@
 node_modules
 
-# ── Local secrets / environment (never commit real values) ───────────────────
+# ── Environment / secrets (NEVER commit real env files) ─────────────────────
+# Ignore every .env variant anywhere in the tree.
 .env
 **/.env
 .env.*
 **/.env.*
+*.env
+**/*.env
+.envrc
+**/.envrc
+.env.backup
+.env.bak
+.env.save
+.env.old
+.env.tmp
+.env.*.local
+*.local.env
+*.secret
+*.secrets
+*secret*.local
+
+# Only plain template files named exactly ".env.example" may be committed.
 !.env.example
 !**/.env.example
+
+# Explicit denials (even if someone force-adds / renames)
 docker/.env
 fabric/network/.env
+apps/mobile-host/ios/.xcode.env
+services/media-ingest/.supabase.env
+scripts/test-ids.env
 SECRETS.md
 **/SECRETS.md
 credentials.txt
 **/credentials.txt
-scripts/test-ids.env
-apps/mobile-host/ios/.xcode.env
-services/media-ingest/.supabase.env
-*.secret
-*.secrets
-*secret*.local
-*.local.env
-.env.local
-.env.*.local
+**/credentials.json
+**/*credentials*.txt
+**/*secrets*.txt
+**/.aws/
+**/aws.json
 
 # Fabric private keystore files (often extensionless)
 **/keystore/
@@ -29,6 +47,40 @@ services/media-ingest/.supabase.env
 **/*_sk
 **/IssuerSecretKey
 **/IssuerRevocationPrivateKey
+
+# ── Fabric / Hyperledger binaries (NEVER commit — large, download locally) ─
+# Root install dir used by Fabric bootstrap scripts
+/bin/
+bin/
+**/bin/peer
+**/bin/orderer
+**/bin/configtxgen
+**/bin/configtxlator
+**/bin/cryptogen
+**/bin/discover
+**/bin/ledgerutil
+**/bin/osnadmin
+**/bin/fabric-*
+# Also catch if dropped outside /bin
+peer.exe
+orderer.exe
+configtxgen.exe
+configtxlator.exe
+cryptogen.exe
+
+# ── Hyperledger Fabric (generated — never commit keys/certs/blocks) ────────
+fabric/network/organizations/
+fabric/network/channel-artifacts/*
+!fabric/network/channel-artifacts/.gitkeep
+fabric/network/system-genesis-block/
+fabric/network/*.tar.gz
+fabric/network/**/*.tar.gz
+fabric/network/**/*.block
+fabric/network/**/*.tx
+fabric-samples/
+config_block.json
+config_block.pb
+core.yaml
 
 # ── Build outputs / caches ───────────────────────────────────────────────────
 dist
@@ -63,6 +115,10 @@ packages/**/src/**/*.js
 packages/**/src/**/*.js.map
 packages/**/src/**/*.d.ts.map
 !packages/**/src/**/*.test.js
+
+# Accidental package root compiles (keep source .ts only)
+packages/kafka/*.js
+packages/redis/*.js
 
 # ── Logs / runtime ───────────────────────────────────────────────────────────
 *.log
@@ -102,21 +158,6 @@ apps/mobile-host/android/local.properties
 *.apk
 *.aab
 *.hprof
-
-# ── Hyperledger Fabric (generated — never commit keys/certs/blocks) ────────
-fabric/network/organizations/
-fabric/network/channel-artifacts/*
-!fabric/network/channel-artifacts/.gitkeep
-fabric/network/system-genesis-block/
-fabric/network/*.tar.gz
-fabric/network/**/*.tar.gz
-fabric/network/**/*.block
-fabric/network/**/*.tx
-fabric-samples/
-config_block.json
-config_block.pb
-core.yaml
-bin/
 
 # ── Docker local volumes / data ────────────────────────────────────────────
 docker/volumes/
