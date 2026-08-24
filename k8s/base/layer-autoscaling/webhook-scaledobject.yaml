@@ -1,0 +1,54 @@
+# Kafka lag scaler for webhook-handler on the events cluster.
+# Requires KEDA CRDs — see keda-install.md.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: webhook-kafka
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: webhook
+    app.kubernetes.io/part-of: roadwatch
+    layer: autoscaling
+spec:
+  scaleTargetRef:
+    name: webhook
+  minReplicaCount: 1
+  maxReplicaCount: 6
+  pollingInterval: 15
+  cooldownPeriod: 120
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka-events-0.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-1.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-2.kafka-events-headless.roadwatch.svc.cluster.local:29092
+        consumerGroup: webhook-handler-k8s
+        topic: complaint-submitted
+        lagThreshold: "100"
+        offsetResetPolicy: latest
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka-events-0.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-1.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-2.kafka-events-headless.roadwatch.svc.cluster.local:29092
+        consumerGroup: webhook-handler-k8s
+        topic: complaint-anchored
+        lagThreshold: "50"
+        offsetResetPolicy: latest
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka-events-0.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-1.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-2.kafka-events-headless.roadwatch.svc.cluster.local:29092
+        consumerGroup: webhook-handler-k8s
+        topic: complaint-status-changed
+        lagThreshold: "100"
+        offsetResetPolicy: latest
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka-events-0.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-1.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-2.kafka-events-headless.roadwatch.svc.cluster.local:29092
+        consumerGroup: webhook-handler-k8s
+        topic: escalation-due
+        lagThreshold: "25"
+        offsetResetPolicy: latest
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka-events-0.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-1.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-2.kafka-events-headless.roadwatch.svc.cluster.local:29092
+        consumerGroup: webhook-handler-k8s
+        topic: notification-send
+        lagThreshold: "50"
+        offsetResetPolicy: latest

@@ -1,0 +1,17 @@
+# Shared KRaft startup script for 3-broker Kafka StatefulSets.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-kraft-startup
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: ingest-hlf
+data:
+  kafka-start.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    ORDINAL="${HOSTNAME##*-}"
+    export KAFKA_NODE_ID="${ORDINAL}"
+    export KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://${HOSTNAME}.${KAFKA_HEADLESS_SERVICE}.roadwatch.svc.cluster.local:29092"
+    exec /etc/confluent/docker/run

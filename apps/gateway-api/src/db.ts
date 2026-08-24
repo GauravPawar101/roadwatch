@@ -648,23 +648,40 @@ export async function bulkUpsertRoads(input: {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query(`ALTER TABLE IF EXISTS roads_catalog ADD COLUMN IF NOT EXISTS block_code text`).catch(() => null);
+    await client.query(`ALTER TABLE IF EXISTS roads_catalog ADD COLUMN IF NOT EXISTS authority_org text`).catch(() => null);
 
     for (const road of input.roads) {
+      const authorityOrg = (road as any).authorityOrg ?? road.authorityId;
+      const blockCode = (road as any).blockCode ?? null;
+      const existing = await client.query(`SELECT 1 FROM roads_catalog WHERE id = $1 LIMIT 1`, [road.id]);
+      const isNew = existing.rowCount === 0;
+
       await client.query(
-        `INSERT INTO roads_catalog (id, name, district_id, road_type, authority_id, total_length_km, geometry)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO roads_catalog (id, name, district_id, road_type, authority_id, authority_org, block_code, total_length_km, geometry)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (id) DO UPDATE SET
-           name = $2, road_type = $4, authority_id = $5, total_length_km = $6, geometry = $7`,
+           name = $2, road_type = $4, authority_id = $5,
+           authority_org = COALESCE($6, roads_catalog.authority_org),
+           block_code = COALESCE($7, roads_catalog.block_code),
+           total_length_km = $8, geometry = $9`,
         [
           road.id,
           road.name,
           input.districtId,
           road.roadType,
           road.authorityId,
+          authorityOrg,
+          blockCode,
           road.totalLengthKm ?? 0,
           road.geometry ?? null
         ]
       );
+
+      if (isNew && authorityOrg) {
+        const { rewardOrgForNewRoad } = await import('./services/complaint-lifecycle.js');
+        await rewardOrgForNewRoad(authorityOrg, road.id).catch(() => null);
+      }
     }
 
     await client.query('COMMIT');

@@ -21,7 +21,7 @@ Internal data API for complaints, analytics, image submissions, and webhook proc
 
 ## Authentication
 
-Uses `@roadwatch/sidecar-auth` middleware. On startup, registers with the gateway using `SERVICE_REGISTRY_SECRET` and validates incoming service JWTs.
+Authenticates callers via user JWT or gateway-forwarded `X-User-*` headers. In Kubernetes, Istio mTLS restricts callers to the gateway ServiceAccount.
 
 Loads shared secrets from `apps/gateway-api/.env` when present.
 

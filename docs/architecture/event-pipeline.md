@@ -56,7 +56,8 @@ Defined in `config/messaging-topology.json` and consumed across services:
 | `media-captured` | Events | Mobile, gateway | media-ingest |
 | `media-uploaded` | Events | media-ingest | webhook-handler |
 | `media-analyzed` | Events | media-ingest | webhook-handler |
-| `dlq-events` | HLF | Any (on failure) | Manual replay |
+| `dlq-events` | Both | Any (on failure) | `scripts/dlq-redrive.sh` |
+
 
 Initialize topics on first setup:
 
@@ -89,7 +90,7 @@ The gateway exposes Server-Sent Events for live complaint status updates. Client
 
 ## Failure handling
 
-- **DLQ**: Failed HLF events route to `dlq-events` for manual inspection.
+- **DLQ**: Failed events route to `dlq-events` (both clusters). Outbox rows become `DEAD` after max attempts. Use [`docs/operations/dlq.md`](../operations/dlq.md) / `scripts/dlq-redrive.sh` to inspect and redrive.
 - **Idempotency**: Redis keys prevent duplicate processing across consumer restarts.
 - **Offset commit**: fabric-anchor-consumer commits Kafka offsets only after successful Fabric anchoring.
 

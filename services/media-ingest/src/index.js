@@ -9,24 +9,6 @@ const { uploadBufferToSupabase } = require('./supabase')
 const { pool, ensureSchema } = require('./db')
 const { analyzeImageWithHuggingFace } = require('./processor')
 
-async function registerServiceWithGateway(input) {
-  const response = await fetch(`${input.gatewayUrl.replace(/\/$/, '')}/services/register`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(input.registrySecret ? { 'x-service-registry-secret': input.registrySecret } : {})
-    },
-    body: JSON.stringify(input.service)
-  })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`Service registration failed (${response.status}): ${body}`)
-  }
-
-  return response.json()
-}
-
 const app = express()
 app.use(express.json({ limit: '10mb' }))
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
@@ -155,23 +137,8 @@ async function start() {
   await ensureSchema()
   const port = Number(process.env.PORT || 4000)
   const serviceName = process.env.SERVICE_NAME || 'media-ingest'
-  const serviceAddress = process.env.SERVICE_URL || `http://127.0.0.1:${port}`
-  const gatewayUrl = process.env.GATEWAY_URL || 'http://127.0.0.1:3100'
 
-  app.listen(port, () => console.log('media-ingest listening on', port))
-
-  void registerServiceWithGateway({
-    gatewayUrl,
-    service: {
-      name: serviceName,
-      address: serviceAddress,
-      healthUrl: `${serviceAddress.replace(/\/$/, '')}/health`,
-      description: 'RoadWatch media ingest prototype'
-    },
-    registrySecret: process.env.SERVICE_REGISTRY_SECRET
-  }).catch((error) => {
-    console.warn('[media-ingest] service registration failed:', error instanceof Error ? error.message : String(error))
-  })
+  app.listen(port, () => console.log(`[${serviceName}] listening on`, port))
 }
 
 start().catch((e) => {

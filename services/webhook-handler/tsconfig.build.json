@@ -1,12 +1,17 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": false,
     "outDir": "./dist",
     "rootDir": ".",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "verbatimModuleSyntax": true,
     "declaration": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "paths": {}
   },
-  "include": ["index.ts", "**/*.ts"],
+  "include": ["index.ts"],
   "exclude": ["node_modules", "dist"]
 }

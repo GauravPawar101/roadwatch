@@ -94,12 +94,12 @@ export class ChatFeatureOrchestrator {
 
       const confirmationCard = [
         "Here's what I'll file:",
-        `📍 Road: Unknown (open the map and select the road)` ,
-        `🔴 Issue: ${summarizeIssue(input)}`,
-        `📋 Authority: ${authorityHint ?? 'Unknown'}${authorityHint ? '' : ' (I can identify this after you select the road)'}`,
-        `👤 Engineer: Unknown (assigned after submission)`,
-        `⏱  SLA deadline: ${slaDeadline ? slaDeadline : 'Unknown (depends on the responsible authority)'}`,
-        `🔗 Anchoring: Will be anchored on Hyperledger Fabric when connected` ,
+        `Road: Unknown (open the map and select the road)` ,
+        `Issue: ${summarizeIssue(input)}`,
+        `Authority: ${authorityHint ?? 'Unknown'}${authorityHint ? '' : ' (I can identify this after you select the road)'}`,
+        `Engineer: Unknown (assigned after submission)`,
+        `SLA deadline: ${slaDeadline ? slaDeadline : 'Unknown (depends on the responsible authority)'}`,
+        `Anchoring: Will be anchored on Hyperledger Fabric when connected` ,
         '',
         'Shall I file this complaint?'
       ].join('\n');
@@ -147,9 +147,9 @@ export class ChatFeatureOrchestrator {
           'To tell you exactly who is responsible, I need the road (map selection or road ID/name).',
           '',
           'Accountability (preview):',
-          '🏗  Contractor: Unknown',
-          '👤 Responsible Engineer: Unknown',
-          '📋 Authority/Department: Unknown',
+          'Contractor: Unknown',
+          'Responsible Engineer: Unknown',
+          'Authority/Department: Unknown',
           '',
           'If you share the road name/ID, I’ll identify the authority and SLA.'
         ].join('\n'),
@@ -163,10 +163,10 @@ export class ChatFeatureOrchestrator {
           'I can help with the road budget, but I need the road (map selection or road ID/name).',
           '',
           'Budget (preview):',
-          '💰 Sanctioned: Unknown',
-          '📤 Released: Unknown',
-          '📊 Spent: Unknown',
-          '💵 Remaining: Unknown',
+          'Sanctioned: Unknown',
+          'Released: Unknown',
+          'Spent: Unknown',
+          'Remaining: Unknown',
           '',
           'Source: Unknown (no budget record loaded yet)'
         ].join('\n'),

@@ -1,4 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { computeDensityZones, createDensityZoneLayers, expandHeatmapAggregates, type MapPoint } from '../lib/mapDensityZones';
+import { DELHI_CENTER, invalidateMapSoon } from '../lib/mapLocation';
+import { getSeverityColor, getSeverityLabel } from '../lib/mapSeverity';
+import MapLegend, { type LegendItem } from './MapLegend';
 
 type ComplaintData = {
   id: string;
@@ -11,12 +15,24 @@ type ComplaintData = {
   title: string;
 };
 
+type HeatmapAggregate = {
+  lat: number;
+  lng: number;
+  severity?: number;
+  count?: number;
+};
+
 type HeatmapProps = {
   complaints: ComplaintData[];
+  heatmapAggregates?: HeatmapAggregate[];
   center?: { lat: number; lng: number };
   zoom?: number;
   height?: string;
   showControls?: boolean;
+  showLegend?: boolean;
+  showDensityOverlay?: boolean;
+  legendPosition?: 'bottom-left' | 'bottom-right' | 'top-left';
+  densityMinCount?: number;
   heatmapThreshold?: number;
   cityZoomThreshold?: number;
   onComplaintClick?: (complaint: ComplaintData) => void;
@@ -24,34 +40,93 @@ type HeatmapProps = {
 
 export default function ComplaintHeatmap({
   complaints,
-  center = { lat: 19.076, lng: 72.8777 },
+  heatmapAggregates = [],
+  center = DELHI_CENTER,
   zoom = 12,
   height = '500px',
   showControls = true,
+  showLegend = true,
+  showDensityOverlay = true,
+  legendPosition = 'bottom-left',
+  densityMinCount = 3,
   heatmapThreshold = 20,
   cityZoomThreshold = 11,
-  onComplaintClick
+  onComplaintClick,
 }: HeatmapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const heatLayerRef = useRef<any>(null);
+  const densityHandleRef = useRef<{ remove: () => void } | null>(null);
   const markersRef = useRef<any[]>([]);
-  
+
   const [viewMode, setViewMode] = useState<'heatmap' | 'markers' | 'both'>('both');
   const [severityFilter, setSeverityFilter] = useState<number[]>([1, 2, 3, 4, 5]);
   const [statusFilter, setStatusFilter] = useState<string[]>(['Open', 'InProgress']);
   const shouldForceHeatmap = complaints.length >= heatmapThreshold || zoom <= cityZoomThreshold;
   const effectiveViewMode = shouldForceHeatmap ? 'heatmap' : viewMode;
 
-  // Filter complaints based on current filters
-  const filteredComplaints = complaints.filter(complaint => 
-    severityFilter.includes(complaint.severity) &&
-    statusFilter.includes(complaint.status)
+  const filteredComplaints = complaints.filter(
+    (complaint) =>
+      severityFilter.includes(complaint.severity) && statusFilter.includes(complaint.status),
   );
+
+  const densityPoints = useMemo<MapPoint[]>(() => {
+    const fromComplaints = filteredComplaints.map((c) => ({
+      lat: c.lat,
+      lng: c.lng,
+      severity: c.severity,
+    }));
+    const fromAggregates = expandHeatmapAggregates(heatmapAggregates);
+    return [...fromComplaints, ...fromAggregates];
+  }, [filteredComplaints, heatmapAggregates]);
+
+  const densityZones = useMemo(
+    () =>
+      showDensityOverlay
+        ? computeDensityZones(densityPoints, { minCount: densityMinCount })
+        : [],
+    [densityPoints, densityMinCount, showDensityOverlay],
+  );
+
+  const legendItems = useMemo<LegendItem[]>(() => {
+    const items: LegendItem[] = [
+      ...[1, 2, 3, 4, 5].map((severity) => ({
+        kind: 'swatch' as const,
+        color: getSeverityColor(severity),
+        label: `${getSeverityLabel(severity)} (${severity})`,
+      })),
+      {
+        kind: 'gradient',
+        title: 'Complaint density',
+        stops: [
+          { color: 'rgba(220, 38, 38, 0.12)', at: '0%', label: 'Few' },
+          { color: 'rgba(220, 38, 38, 0.55)', at: '100%', label: 'Cluster' },
+        ],
+      },
+    ];
+    if (effectiveViewMode === 'heatmap' || effectiveViewMode === 'both') {
+      items.push({
+        kind: 'gradient',
+        title: 'Heat intensity',
+        stops: [
+          { color: '#4575b4', at: '0%', label: 'Low' },
+          { color: '#fee090', at: '50%' },
+          { color: '#a50026', at: '100%', label: 'High' },
+        ],
+      });
+    }
+    if (densityZones.length > 0) {
+      items.push({
+        kind: 'note',
+        label: 'Red zones',
+        detail: `${densityZones.length} high-density region${densityZones.length === 1 ? '' : 's'}`,
+      });
+    }
+    return items;
+  }, [densityZones.length, effectiveViewMode]);
 
   useEffect(() => {
     const loadLeafletAndHeatmap = async () => {
-      // Load Leaflet CSS
       if (!document.querySelector('link[data-leaflet]')) {
         const link = document.createElement('link');
         link.rel = 'stylesheet';
@@ -61,7 +136,6 @@ export default function ComplaintHeatmap({
         document.head.appendChild(link);
       }
 
-      // Load Leaflet JS
       if (!(window as any).L) {
         await new Promise<void>((resolve, reject) => {
           const script = document.createElement('script');
@@ -72,7 +146,6 @@ export default function ComplaintHeatmap({
         });
       }
 
-      // Load Leaflet Heatmap plugin
       if (!(window as any).L?.heatLayer) {
         await new Promise<void>((resolve, reject) => {
           const script = document.createElement('script');
@@ -87,19 +160,31 @@ export default function ComplaintHeatmap({
     };
 
     let mounted = true;
+    let clearInvalidate: (() => void) | undefined;
+    let resizeObserver: ResizeObserver | undefined;
 
     loadLeafletAndHeatmap()
       .then((L) => {
         if (!mounted || !containerRef.current || mapRef.current) return;
 
-        // Initialize map
         mapRef.current = L.map(containerRef.current).setView([center.lat, center.lng], zoom);
-        
-        // Add tile layer
+
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '&copy; OpenStreetMap contributors',
-          maxZoom: 18
+          maxZoom: 18,
         }).addTo(mapRef.current);
+
+        clearInvalidate = invalidateMapSoon(mapRef.current);
+        if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+          resizeObserver = new ResizeObserver(() => {
+            try {
+              mapRef.current?.invalidateSize?.();
+            } catch {
+              /* ignore */
+            }
+          });
+          resizeObserver.observe(containerRef.current);
+        }
 
         updateMapLayers(L);
       })
@@ -107,42 +192,49 @@ export default function ComplaintHeatmap({
 
     return () => {
       mounted = false;
+      clearInvalidate?.();
+      resizeObserver?.disconnect();
+      densityHandleRef.current?.remove();
+      densityHandleRef.current = null;
       if (mapRef.current) {
         try {
           mapRef.current.remove();
           mapRef.current = null;
-        } catch (e) {
-          // ignore cleanup errors
+        } catch {
+          /* ignore */
         }
       }
     };
   }, [center.lat, center.lng, zoom]);
 
-  // Update map layers when complaints or filters change
   useEffect(() => {
     if (mapRef.current && (window as any).L) {
       updateMapLayers((window as any).L);
     }
-  }, [filteredComplaints, effectiveViewMode]);
+  }, [filteredComplaints, effectiveViewMode, densityZones, showDensityOverlay]);
 
   const updateMapLayers = (L: any) => {
-    // Clear existing layers
     if (heatLayerRef.current) {
       mapRef.current.removeLayer(heatLayerRef.current);
+      heatLayerRef.current = null;
     }
-    markersRef.current.forEach(marker => mapRef.current.removeLayer(marker));
+    densityHandleRef.current?.remove();
+    densityHandleRef.current = null;
+    markersRef.current.forEach((marker) => mapRef.current.removeLayer(marker));
     markersRef.current = [];
+
+    if (showDensityOverlay && densityZones.length > 0) {
+      densityHandleRef.current = createDensityZoneLayers(L, mapRef.current, densityZones);
+    }
 
     if (filteredComplaints.length === 0) return;
 
-    // Create heatmap data
-    const heatmapData = filteredComplaints.map(complaint => [
+    const heatmapData = filteredComplaints.map((complaint) => [
       complaint.lat,
       complaint.lng,
-      complaint.severity / 5 // Normalize severity to 0-1
+      complaint.severity / 5,
     ]);
 
-    // Add heatmap layer
     if (effectiveViewMode === 'heatmap' || effectiveViewMode === 'both') {
       heatLayerRef.current = L.heatLayer(heatmapData, {
         radius: 25,
@@ -159,14 +251,13 @@ export default function ComplaintHeatmap({
           0.7: '#fdae61',
           0.8: '#f46d43',
           0.9: '#d73027',
-          1.0: '#a50026'
-        }
+          1.0: '#a50026',
+        },
       }).addTo(mapRef.current);
     }
 
-    // Add markers
     if (effectiveViewMode === 'markers' || effectiveViewMode === 'both') {
-      filteredComplaints.forEach(complaint => {
+      filteredComplaints.forEach((complaint) => {
         const color = getSeverityColor(complaint.severity);
         const icon = L.divIcon({
           className: 'complaint-marker',
@@ -187,11 +278,12 @@ export default function ComplaintHeatmap({
             ">${complaint.severity}</div>
           `,
           iconSize: [24, 24],
-          iconAnchor: [12, 12]
+          iconAnchor: [12, 12],
         });
 
         const marker = L.marker([complaint.lat, complaint.lng], { icon })
-          .bindPopup(`
+          .bindPopup(
+            `
             <div style="min-width: 200px;">
               <h4 style="margin: 0 0 8px 0; color: #002045;">${complaint.title}</h4>
               <p style="margin: 0 0 4px 0; font-size: 12px; color: #666;">
@@ -207,7 +299,8 @@ export default function ComplaintHeatmap({
                 ${new Date(complaint.createdAt).toLocaleDateString()}
               </p>
             </div>
-          `)
+          `,
+          )
           .addTo(mapRef.current);
 
         if (onComplaintClick) {
@@ -219,48 +312,30 @@ export default function ComplaintHeatmap({
     }
   };
 
-  const getSeverityColor = (severity: number): string => {
-    const colors = {
-      1: '#4CAF50', // Green - Low
-      2: '#8BC34A', // Light Green - Low-Medium  
-      3: '#FF9800', // Orange - Medium
-      4: '#FF5722', // Deep Orange - High
-      5: '#F44336'  // Red - Critical
-    };
-    return colors[severity as keyof typeof colors] || '#666';
-  };
-
-  const getSeverityLabel = (severity: number): string => {
-    const labels = {
-      1: 'Low',
-      2: 'Low-Medium',
-      3: 'Medium', 
-      4: 'High',
-      5: 'Critical'
-    };
-    return labels[severity as keyof typeof labels] || 'Unknown';
-  };
-
   return (
-    <div className="relative">
-      {/* Map Container */}
-      <div 
-        ref={containerRef} 
-        className="w-full rounded-lg overflow-hidden border border-gray-200"
-        style={{ height }}
+    <div className="relative h-full">
+      <div
+        ref={containerRef}
+        className="w-full h-full rounded-lg overflow-hidden border border-gray-200"
+        style={{ height, minHeight: height === '100%' ? 320 : undefined, background: '#e8eef5' }}
       />
 
-      {/* Controls */}
+      {showLegend && (
+        <MapLegend
+          title="Complaint map"
+          items={legendItems}
+          position={legendPosition}
+          compact={height !== '100%' && parseInt(height, 10) < 400}
+        />
+      )}
+
       {showControls && (
-        <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-4 max-w-xs">
-          {/* View Mode Toggle */}
+        <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-4 max-w-xs z-[1000]">
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              View Mode
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">View Mode</label>
             <select
               value={effectiveViewMode}
-              onChange={(e) => setViewMode(e.target.value as any)}
+              onChange={(e) => setViewMode(e.target.value as 'heatmap' | 'markers' | 'both')}
               disabled={shouldForceHeatmap}
               className="w-full px-3 py-1 border border-gray-300 rounded text-sm"
             >
@@ -275,13 +350,10 @@ export default function ComplaintHeatmap({
             )}
           </div>
 
-          {/* Severity Filter */}
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Severity Levels
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Severity Levels</label>
             <div className="space-y-1">
-              {[1, 2, 3, 4, 5].map(severity => (
+              {[1, 2, 3, 4, 5].map((severity) => (
                 <label key={severity} className="flex items-center text-xs">
                   <input
                     type="checkbox"
@@ -290,12 +362,12 @@ export default function ComplaintHeatmap({
                       if (e.target.checked) {
                         setSeverityFilter([...severityFilter, severity]);
                       } else {
-                        setSeverityFilter(severityFilter.filter(s => s !== severity));
+                        setSeverityFilter(severityFilter.filter((s) => s !== severity));
                       }
                     }}
                     className="mr-2"
                   />
-                  <div 
+                  <div
                     className="w-3 h-3 rounded-full mr-2"
                     style={{ backgroundColor: getSeverityColor(severity) }}
                   />
@@ -305,13 +377,10 @@ export default function ComplaintHeatmap({
             </div>
           </div>
 
-          {/* Status Filter */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Status
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
             <div className="space-y-1">
-              {['Open', 'InProgress', 'Resolved', 'Dismissed'].map(status => (
+              {['Open', 'InProgress', 'Resolved', 'Dismissed'].map((status) => (
                 <label key={status} className="flex items-center text-xs">
                   <input
                     type="checkbox"
@@ -320,7 +389,7 @@ export default function ComplaintHeatmap({
                       if (e.target.checked) {
                         setStatusFilter([...statusFilter, status]);
                       } else {
-                        setStatusFilter(statusFilter.filter(s => s !== status));
+                        setStatusFilter(statusFilter.filter((s) => s !== status));
                       }
                     }}
                     className="mr-2"
@@ -331,11 +400,15 @@ export default function ComplaintHeatmap({
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="mt-4 pt-4 border-t border-gray-200">
+          <div className="mt-4 pt-4 border-t border-gray-200 space-y-1">
             <div className="text-xs text-gray-600">
               Showing {filteredComplaints.length} of {complaints.length} complaints
             </div>
+            {densityZones.length > 0 && (
+              <div className="text-xs text-red-700 font-medium">
+                {densityZones.length} high-density zone{densityZones.length === 1 ? '' : 's'} highlighted
+              </div>
+            )}
           </div>
         </div>
       )}

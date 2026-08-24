@@ -163,45 +163,14 @@ export function requirePermission(requiredPermission: string) {
   };
 }
 
-export type ServiceJwtPayload = {
-  sub: string;
-  aud: string;
-  iss: string;
-  kind: 'service-access';
-  target: string;
-  address: string;
-  method?: string;
-  path?: string;
-};
-
-function getServiceSecret(): string {
-  return process.env.SERVICE_AUTH_SECRET || process.env.JWT_SECRET || process.env.ACCESS_SECRET || 'secret';
-}
-
-function getServiceName(): string {
-  return process.env.SERVICE_NAME || 'backend-api';
-}
-
-export function validateServiceJWT(req: Request, res: Response, next: NextFunction) {
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing or invalid service token' });
+/**
+ * Shared-secret check for local/dev service callers (mesh replaces this in k8s).
+ */
+export function requireInternalServiceToken(req: Request, res: Response, next: NextFunction) {
+  const token = (req.header('x-service-token') || '').trim();
+  const expected = (process.env.INTERNAL_SERVICE_TOKEN || process.env.SERVICE_TOKEN || '').trim();
+  if (!token || !expected || token !== expected) {
+    return res.status(401).json({ error: 'Invalid or missing service token', code: 'INVALID_SERVICE_TOKEN' });
   }
-
-  const token = auth.slice(7);
-  try {
-    const payload = jwt.verify(token, getServiceSecret(), {
-      audience: getServiceName(),
-      issuer: 'roadwatch-gateway'
-    }) as ServiceJwtPayload;
-
-    if (payload.kind !== 'service-access' || payload.target !== getServiceName()) {
-      return res.status(401).json({ error: 'Invalid service token' });
-    }
-
-    (req as any).serviceJwtPayload = payload;
-    next();
-  } catch {
-    return res.status(401).json({ error: 'Invalid service token' });
-  }
+  next();
 }

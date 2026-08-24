@@ -13,6 +13,12 @@ import { pool, sql } from '../postgres.js';
 import { requireAuth, requireRole, type AuthedRequest } from '../rbac.js';
 import { broadcastComplaintEvent } from '../realtime/sse.js';
 import { uploadFileToSupabaseStorage } from '../services/supabase-storage.js';
+import {
+  awardDuplicateImagePenalty,
+  awardValidSubmissionKarma,
+  ensureSlaTracking,
+  findDuplicateGeotaggedImage,
+} from '../services/complaint-lifecycle.js';
 import { uuidv7 } from '../uuid.js';
 
 const router = express.Router();
@@ -299,6 +305,19 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
   });
 
   if (attachmentCid && attachmentSha) {
+    const dupComplaintId = await findDuplicateGeotaggedImage(attachmentSha);
+    if (dupComplaintId && dupComplaintId !== complaintId) {
+      await awardDuplicateImagePenalty(user.sub, attachmentSha).catch(() => null);
+      await storeIdempotencyResult(claimed, 409, {
+        error: 'Duplicate geotagged image',
+        existingComplaintId: dupComplaintId,
+      });
+      return res.status(409).json({
+        error: 'Duplicate geotagged image',
+        existingComplaintId: dupComplaintId,
+      });
+    }
+
     await pool.query(
       `INSERT INTO complaint_attachments
          (complaint_id, kind, file_path, file_mime, file_sha256, note)
@@ -337,6 +356,11 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
       ]
     );
   }
+
+  if (!merged) {
+    await ensureSlaTracking(complaintId, { severity: 3, roadType: body.roadId });
+  }
+  await awardValidSubmissionKarma(user.sub, complaintId).catch(() => null);
 
   await pool.query(
     `INSERT INTO audit_log
@@ -408,6 +432,7 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
 });
 
 router.post('/media/upload', requireAuth, requireRole(['CITIZEN']), upload.single('image'), async (req, res) => {
+  const user = (req as AuthedRequest).user;
   const body = z
     .object({
       capturedLat: z.coerce.number(),
@@ -423,8 +448,48 @@ router.post('/media/upload', requireAuth, requireRole(['CITIZEN']), upload.singl
   const tsError = validateCaptureTimestamp(body.capturedAt, body.offlineQueued);
   if (tsError) return res.status(400).json({ error: tsError });
 
+  const fileBuf = await fs.readFile(file.path);
+  const shaPreview = crypto.createHash('sha256').update(fileBuf).digest('hex');
+
+  const idempotencyPayload = {
+    actor: user.sub,
+    sha256: shaPreview,
+    capturedLat: body.capturedLat,
+    capturedLng: body.capturedLng,
+    capturedAt: body.capturedAt,
+    size: file.size,
+    mime: file.mimetype,
+  };
+  const idempotencyKey = deriveIdempotencyKey(req, 'citizen:media:upload');
+  const requestHash = buildRequestHash(idempotencyPayload);
+  const claimed = await claimIdempotency('citizen:media:upload', idempotencyKey, requestHash);
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
+  }
+
+  const dupComplaintId = await findDuplicateGeotaggedImage(shaPreview);
+  if (dupComplaintId) {
+    await awardDuplicateImagePenalty(user.sub, shaPreview).catch(() => null);
+    const conflict = {
+      error: 'Duplicate geotagged image already attached to a complaint',
+      existingComplaintId: dupComplaintId,
+      sha256: shaPreview,
+    };
+    await storeIdempotencyResult(claimed, 409, conflict);
+    return res.status(409).json(conflict);
+  }
+
   const uploaded = await uploadFileToSupabaseStorage(file.path, file.mimetype ?? 'application/octet-stream');
-  res.json({ ok: true, cid: uploaded.cid, sha256: uploaded.hash, provider: uploaded.provider, url: uploaded.url });
+  const responseBody = {
+    ok: true,
+    cid: uploaded.cid,
+    sha256: uploaded.hash || shaPreview,
+    provider: uploaded.provider,
+    url: uploaded.url,
+    geotag: { lat: body.capturedLat, lng: body.capturedLng, capturedAt: body.capturedAt },
+  };
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  res.json(responseBody);
 });
 
 router.post('/complaints/:id/confirm', requireAuth, requireRole(['CITIZEN']), async (req, res) => {

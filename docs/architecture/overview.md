@@ -71,7 +71,7 @@ RoadWatch is a pnpm monorepo that connects citizen-facing apps, a REST API layer
 1. **Postgres is the source of truth** — Fabric stores Merkle anchors and audit metadata, not full complaint payloads.
 2. **Dual Kafka clusters** — HLF cluster buffers backpressure; Events cluster drives notifications, SLA, and webhooks.
 3. **Transactional outbox** — Gateway writes events to `kafka_event_outbox` in the same DB transaction as complaint inserts, then a relay publishes to Kafka.
-4. **Sidecar auth** — Internal services authenticate to the gateway via `@roadwatch/sidecar-auth`.
+4. **Istio mesh** — In-cluster service identity via Envoy mTLS; local uses `INTERNAL_SERVICE_TOKEN` for `/internal/*`.
 5. **Country adapters** — India-specific legal frameworks (RTI deadlines, NHAI/PWD hierarchies) live in `packages/adapters`.
 
 ## User roles

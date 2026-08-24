@@ -24,7 +24,6 @@
     "@hyperledger/fabric-gateway": "^1.10.1",
     "@roadwatch/core": "workspace:*",
     "@roadwatch/kafka": "workspace:*",
-    "@roadwatch/sidecar-auth": "workspace:*",
     "drizzle-orm": "^0.44.2",
     "dotenv": "^16.6.1",
     "kafkajs": "^2.2.4",

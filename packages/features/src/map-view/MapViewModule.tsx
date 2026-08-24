@@ -360,7 +360,7 @@ export const MapScreen: React.FC<{
       {safe.error && (
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>{safe.error}</Text>
-          <Text style={styles.errorDismiss} onPress={safe.clearError}>✕</Text>
+          <Text style={styles.errorDismiss} onPress={safe.clearError}>x</Text>
         </View>
       )}
       

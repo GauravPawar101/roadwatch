@@ -11,7 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@roadwatch/sidecar-auth": "workspace:*",
+    "@roadwatch/redis": "workspace:*",
     "dotenv": "^16.6.1",
     "kafkajs": "^2.2.4",
     "pg": "^8.13.1",

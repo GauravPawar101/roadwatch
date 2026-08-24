@@ -1,7 +1,7 @@
 # stop-all.ps1 - Stop all RoadWatch services
 # Usage: .\stop-all.ps1
 
-Write-Host "🛑 Stopping RoadWatch Services..." -ForegroundColor White
+Write-Host "Stopping RoadWatch Services..." -ForegroundColor White
 Write-Host ""
 
 # Helper: kill a process by its saved PID file
@@ -18,7 +18,7 @@ function Stop-ServiceByPid {
             $proc = Get-Process -Id $savedPid -ErrorAction SilentlyContinue
             if ($proc) {
                 Stop-Process -Id $savedPid -Force
-                Write-Host "✓ Stopped $Name (PID: $savedPid)" -ForegroundColor $Color
+                Write-Host "[ok] Stopped $Name (PID: $savedPid)" -ForegroundColor $Color
             } else {
                 Write-Host "  $Name was not running (stale PID: $savedPid)" -ForegroundColor Gray
             }
@@ -30,45 +30,45 @@ function Stop-ServiceByPid {
 }
 
 # Stop Frontend
-Write-Host "🌐 Stopping Frontend..." -ForegroundColor Blue
+Write-Host "Stopping Frontend..." -ForegroundColor Blue
 Stop-ServiceByPid -Name "Frontend" -PidFile ".pids\frontend.pid" -Color "Magenta"
 Write-Host ""
 
 # Stop Backend API
-Write-Host "🔧 Stopping Backend API..." -ForegroundColor Blue
+Write-Host "Stopping Backend API..." -ForegroundColor Blue
 Stop-ServiceByPid -Name "Backend API" -PidFile ".pids\backend-api.pid" -Color "Blue"
 Write-Host ""
 
 # Stop Gateway API
-Write-Host "🔌 Stopping Gateway API..." -ForegroundColor Blue
+Write-Host "Stopping Gateway API..." -ForegroundColor Blue
 Stop-ServiceByPid -Name "Gateway API" -PidFile ".pids\gateway-api.pid" -Color "Cyan"
 Write-Host ""
 
 # Stop Scheduler
-Write-Host "🗓️  Stopping Scheduler..." -ForegroundColor Blue
+Write-Host "Stopping Scheduler..." -ForegroundColor Blue
 Stop-ServiceByPid -Name "Scheduler" -PidFile ".pids\scheduler.pid" -Color "Yellow"
 Write-Host ""
 
 # Stop Webhook Handler
-Write-Host "🪝 Stopping Webhook Handler..." -ForegroundColor Blue
+Write-Host "Stopping Webhook Handler..." -ForegroundColor Blue
 Stop-ServiceByPid -Name "Webhook Handler" -PidFile ".pids\webhook-handler.pid" -Color "DarkYellow"
 Write-Host ""
 
 # Stop Fabric Anchor Consumer
-Write-Host "⛓️  Stopping Fabric Anchor Consumer..." -ForegroundColor Blue
+Write-Host "Stopping Fabric Anchor Consumer..." -ForegroundColor Blue
 Stop-ServiceByPid -Name "Fabric Anchor Consumer" -PidFile ".pids\fabric-anchor-consumer.pid" -Color "Green"
 Write-Host ""
 
 # Stop Fabric window (the WSL script runs to completion on its own,
 # but we close the terminal window if it is still open)
-Write-Host "⛓️  Stopping Hyperledger Fabric window..." -ForegroundColor Blue
+Write-Host "Stopping Hyperledger Fabric window..." -ForegroundColor Blue
 Stop-ServiceByPid -Name "Fabric (WSL)" -PidFile ".pids\fabric.pid" -Color "Green"
 Write-Host ""
 
 # Stop Docker infrastructure
-Write-Host "📦 Stopping Docker services (PostgreSQL, Kafka, Redis, Zookeeper)..." -ForegroundColor Blue
+Write-Host "Stopping Docker services (PostgreSQL, Kafka, Redis, Zookeeper)..." -ForegroundColor Blue
 docker-compose stop
-Write-Host "✓ Docker services stopped" -ForegroundColor Green
+Write-Host "[ok] Docker services stopped" -ForegroundColor Green
 Write-Host ""
 
 # Clean up empty .pids directory
@@ -77,9 +77,9 @@ if ((Test-Path .pids) -and (-not (Get-ChildItem .pids))) {
 }
 
 Write-Host ("━" * 62) -ForegroundColor Red
-Write-Host "✅ All RoadWatch services stopped." -ForegroundColor Green
+Write-Host "All RoadWatch services stopped." -ForegroundColor Green
 Write-Host ("━" * 62) -ForegroundColor Red
 Write-Host ""
-Write-Host "💡 To start again:" -ForegroundColor Yellow
+Write-Host "To start again:" -ForegroundColor Yellow
 Write-Host "  .\start-all.ps1"
 Write-Host ""

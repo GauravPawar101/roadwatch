@@ -1,4 +1,4 @@
-import type { GeoLocation } from '../domain/Entities';
+import type { GeoLocation } from '../domain/Entities.js';
 
 /**
  * Calculates the great-circle distance between two points on the Earth's surface.

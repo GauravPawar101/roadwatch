@@ -31,7 +31,9 @@ Primary configuration for the REST API.
 | `FABRIC_MSP_ID` | For Fabric | `RoadWatchMSP` | MSP identity |
 | `FABRIC_CHANNEL` | For Fabric | `roadwatch-india` | Channel name |
 | `FABRIC_CHAINCODE` | For Fabric | `complaint-anchor` | Chaincode name |
-| `SERVICE_REGISTRY_SECRET` | No | — | Service-to-service auth |
+| `INTERNAL_SERVICE_TOKEN` | No | — | Local worker → gateway `/internal/*` |
+| `COMPLAINT_WRITE_MAX_PER_MINUTE` | No | `120` | Adaptive write admission upper bound |
+| `COMPLAINT_WRITE_MAX_INFLIGHT` | No | `24` | Adaptive write admission inflight upper bound |
 | `PHONE_HASH_PEPPER` | Prod | — | Phone number hashing |
 | `PHONE_ENC_KEY` | Prod | — | Base64 32-byte phone encryption key |
 

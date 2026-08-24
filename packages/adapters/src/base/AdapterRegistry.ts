@@ -1,4 +1,4 @@
-import type { ICountryAdapter } from './ICountryAdapter';
+import type { ICountryAdapter } from './ICountryAdapter.js';
 
 /**
  * Strict Architectural Registry (Singleton Wrapper).

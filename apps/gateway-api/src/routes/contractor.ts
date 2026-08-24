@@ -189,9 +189,23 @@ router.post('/complaints/:id/complete', requireAuth, requireRole(['CONTRACTOR'])
 
   await pool.query(
     `UPDATE complaint_assignments
-     SET status = 'SUBMITTED', progress_pct = 100, progress_note = $2, resolution_report = $3::jsonb, completed_at = NOW(), contractor_user_id = $4
+     SET status = 'SUBMITTED',
+         progress_pct = 100,
+         progress_note = $2,
+         resolution_report = $3::jsonb,
+         completed_at = NOW(),
+         inspection_due_at = NOW() + ($5::text || ' hours')::interval,
+         inspection_completed_at = NULL,
+         inspection_overdue_notified = false,
+         contractor_user_id = $4
      WHERE complaint_id = $1`,
-    [params.id, body.report, JSON.stringify({ report: body.report, proofUrl: body.proofUrl ?? null }), user.sub]
+    [
+      params.id,
+      body.report,
+      JSON.stringify({ report: body.report, proofUrl: body.proofUrl ?? null }),
+      user.sub,
+      String(process.env.INSPECTION_GRACE_HOURS ?? 24),
+    ]
   );
 
   await pool.query(`UPDATE complaints SET status = 'RESOLUTION_SUBMITTED', updated_at = NOW() WHERE id = $1`, [params.id]);

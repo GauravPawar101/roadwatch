@@ -271,7 +271,7 @@ export default function ContractorProjectDetail() {
                   </div>
                   <div className="text-right">
                     <span className="text-[10px] text-slate-400 block font-semibold uppercase">Trend status</span>
-                    <Badge tone="success" className="text-[9px] px-2 py-0.5">📈 Improving</Badge>
+                    <Badge tone="success" className="text-[9px] px-2 py-0.5">Improving</Badge>
                   </div>
                 </div>
               </CardBody>

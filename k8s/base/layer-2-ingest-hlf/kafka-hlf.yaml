@@ -1,124 +1,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# LAYER 2 — INGEST.HLF: Zookeeper + Kafka (HLF backpressure cluster)
+# LAYER 2 — INGEST.HLF: Kafka HLF backpressure cluster (KRaft, 3 brokers)
 #
 # Dedicated buffer between fast ingest and slow Hyperledger Fabric commits.
 # fabric-anchor-consumer is the only subscriber on this cluster.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: zookeeper-hlf
-  namespace: roadwatch
-  labels:
-    app.kubernetes.io/name: zookeeper-hlf
-    app.kubernetes.io/part-of: roadwatch
-    layer: ingest-hlf
-    kafka-cluster: hlf
-spec:
-  serviceName: zookeeper-hlf
-  replicas: 1
-  selector:
-    matchLabels:
-      app: zookeeper-hlf
-  template:
-    metadata:
-      labels:
-        app: zookeeper-hlf
-        app.kubernetes.io/name: zookeeper-hlf
-        layer: ingest-hlf
-        kafka-cluster: hlf
-    spec:
-      terminationGracePeriodSeconds: 30
-      initContainers:
-        - name: fix-permissions
-          image: busybox:1.36
-          command: ["sh", "-c", "chown -R 1000:1000 /var/lib/zookeeper"]
-          volumeMounts:
-            - name: zookeeper-data
-              mountPath: /var/lib/zookeeper/data
-            - name: zookeeper-log
-              mountPath: /var/lib/zookeeper/log
-          securityContext:
-            runAsUser: 0
-      containers:
-        - name: zookeeper
-          image: confluentinc/cp-zookeeper:7.7.0
-          ports:
-            - name: client
-              containerPort: 2181
-          env:
-            - name: ZOOKEEPER_CLIENT_PORT
-              value: "2181"
-            - name: ZOOKEEPER_TICK_TIME
-              value: "2000"
-            - name: ZOOKEEPER_INIT_LIMIT
-              value: "10"
-            - name: ZOOKEEPER_SYNC_LIMIT
-              value: "5"
-            - name: KAFKA_HEAP_OPTS
-              value: "-Xms128m -Xmx256m"
-          readinessProbe:
-            tcpSocket:
-              port: client
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            failureThreshold: 12
-            timeoutSeconds: 3
-          livenessProbe:
-            tcpSocket:
-              port: client
-            initialDelaySeconds: 30
-            periodSeconds: 15
-            failureThreshold: 5
-            timeoutSeconds: 3
-          volumeMounts:
-            - name: zookeeper-data
-              mountPath: /var/lib/zookeeper/data
-            - name: zookeeper-log
-              mountPath: /var/lib/zookeeper/log
-          resources:
-            requests:
-              cpu: "100m"
-              memory: "256Mi"
-            limits:
-              cpu: "500m"
-              memory: "384Mi"
-  volumeClaimTemplates:
-    - metadata:
-        name: zookeeper-data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 1Gi
-    - metadata:
-        name: zookeeper-log
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 512Mi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: zookeeper-hlf
-  namespace: roadwatch
-  labels:
-    app.kubernetes.io/name: zookeeper-hlf
-    app.kubernetes.io/part-of: roadwatch
-    layer: ingest-hlf
-    kafka-cluster: hlf
-spec:
-  clusterIP: None
-  selector:
-    app: zookeeper-hlf
-  ports:
-    - name: client
-      port: 2181
-      targetPort: client
----
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -131,13 +17,17 @@ metadata:
     kafka-cluster: hlf
 spec:
   serviceName: kafka-hlf-headless
-  replicas: 1
+  replicas: 3
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app: kafka-hlf
   template:
     metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
       labels:
+        mesh.roadwatch.io/role: infra
         app: kafka-hlf
         app.kubernetes.io/name: kafka-hlf
         layer: ingest-hlf
@@ -152,35 +42,50 @@ spec:
           volumeMounts:
             - name: kafka-data
               mountPath: /var/lib/kafka/data
+            - name: kafka-startup
+              mountPath: /scripts
           securityContext:
             runAsUser: 0
       containers:
         - name: kafka
           image: confluentinc/cp-kafka:7.7.0
+          command: ["/scripts/kafka-start.sh"]
           ports:
             - name: internal
               containerPort: 29092
+            - name: controller
+              containerPort: 9093
           env:
-            - name: KAFKA_BROKER_ID
-              value: "1"
+            - name: KAFKA_HEADLESS_SERVICE
+              value: "kafka-hlf-headless"
+            - name: CLUSTER_ID
+              value: "MkU3OEVBNTcwNTJENDM2Qk"
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
             - name: KAFKA_HEAP_OPTS
               value: "-Xms256m -Xmx512m"
-            - name: KAFKA_ZOOKEEPER_CONNECT
-              value: "zookeeper-hlf-0.zookeeper-hlf.roadwatch.svc.cluster.local:2181"
             - name: KAFKA_LISTENERS
-              value: "PLAINTEXT://0.0.0.0:29092"
-            - name: KAFKA_ADVERTISED_LISTENERS
-              value: "PLAINTEXT://kafka-hlf-0.kafka-hlf-headless.roadwatch.svc.cluster.local:29092"
+              value: "PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093"
             - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
-              value: "PLAINTEXT:PLAINTEXT"
+              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: "0@kafka-hlf-0.kafka-hlf-headless.roadwatch.svc.cluster.local:9093,1@kafka-hlf-1.kafka-hlf-headless.roadwatch.svc.cluster.local:9093,2@kafka-hlf-2.kafka-hlf-headless.roadwatch.svc.cluster.local:9093"
             - name: KAFKA_INTER_BROKER_LISTENER_NAME
               value: "PLAINTEXT"
             - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
-              value: "1"
+              value: "3"
             - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
-              value: "1"
+              value: "3"
             - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
-              value: "1"
+              value: "2"
+            - name: KAFKA_DEFAULT_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_MIN_INSYNC_REPLICAS
+              value: "2"
+            - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+              value: "0"
             - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
               value: "true"
             - name: KAFKA_NUM_PARTITIONS
@@ -206,6 +111,8 @@ spec:
           volumeMounts:
             - name: kafka-data
               mountPath: /var/lib/kafka/data
+            - name: kafka-startup
+              mountPath: /scripts
           resources:
             requests:
               cpu: "250m"
@@ -213,6 +120,11 @@ spec:
             limits:
               cpu: "1000m"
               memory: "768Mi"
+      volumes:
+        - name: kafka-startup
+          configMap:
+            name: kafka-kraft-startup
+            defaultMode: 0755
   volumeClaimTemplates:
     - metadata:
         name: kafka-data
@@ -234,12 +146,16 @@ metadata:
     kafka-cluster: hlf
 spec:
   clusterIP: None
+  publishNotReadyAddresses: true
   selector:
     app: kafka-hlf
   ports:
     - name: internal
       port: 29092
       targetPort: internal
+    - name: controller
+      port: 9093
+      targetPort: controller
 ---
 apiVersion: v1
 kind: Service

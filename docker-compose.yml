@@ -45,112 +45,90 @@ services:
       - "${TOP_PGBOUNCER_HOST_PORT:-16432}:6432"
     healthcheck:
       # Pgbouncer needs its own healthcheck so dependent apps don't start prematurely
-      test: ["CMD-SHELL", "pg_isready -U postgres -h 127.0.0.1 -p 6432 -d roadwatch"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U postgres -h 127.0.0.1 -p 6432 -d roadwatch",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - roadwatch
 
-  # Kafka HLF — backpressure buffer in front of Fabric anchoring
-  zookeeper-hlf:
-    image: confluentinc/cp-zookeeper:7.7.0
-    container_name: roadwatch_zookeeper_hlf
-    restart: unless-stopped
-    environment:
-      ZK_SERVER_HEAP: "-Xms128m -Xmx256m"
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_SYNC_LIMIT: 5
-      ZOOKEEPER_INIT_LIMIT: 10
-    ports:
-      - "${TOP_ZOOKEEPER_HLF_HOST_PORT:-2181}:2181"
-    healthcheck:
-      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - roadwatch
-
+  # Kafka HLF — KRaft backpressure buffer in front of Fabric anchoring
   kafka-hlf:
     image: confluentinc/cp-kafka:7.7.0
     container_name: roadwatch_kafka_hlf
     restart: unless-stopped
-    depends_on:
-      zookeeper-hlf:
-        condition: service_healthy
     environment:
-      KAFKA_BROKER_ID: 1
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_HEAP_OPTS: "-Xms128m -Xmx512m"
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper-hlf:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9094,PLAINTEXT_INTERNAL://kafka-hlf:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-hlf:9093
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_LOG_RETENTION_HOURS: 24
     ports:
       - "${TOP_KAFKA_HLF_HOST_PORT:-9094}:9092"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "kafka-topics --bootstrap-server localhost:29092 --list || exit 1",
+        ]
       interval: 30s
       timeout: 60s
       retries: 10
-      start_period: 180s
+      start_period: 120s
     networks:
       - roadwatch
 
-  # Kafka Events — SLA, notifications, triggers, webhook fan-out
-  zookeeper-events:
-    image: confluentinc/cp-zookeeper:7.7.0
-    container_name: roadwatch_zookeeper_events
-    restart: unless-stopped
-    environment:
-      ZK_SERVER_HEAP: "-Xms128m -Xmx256m"
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_SYNC_LIMIT: 5
-      ZOOKEEPER_INIT_LIMIT: 10
-    ports:
-      - "${TOP_ZOOKEEPER_EVENTS_HOST_PORT:-2182}:2181"
-    healthcheck:
-      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - roadwatch
-
+  # Kafka Events — KRaft SLA / notifications / webhook fan-out
   kafka-events:
     image: confluentinc/cp-kafka:7.7.0
     container_name: roadwatch_kafka_events
     restart: unless-stopped
-    depends_on:
-      zookeeper-events:
-        condition: service_healthy
     environment:
-      KAFKA_BROKER_ID: 1
+      CLUSTER_ID: NjdERUYwNzQxNzQ1NDQwMQ
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_HEAP_OPTS: "-Xms128m -Xmx512m"
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper-events:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9095,PLAINTEXT_INTERNAL://kafka-events:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-events:9093
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_LOG_RETENTION_HOURS: 24
     ports:
       - "${TOP_KAFKA_EVENTS_HOST_PORT:-9095}:9092"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "kafka-topics --bootstrap-server localhost:29092 --list || exit 1",
+        ]
       interval: 30s
       timeout: 60s
       retries: 10
-      start_period: 180s
+      start_period: 120s
     networks:
       - roadwatch
 
@@ -160,7 +138,16 @@ services:
     container_name: roadwatch_redis
     restart: unless-stopped
     # Production fix: Appendonly set to yes for basic state durability
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory",
+        "512mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
     ports:
       - "${TOP_REDIS_HOST_PORT:-16379}:6379"
     healthcheck:
@@ -189,19 +176,37 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@pgbouncer:6432/roadwatch
       SERVICE_NAME: scheduler
+      GATEWAY_URL: http://host.docker.internal:3100
       REDIS_URL: redis://redis:6379/0
       KAFKA_EVENTS_BROKERS: kafka-events:29092
       KAFKA_BROKERS: kafka-events:29092
       CRON_SYNC_QUEUE: "*/5 * * * *"
       CRON_KARMA_RECALC: "0 * * * *"
-      CRON_SLA_CHECK: "*/30 * * * *"
+      CRON_SLA_CHECK: "0 2 * * *"
+      CRON_INSPECTION_CHECK: "30 2 * * *"
       CRON_AUDIT_CLEANUP: "0 2 * * *"
       CRON_REPORT_GENERATION: "0 1 * * *"
+      SCHEDULER_TZ: Asia/Kolkata
+      SLA_SKIP_HOLIDAYS: "true"
+      SLA_GRACE_HIGHWAY_HOURS: "168"
+      SLA_GRACE_LOCAL_HOURS: "48"
+      INSPECTION_GRACE_HOURS: "24"
+      KARMA_SLA_CONTRACTOR: "-20"
+      KARMA_SLA_ENGINEER: "-15"
+      KARMA_RECURRENCE: "-25"
+      ORG_KARMA_BASE_PENALTY: "-10"
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       LOG_LEVEL: info
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - roadwatch
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', (r) => {if(r.statusCode !== 200) process.exit(1)})\" || exit 0"]
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "require(''http'').get(''http://localhost:3000/health'', (r) => {if(r.statusCode !== 200) process.exit(1)})" || exit 0',
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -229,12 +234,19 @@ services:
       KAFKA_GROUP_ID: webhook-handler-prod
       KAFKA_CONSUMER_TIMEOUT: "3000"
       SERVICE_NAME: webhook-handler
+      GATEWAY_URL: http://host.docker.internal:3100
       REDIS_URL: redis://redis:6379/1
       LOG_LEVEL: info
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - roadwatch
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', (r) => {if(r.statusCode !== 200) process.exit(1)})\" || exit 0"]
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "require(''http'').get(''http://localhost:3000/health'', (r) => {if(r.statusCode !== 200) process.exit(1)})" || exit 0',
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -263,16 +275,34 @@ services:
       KAFKA_EVENTS_BROKERS: kafka-events:29092
       KAFKA_BROKERS: kafka-hlf:29092
       KAFKA_GROUP_ID: fabric-anchor-consumer-prod
+      KAFKA_CONSUMER_GROUP_ID: fabric-anchor-consumer-prod
+      KAFKA_CONSUMER_INSTANCE_ID: fabric-anchor-docker-1
       REDIS_URL: redis://redis:6379/2
-      FABRIC_PEER_ENDPOINT: peer0.nhai.example.com:7051
+      # Peer gRPC port inside fabric network is 7051 (host maps 17051→7051)
+      FABRIC_PEER_ENDPOINT: peer0.nhai.roadwatch.com:7051
+      FABRIC_PEER_HOST_ALIAS: peer0.nhai.roadwatch.com
       FABRIC_MSP_ID: NHAIMSP
       FABRIC_CHANNEL_NAME: roadwatch-india
       FABRIC_CHAINCODE_NAME: complaint-anchor
+      FABRIC_TLS_CERT_PATH: /fabric/organizations/peerOrganizations/nhai.roadwatch.com/peers/peer0.nhai.roadwatch.com/tls/ca.crt
+      FABRIC_X509_CERT_PATH: /fabric/organizations/peerOrganizations/nhai.roadwatch.com/users/Admin@nhai.roadwatch.com/msp/signcerts/Admin@nhai.roadwatch.com-cert.pem
+      FABRIC_X509_KEY_PATH: /fabric/organizations/peerOrganizations/nhai.roadwatch.com/users/Admin@nhai.roadwatch.com/msp/keystore/priv_sk
+      GATEWAY_URL: http://host.docker.internal:3100
+      SERVICE_NAME: fabric-anchor-consumer
       LOG_LEVEL: info
+    volumes:
+      - ./fabric/network/organizations:/fabric/organizations:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - roadwatch
+      - fabric_net
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', (r) => {if(r.statusCode !== 200) process.exit(1)})\" || exit 0"]
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "require(''http'').get(''http://localhost:3000/health'', (r) => {if(r.statusCode !== 200) process.exit(1)})" || exit 0',
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -299,9 +329,68 @@ services:
     networks:
       - roadwatch
 
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: roadwatch_prometheus
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "${TOP_PROMETHEUS_HOST_PORT:-9090}:9090"
+    volumes:
+      - ./docker/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/ready >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - roadwatch
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: roadwatch_grafana
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "${TOP_GRAFANA_HOST_PORT:-30301}:3000"
+    volumes:
+      - ./docker/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - roadwatch
+
 networks:
   roadwatch:
     driver: bridge
+  # Created by fabric/network (pnpm fabric:start). Required for peer DNS.
+  fabric_net:
+    name: roadwatch_fabric_net
+    external: true
 
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:
+

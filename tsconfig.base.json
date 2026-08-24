@@ -8,7 +8,6 @@
 			"@roadwatch/kafka": ["packages/kafka/index.ts"],
 			"@roadwatch/kafka/src/*": ["packages/kafka/*"],
 			"@roadwatch/redis": ["packages/redis/index.ts"],
-			"@roadwatch/sidecar-auth": ["packages/sidecar-auth/src/index.ts"],
 			"@roadwatch/config/src/*": ["packages/config/src/*"],
 			"@roadwatch/adapters": ["packages/adapters/src/index.ts"],
 			"@roadwatch/adapters/src/*": ["packages/adapters/src/*"],

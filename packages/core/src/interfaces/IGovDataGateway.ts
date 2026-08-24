@@ -1,5 +1,5 @@
-import { GeoCoordinate } from '../domain/GeoCoordinate';
-import { Authority } from '../domain/Authority';
+import { GeoCoordinate } from '../domain/GeoCoordinate.js';
+import { Authority } from '../domain/Authority.js';
 
 export interface IGovDataGateway {
   /**

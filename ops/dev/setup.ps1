@@ -24,8 +24,8 @@ function Write-Step([string]$msg) {
     Write-Host ("━" * 64) -ForegroundColor Cyan
 }
 
-function Write-Ok([string]$msg)   { Write-Host "  ✓ $msg" -ForegroundColor Green }
-function Write-Warn([string]$msg) { Write-Host "  ⚠ $msg" -ForegroundColor Yellow }
+function Write-Ok([string]$msg)   { Write-Host "  [ok] $msg" -ForegroundColor Green }
+function Write-Warn([string]$msg) { Write-Host "  [warn] $msg" -ForegroundColor Yellow }
 
 function Copy-EnvFile([string]$example, [string]$target) {
     if (-not (Test-Path $example)) {

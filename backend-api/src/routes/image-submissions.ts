@@ -28,10 +28,10 @@ import {
     hammingDistance,
     performVerification,
 } from '@roadwatch/core';
-import { requireUserContext, type AuthenticatedRequest } from '@roadwatch/sidecar-auth';
 import { ensureAuthenticated } from '../middleware/auth.js';
 import { requireAuthority } from '../middleware/rbac.js';
 import { permissiveSidecarAuth } from '../middleware/sidecarFallback.js';
+import { requireUserContext, type AuthenticatedRequest } from '../middleware/userContext.js';
 
 const router = express.Router();
 

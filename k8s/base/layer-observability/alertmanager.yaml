@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: roadwatch
+    layer: observability
+data:
+  gateway.yml: |
+    groups:
+      - name: roadwatch-gateway
+        rules:
+          - alert: GatewayAdmissionDown
+            expr: up{job="gateway-admission"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: Gateway admission scrape is down
+              description: Prometheus cannot scrape gateway /metrics/admission for more than 1m.
+          - alert: GatewayHigh5xx
+            expr: roadwatch_admission_5xx_total > 20
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: Gateway 5xx admission spike
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: roadwatch
+    layer: observability
+data:
+  alertmanager.yml: |
+    route:
+      receiver: default
+      group_wait: 5s
+      group_interval: 30s
+      repeat_interval: 1h
+    receivers:
+      - name: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: roadwatch
+    layer: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+        app.kubernetes.io/name: alertmanager
+        layer: observability
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.27.0
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+          ports:
+            - name: http
+              containerPort: 9093
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: roadwatch
+    layer: observability
+spec:
+  selector:
+    app: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http

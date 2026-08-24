@@ -1,4 +1,4 @@
-import { isWithinIndia } from './Validators';
+import { isWithinIndia } from './Validators.js';
 
 export class GeoCoordinate {
   private constructor(

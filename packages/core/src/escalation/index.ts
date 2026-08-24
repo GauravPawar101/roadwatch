@@ -1,3 +1,3 @@
-export * from './EscalationRecord';
-export * from './EscalationEngine';
-export * from './IEscalationProvider';
+export * from './EscalationRecord.js';
+export * from './EscalationEngine.js';
+export * from './IEscalationProvider.js';

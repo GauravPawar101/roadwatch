@@ -1,5 +1,5 @@
-import { Road, Authority } from '../domain/Entities';
-import { RoadType, UserRole } from '../domain/Enums';
+import { Road, Authority } from '../domain/Entities.js';
+import { RoadType, UserRole } from '../domain/Enums.js';
 
 export class RoutingEngine {
   /**

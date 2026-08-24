@@ -1,0 +1,41 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-pdb
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: mesh
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gateway
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: mesh
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: webhook-pdb
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: mesh
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: webhook

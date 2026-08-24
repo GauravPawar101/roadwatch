@@ -1,8 +1,8 @@
-import type { GeoLocation } from '../domain/Entities';
-import { Complaint } from '../domain/Entities';
-import { ComplaintStatus, DamageType, Severity } from '../domain/Enums';
-import { calculateSLABreachDate } from '../utils/datetime';
-import { calculateHaversineDistance } from '../utils/geo';
+import type { GeoLocation } from '../domain/Entities.js';
+import { Complaint } from '../domain/Entities.js';
+import { ComplaintStatus, DamageType, Severity } from '../domain/Enums.js';
+import { calculateSLABreachDate } from '../utils/datetime.js';
+import { calculateHaversineDistance } from '../utils/geo.js';
 
 export class ComplaintEngine {
   

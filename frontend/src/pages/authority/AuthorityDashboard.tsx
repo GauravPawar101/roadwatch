@@ -312,9 +312,9 @@ function ComplaintsTab({ complaints, loading, totalCount, filters, onFiltersChan
                     </div>
                     <p className="text-on-surface-variant mb-3">{complaint.description}</p>
                     <div className="flex items-center gap-6 text-sm text-on-surface-variant">
-                      <span>📍 {complaint.district} - {complaint.zone}</span>
-                      <span>📊 {complaint.reportCount} reports</span>
-                      <span>📅 {new Date(complaint.createdAt).toLocaleDateString()}</span>
+                      <span>{complaint.district} - {complaint.zone}</span>
+                      <span>{complaint.reportCount} reports</span>
+                      <span>{new Date(complaint.createdAt).toLocaleDateString()}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 ml-4">

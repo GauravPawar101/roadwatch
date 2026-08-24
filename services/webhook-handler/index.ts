@@ -4,7 +4,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { Kafka } from 'kafkajs';
 import pg from 'pg';
-import { registerServiceWithGateway } from '@roadwatch/sidecar-auth';
+import { claimIdempotencyKey } from '@roadwatch/redis';
 
 type NotificationSendEvent = {
   idempotencyKey: string;
@@ -92,7 +92,66 @@ const kafka = new Kafka({
   }
 });
 
-const consumer = kafka.consumer({ groupId: config.kafkaGroupId });
+const consumer = kafka.consumer({
+  groupId: config.kafkaGroupId,
+  maxInFlightRequests: Math.max(1, Number.parseInt(process.env.WEBHOOK_MAX_IN_FLIGHT ?? '8', 10) || 8)
+});
+
+const dlqProducer = kafka.producer();
+let dlqConnected = false;
+const handlerAttempts = new Map<string, number>();
+const WEBHOOK_MAX_ATTEMPTS = Math.max(1, Number.parseInt(process.env.WEBHOOK_MAX_ATTEMPTS ?? '3', 10) || 3);
+
+async function ensureDlqProducer(): Promise<void> {
+  if (dlqConnected) return;
+  await dlqProducer.connect();
+  dlqConnected = true;
+}
+
+async function publishWebhookDlq(message: KafkaMessage, error: string, attempts: number): Promise<void> {
+  try {
+    await ensureDlqProducer();
+    const payload = {
+      type: 'dlq-events',
+      idempotencyKey: crypto.randomUUID(),
+      occurredAt: new Date().toISOString(),
+      version: 1,
+      originalTopic: message.topic,
+      consumerId: config.serviceName,
+      attempts,
+      error,
+      rawMessage: {
+        topic: message.topic,
+        partition: message.partition,
+        offset: message.offset,
+        key: message.key,
+        value: message.value,
+        headers: message.headers
+      }
+    };
+    await dlqProducer.send({
+      topic: 'dlq-events',
+      messages: [{ key: message.key ?? undefined, value: JSON.stringify(payload) }]
+    });
+  } catch (dlqError) {
+    console.error('[webhook] failed to publish DLQ:', dlqError instanceof Error ? dlqError.message : String(dlqError));
+  }
+}
+
+const processConcurrency = Math.max(1, Number.parseInt(process.env.WEBHOOK_CONCURRENCY ?? '4', 10) || 4);
+let inFlight = 0;
+
+async function withConcurrencyLimit<T>(fn: () => Promise<T>): Promise<T> {
+  while (inFlight >= processConcurrency) {
+    await new Promise(r => setTimeout(r, 10));
+  }
+  inFlight += 1;
+  try {
+    return await fn();
+  } finally {
+    inFlight -= 1;
+  }
+}
 
 async function sendInternalNotification(payload: Record<string, unknown>): Promise<boolean> {
   const gatewayUrl = process.env.GATEWAY_URL ?? 'http://127.0.0.1:3100';
@@ -149,9 +208,10 @@ async function handleComplaintSubmitted(message: KafkaMessage): Promise<void> {
       ['complaint-submitted', event.complaintId, 'complaint', JSON.stringify(event)]
     );
 
-    console.log('[webhook] ✓ Processed complaint-submitted:', event.complaintId);
+    console.log('[webhook] Processed complaint-submitted:', event.complaintId);
   } catch (error) {
     console.error('[webhook] Error handling complaint-submitted:', error);
+    throw error;
   }
 }
 
@@ -206,9 +266,10 @@ async function handleComplaintAnchored(message: KafkaMessage): Promise<void> {
       }
     }
 
-    console.log('[webhook] ✓ Processed complaint-anchored:', event.complaintId, 'TX:', event.txHash);
+    console.log('[webhook] Processed complaint-anchored:', event.complaintId, 'TX:', event.txHash);
   } catch (error) {
     console.error('[webhook] Error handling complaint-anchored:', error);
+    throw error;
   }
 }
 
@@ -310,9 +371,10 @@ async function handleComplaintStatusChanged(message: KafkaMessage): Promise<void
       }
     }
 
-    console.log('[webhook] ✓ Processed complaint-status-changed:', event.complaintId);
+    console.log('[webhook] Processed complaint-status-changed:', event.complaintId);
   } catch (error) {
     console.error('[webhook] Error handling complaint-status-changed:', error);
+    throw error;
   }
 }
 
@@ -334,9 +396,10 @@ async function handleNotificationSend(message: KafkaMessage): Promise<void> {
       [notificationKey, primaryChannel, 'sent']
     );
 
-    console.log('[webhook] ✓ Processed notification-send:', event.template);
+    console.log('[webhook] Processed notification-send:', event.template);
   } catch (error) {
     console.error('[webhook] Error handling notification-send:', error);
+    throw error;
   }
 }
 
@@ -397,16 +460,19 @@ async function handleAuthorityAction(message: KafkaMessage): Promise<void> {
       );
     }
 
-    console.log('[webhook] ✓ Processed authority-action:', event.actionType);
+    console.log('[webhook] Processed authority-action:', event.actionType);
   } catch (error) {
     console.error('[webhook] Error handling authority-action:', error);
+    throw error;
   }
 }
 
 /**
- * Route message to appropriate handler based on topic
+ * Route message to appropriate handler based on topic.
+ * On repeated failure, publish to dlq-events (sound dead-letter path).
  */
 async function processMessage(message: KafkaMessage): Promise<void> {
+  const attemptKey = `${message.topic}:${message.partition}:${message.offset}`;
   try {
     switch (message.topic) {
       case 'complaint-submitted':
@@ -427,8 +493,19 @@ async function processMessage(message: KafkaMessage): Promise<void> {
       default:
         console.log('[webhook] Unhandled topic:', message.topic);
     }
+    handlerAttempts.delete(attemptKey);
   } catch (error) {
-    console.error('[webhook] Error processing message:', error);
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error('[webhook] Error processing message:', errMsg);
+    const attempts = (handlerAttempts.get(attemptKey) ?? 0) + 1;
+    handlerAttempts.set(attemptKey, attempts);
+    if (attempts >= WEBHOOK_MAX_ATTEMPTS) {
+      await publishWebhookDlq(message, errMsg, attempts);
+      handlerAttempts.delete(attemptKey);
+    } else {
+      // Re-throw so kafkajs does not commit; message will be retried.
+      throw error;
+    }
   }
 }
 
@@ -466,41 +543,42 @@ async function initializeWebhookHandler(): Promise<void> {
 
     // Start consuming messages
     await consumer.run({
+      partitionsConsumedConcurrently: Math.max(1, Number.parseInt(process.env.WEBHOOK_PARTITIONS_CONCURRENT ?? '2', 10) || 2),
       eachMessage: async ({ topic, partition, message }) => {
-        const kafkaMessage: KafkaMessage = {
-          topic,
-          partition,
-          offset: message.offset,
-          timestamp: message.timestamp || '',
-          key: message.key ? message.key.toString() : null,
-          value: message.value ? message.value.toString() : null,
-          headers: {}
-        };
+        await withConcurrencyLimit(async () => {
+          const kafkaMessage: KafkaMessage = {
+            topic,
+            partition,
+            offset: message.offset,
+            timestamp: message.timestamp || '',
+            key: message.key ? message.key.toString() : null,
+            value: message.value ? message.value.toString() : null,
+            headers: {}
+          };
 
-        if (message.headers) {
-          for (const [key, value] of Object.entries(message.headers)) {
-            kafkaMessage.headers[key] = value ? value.toString() : '';
+          if (message.headers) {
+            for (const [key, value] of Object.entries(message.headers)) {
+              kafkaMessage.headers[key] = value ? value.toString() : '';
+            }
           }
-        }
 
-        await processMessage(kafkaMessage);
+          const dedupeKey = kafkaMessage.key || `${topic}:${partition}:${message.offset}`;
+          try {
+            const claim = await claimIdempotencyKey(`roadwatch:webhook:idempotency:${dedupeKey}`, 86_400);
+            if (claim.ok && !claim.claimed) {
+              return;
+            }
+          } catch {
+            // fail-open on redis
+          }
+
+          await processMessage(kafkaMessage);
+        });
       }
     });
 
     console.log(`[${config.serviceName}] Webhook handler initialized and running...`);
-    void registerServiceWithGateway({
-      gatewayUrl: process.env.GATEWAY_URL ?? 'http://127.0.0.1:3100',
-      service: {
-        name: config.serviceName,
-        address: process.env.SERVICE_URL ?? `service://${config.serviceName}`,
-        description: 'RoadWatch Kafka webhook handler'
-      }
-    }).then(() => {
-      console.log(`[${config.serviceName}] registered with gateway`);
-    }).catch(error => {
-      console.warn(`[${config.serviceName}] service registration failed:`, error instanceof Error ? error.message : String(error));
-    });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`[${config.serviceName}] Failed to initialize Kafka:`, error);
     process.exit(1);
   }

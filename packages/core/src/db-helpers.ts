@@ -8,7 +8,7 @@ import type {
   UserPrivacyProfile,
   VerificationAudit,
   VerificationStatus,
-} from './image-types';
+} from './image-types.js';
 
 /**
  * Database helpers for image submission, karma, nonce, audit and privacy operations

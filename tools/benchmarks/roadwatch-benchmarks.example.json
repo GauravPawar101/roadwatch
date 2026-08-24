@@ -1,0 +1,40 @@
+{
+  "services": [
+    "gateway-api",
+    "backend-api",
+    "webhook-handler",
+    "fabric-anchor-consumer",
+    "scheduler"
+  ],
+  "k6": {
+    "before": "logs/stress/k6-summary-before.json",
+    "after": "logs/stress/k6-summary-after.json"
+  },
+  "coverage": [
+    {
+      "label": "unit",
+      "lcov": "packages/core/coverage"
+    },
+    {
+      "label": "integration",
+      "lcov": "apps/gateway-api/coverage"
+    },
+    {
+      "label": "api",
+      "lcov": "backend-api/coverage"
+    }
+  ],
+  "prometheus": {
+    "baseUrl": "http://localhost:9090",
+    "dbBeforeQuery": "<put-your-real-db-load-query-here>",
+    "dbAfterQuery": "<put-your-real-db-load-query-here>",
+    "uptimeQuery": "<put-your-real-uptime-query-here>",
+    "trafficBeforeQuery": "<put-your-real-traffic-before-query-here>",
+    "trafficAfterQuery": "<put-your-real-traffic-after-query-here>"
+  },
+  "incident": {
+    "start": "<incident-start-iso-timestamp>",
+    "detectedBefore": "<detected-before-iso-timestamp>",
+    "detectedAfter": "<detected-after-iso-timestamp>"
+  }
+}

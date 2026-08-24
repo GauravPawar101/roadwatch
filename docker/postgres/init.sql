@@ -308,7 +308,13 @@ CREATE TABLE IF NOT EXISTS roads_catalog (
 ALTER TABLE IF EXISTS roads_catalog
   ADD COLUMN IF NOT EXISTS total_length_km numeric;
 
+ALTER TABLE IF EXISTS roads_catalog
+  ADD COLUMN IF NOT EXISTS block_code text,
+  ADD COLUMN IF NOT EXISTS authority_org text;
+
 CREATE INDEX IF NOT EXISTS roads_catalog_district_id_idx ON roads_catalog (district_id);
+CREATE INDEX IF NOT EXISTS roads_catalog_block_code_idx ON roads_catalog (block_code);
+CREATE INDEX IF NOT EXISTS roads_catalog_authority_org_idx ON roads_catalog (authority_org);
 
 -- =============================================================
 --  Geography: countries / states / districts
@@ -499,7 +505,8 @@ CREATE TABLE IF NOT EXISTS notification_deliveries (
   scheduled_for   timestamptz,
   batch_key       text,
   status          text DEFAULT 'PENDING',
-  created_at      timestamptz NOT NULL DEFAULT NOW()
+  created_at      timestamptz NOT NULL DEFAULT NOW(),
+  error           text
 );
 
 CREATE TABLE IF NOT EXISTS kafka_event_outbox (
@@ -743,12 +750,33 @@ CREATE TABLE IF NOT EXISTS offline_queue (
 );
 
 CREATE TABLE IF NOT EXISTS karma_ledger (
-  user_id    uuid NOT NULL,
+  user_id    uuid,
   delta      numeric NOT NULL,
   reason     text,
   ref_id     text,
   created_at timestamptz NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE IF EXISTS karma_ledger
+  ALTER COLUMN user_id DROP NOT NULL;
+
+ALTER TABLE IF EXISTS karma_ledger
+  ADD COLUMN IF NOT EXISTS org_id text;
+
+CREATE TABLE IF NOT EXISTS org_karma (
+  org_id         text PRIMARY KEY,
+  score          numeric NOT NULL DEFAULT 100,
+  road_km_cache  numeric NOT NULL DEFAULT 0,
+  updated_at     timestamptz NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE IF EXISTS complaint_assignments
+  ADD COLUMN IF NOT EXISTS inspection_due_at timestamptz,
+  ADD COLUMN IF NOT EXISTS inspection_completed_at timestamptz,
+  ADD COLUMN IF NOT EXISTS inspection_overdue_notified boolean NOT NULL DEFAULT false;
+
+ALTER TABLE IF EXISTS contractors
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT NOW();
 
 CREATE TABLE IF NOT EXISTS sla_tracking (
   complaint_id   uuid PRIMARY KEY REFERENCES complaints (id) ON DELETE CASCADE,

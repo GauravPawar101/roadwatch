@@ -1,7 +1,7 @@
 import express from 'express';
 import type { Request, Response } from 'express-serve-static-core';
 import { z } from 'zod';
-import { validateServiceJWT } from '../middleware/jwt.js';
+import { requireInternalServiceToken } from '../middleware/jwt.js';
 
 const router = express.Router();
 
@@ -11,8 +11,8 @@ const payloadSchema = z.object({
   // allow any additional properties
 }).passthrough();
 
-// Simple collector endpoint. Intended as a local/dev stub.
-router.post('/collect', validateServiceJWT, (req: Request, res: Response) => {
+// Simple collector endpoint. Intended as a local/dev stub (mesh mTLS in k8s).
+router.post('/collect', requireInternalServiceToken, (req: Request, res: Response) => {
   try {
     const body = payloadSchema.parse(req.body);
     // Light logging for local inspection. In production, forward to analytics provider.

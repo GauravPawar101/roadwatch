@@ -1,4 +1,4 @@
-import { GeoCoordinate } from '../domain/GeoCoordinate';
+import { GeoCoordinate } from '../domain/GeoCoordinate.js';
 
 export interface IMapProvider {
   /**

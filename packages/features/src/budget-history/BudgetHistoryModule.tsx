@@ -65,7 +65,7 @@ export const BudgetHistoryScreen: React.FC<{ viewModel: ReturnType<typeof useBud
       {/* Dynamic structural anomaly engine mapping */}
       {viewModel.anomalies.length > 0 && (
         <View style={styles.anomalyBox}>
-          <Text style={styles.anomalyHeader}>🚨 Integrity Flags Active</Text>
+          <Text style={styles.anomalyHeader}>Integrity Flags Active</Text>
           {viewModel.anomalies.map((anomaly, i) => (
              <Text key={i} style={styles.anomalyText}>• {anomaly.description}</Text>
           ))}

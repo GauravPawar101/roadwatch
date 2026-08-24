@@ -1,6 +1,6 @@
-import type { Complaint, GeoLocation, Road } from '../domain/Entities';
-import type { ComplaintStatus, Severity } from '../domain/Enums';
-import { isWithinBoundingBox } from '../utils/geo';
+import type { Complaint, GeoLocation, Road } from '../domain/Entities.js';
+import type { ComplaintStatus, Severity } from '../domain/Enums.js';
+import { isWithinBoundingBox } from '../utils/geo.js';
 
 export interface BoundingBox {
   topLeft: GeoLocation;

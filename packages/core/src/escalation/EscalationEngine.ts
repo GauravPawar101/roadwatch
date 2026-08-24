@@ -101,6 +101,41 @@ export class EscalationEngine {
     return '';
   }
 
+  /**
+   * Advance one step in a linear authority hierarchy (e.g. NHAI / PWD / municipal arrays).
+   * If `current` is missing from the list, assigns the first tier.
+   * Returns null when already at the top of the hierarchy.
+   */
+  static nextInLinearHierarchy(
+    current: string,
+    hierarchy: string[]
+  ): { fromAuthorityId: string; toAuthorityId: string; tier: number } | null {
+    if (!hierarchy.length) return null;
+
+    const normalized = String(current ?? '').trim();
+    const idx = hierarchy.findIndex(
+      (role) => role === normalized || (normalized.length > 0 && normalized.includes(role))
+    );
+
+    if (idx === -1) {
+      return {
+        fromAuthorityId: normalized,
+        toAuthorityId: hierarchy[0]!,
+        tier: 1,
+      };
+    }
+
+    if (idx >= hierarchy.length - 1) {
+      return null;
+    }
+
+    return {
+      fromAuthorityId: hierarchy[idx]!,
+      toAuthorityId: hierarchy[idx + 1]!,
+      tier: idx + 2,
+    };
+  }
+
   static calculateChronic(complaint: EscalationComplaint): boolean {
     const ageInDays = (Date.now() - complaint.submittedAt) / (24 * 60 * 60 * 1000);
     const isUnresolved = complaint.status !== 'RESOLVED' && complaint.status !== 'CLOSED';

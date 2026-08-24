@@ -1,4 +1,4 @@
-import type { AccessLog, ImageSubmission, UserRole } from './image-types';
+import type { AccessLog, ImageSubmission, UserRole } from './image-types.js';
 
 /**
  * Privacy & RBAC Service

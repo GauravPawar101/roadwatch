@@ -7,8 +7,9 @@ metadata:
     app.kubernetes.io/part-of: roadwatch
     layer: platform
 data:
-  # ── Postgres ───────────────────────────────────────────────────
-  POSTGRES_HOST: "postgres-0.postgres.roadwatch.svc.cluster.local"
+  # ── Postgres (HA: primary + streaming replica) ─────────────────
+  POSTGRES_HOST: "postgres-primary-0.postgres-primary.roadwatch.svc.cluster.local"
+  POSTGRES_HOST_RO: "postgres-replica-0.postgres-replica.roadwatch.svc.cluster.local"
   POSTGRES_PORT: "5432"
   POSTGRES_DB:   "roadwatch"
   POSTGRES_USER: "postgres"
@@ -17,20 +18,24 @@ data:
   PGBOUNCER_HOST: "pgbouncer"
   PGBOUNCER_PORT: "6432"
 
-  # ── Redis ──────────────────────────────────────────────────────
+  # ── Redis (HA: 3-node StatefulSet + Sentinel) ──────────────────
+  # Apps connect to the stable master pod DNS (sentinel failover is manual in kind).
   REDIS_HOST: "redis-0.redis.roadwatch.svc.cluster.local"
   REDIS_PORT: "6379"
   # db 0 = gateway (default); consumers override per-pod (db 1, db 2)
   REDIS_URL:  "redis://redis-0.redis.roadwatch.svc.cluster.local:6379/0"
+  # Sentinel endpoints (for sentinel-aware clients):
+  REDIS_SENTINEL_HOSTS: "redis-sentinel-0.redis-sentinel.roadwatch.svc.cluster.local:26379,redis-sentinel-1.redis-sentinel.roadwatch.svc.cluster.local:26379,redis-sentinel-2.redis-sentinel.roadwatch.svc.cluster.local:26379"
+  REDIS_SENTINEL_MASTER: "mymaster"
 
-  # ── Kafka — dual cluster (layer-2-ingest-hlf) ───────────────────────────────
+  # ── Kafka — dual 3-broker KRaft clusters (layer-2-ingest-hlf) ─
   # HLF cluster: backpressure buffer in front of Fabric anchoring.
-  KAFKA_HLF_BROKERS: "kafka-hlf:29092"
+  KAFKA_HLF_BROKERS: "kafka-hlf-0.kafka-hlf-headless.roadwatch.svc.cluster.local:29092,kafka-hlf-1.kafka-hlf-headless.roadwatch.svc.cluster.local:29092,kafka-hlf-2.kafka-hlf-headless.roadwatch.svc.cluster.local:29092"
   # Events cluster: SLA, notifications, triggers, webhook fan-out.
-  KAFKA_EVENTS_BROKERS: "kafka-events:29092"
+  KAFKA_EVENTS_BROKERS: "kafka-events-0.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-1.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-2.kafka-events-headless.roadwatch.svc.cluster.local:29092"
   # Legacy aliases — default producers/consumers to the events cluster.
-  KAFKA_BROKER:  "kafka-events:29092"
-  KAFKA_BROKERS: "kafka-events:29092"
+  KAFKA_BROKER:  "kafka-events-0.kafka-events-headless.roadwatch.svc.cluster.local:29092"
+  KAFKA_BROKERS: "kafka-events-0.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-1.kafka-events-headless.roadwatch.svc.cluster.local:29092,kafka-events-2.kafka-events-headless.roadwatch.svc.cluster.local:29092"
 
   # ── Internal service discovery ─────────────────────────────────
   GATEWAY_URL: "http://gateway:3100"

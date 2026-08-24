@@ -13,17 +13,17 @@ const statusProgress: Record<string, number> = {
 function getStatusIcon(status: string) {
   switch (status) {
     case 'Submitted':
-      return '📋'
+      return 'Submitted'
     case 'Anchored':
-      return '⛓️'
+      return 'Anchored'
     case 'In Progress':
-      return '⚙️'
+      return 'In Progress'
     case 'Resolved':
-      return '✅'
+      return 'Resolved'
     case 'Escalated':
-      return '🚀'
+      return 'Escalated'
     default:
-      return '❓'
+      return status
   }
 }
 
@@ -79,7 +79,7 @@ export default function ContractorComplaintDetail(){
       <section className="stitch-mt-12">
         <div className="stitch-grid-auto-fit-220">
           {[
-            ['Road', `📍 ${c.roadId}`],
+            ['Road', c.roadId],
             ['Damage type', c.damageType],
             ['Severity', `${c.severity}/5`],
             ['Status', displayStatus],
@@ -119,7 +119,7 @@ export default function ContractorComplaintDetail(){
                       {media.type === 'photo' && media.dataUrl && <img src={media.dataUrl} alt="Evidence" className="stitch-img-cover" />}
                       {media.type === 'video' && media.dataUrl && <video src={media.dataUrl} className="stitch-img-cover" controls />}
                       <div style={{ paddingTop: 8 }}>
-                        <div className="stitch-font-700" style={{ fontSize: 13 }}>{media.type === 'photo' ? '📸 Photo' : '🎥 Video'}</div>
+                        <div className="stitch-font-700" style={{ fontSize: 13 }}>{media.type === 'photo' ? 'Photo' : 'Video'}</div>
                         <div style={{ marginTop: 8 }}><Badge tone={media.status === 'Verified' ? 'success' : 'warning'}>{media.status}</Badge></div>
                         <div style={{ marginTop: 8 }} className="stitch-text-12 stitch-text-muted">{new Date(media.timestamp).toLocaleDateString()}</div>
                       </div>

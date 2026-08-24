@@ -97,6 +97,8 @@ function createSqlExecutor(executor: (text: string, values: any[]) => Promise<an
     try {
       await client.query('BEGIN');
       const tx = createSqlExecutor(async (text, values) => (await client.query(text, values)).rows);
+      // Outbox + other helpers expect a pg-style client.query inside transactions.
+      tx.query = (text: string, values?: any[]) => client.query(text, values);
       const result = await fn(tx);
       await client.query('COMMIT');
       return result;

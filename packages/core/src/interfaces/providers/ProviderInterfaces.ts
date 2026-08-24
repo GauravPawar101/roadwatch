@@ -1,4 +1,4 @@
-import type { Complaint, GeoLocation, User } from '../../domain/Entities';
+import type { Complaint, GeoLocation, User } from '../../domain/Entities.js';
 
 export interface IMapProvider {
   loadTilesRegion(topLeft: GeoLocation, bottomRight: GeoLocation, zoom: number): Promise<void>;

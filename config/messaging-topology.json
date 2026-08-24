@@ -1,25 +1,76 @@
 {
   "kafka": {
     "bootstrapServer": "localhost:29092",
-    "replicationFactor": 1,
+    "replicationFactor": 3,
     "topics": [
-      { "name": "complaint-submitted", "partitions": 3 },
-      { "name": "complaint-anchored", "partitions": 3 },
-      { "name": "complaint-status-changed", "partitions": 3 },
-      { "name": "media-captured", "partitions": 3 },
-      { "name": "media-compressed", "partitions": 3 },
-      { "name": "media-uploaded", "partitions": 3 },
-      { "name": "media-analyzed", "partitions": 3 },
-      { "name": "escalation-due", "partitions": 2 },
-      { "name": "escalation-sent", "partitions": 2 },
-      { "name": "fabric-events", "partitions": 2 },
-      { "name": "authority-action", "partitions": 2 },
-      { "name": "notification-send", "partitions": 2 },
-      { "name": "dlq-events", "partitions": 1 },
-      { "name": "roadwatch-ingestion-complaints", "partitions": 3 },
-      { "name": "roadwatch-ingestion-media-vectors", "partitions": 3 },
-      { "name": "roadwatch-ingestion-system-telemetry", "partitions": 1 },
-      { "name": "roadwatch-complaints-backbone", "partitions": 3 }
+      {
+        "name": "complaint-submitted",
+        "partitions": 6
+      },
+      {
+        "name": "complaint-anchored",
+        "partitions": 3
+      },
+      {
+        "name": "complaint-status-changed",
+        "partitions": 6
+      },
+      {
+        "name": "media-captured",
+        "partitions": 3
+      },
+      {
+        "name": "media-compressed",
+        "partitions": 3
+      },
+      {
+        "name": "media-uploaded",
+        "partitions": 3
+      },
+      {
+        "name": "media-analyzed",
+        "partitions": 3
+      },
+      {
+        "name": "escalation-due",
+        "partitions": 2
+      },
+      {
+        "name": "escalation-sent",
+        "partitions": 2
+      },
+      {
+        "name": "fabric-events",
+        "partitions": 2
+      },
+      {
+        "name": "authority-action",
+        "partitions": 2
+      },
+      {
+        "name": "notification-send",
+        "partitions": 2
+      },
+      {
+        "name": "dlq-events",
+        "partitions": 3
+      },
+      {
+        "name": "roadwatch-ingestion-complaints",
+        "partitions": 3
+      },
+      {
+        "name": "roadwatch-ingestion-media-vectors",
+        "partitions": 3
+      },
+      {
+        "name": "roadwatch-ingestion-system-telemetry",
+        "partitions": 1
+      },
+      {
+        "name": "roadwatch-complaints-backbone",
+        "partitions": 3
+      }
     ]
   },
   "redis": {

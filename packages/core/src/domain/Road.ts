@@ -1,5 +1,5 @@
-import { GeoCoordinate } from './GeoCoordinate';
-import { isValidPinCode } from './Validators';
+import { GeoCoordinate } from './GeoCoordinate.js';
+import { isValidPinCode } from './Validators.js';
 
 export class Road {
   private constructor(

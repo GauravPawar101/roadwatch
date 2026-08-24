@@ -492,7 +492,7 @@ function DashboardHeader({ role, onSwitchRole, onToggleTheme }: { role: Dashboar
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <Input placeholder="Search complaints..." startIcon={<Search style={{ height: 14, width: 14 }} />} style={{ minWidth: 200 }} />
 
-            <Button variant="ghost" onClick={onToggleTheme} style={{ padding: '6px 10px', fontSize: 13 }}>{darkMode ? 'Light ☀️' : 'Dark 🌙'}</Button>
+            <Button variant="ghost" onClick={onToggleTheme} style={{ padding: '6px 10px', fontSize: 13 }}>{darkMode ? 'Light' : 'Dark'}</Button>
 
             <Button variant="ghost" style={{ padding: '6px 10px', fontSize: 13 }}><Bell style={{ height: 14, width: 14, marginRight: 4 }} /> Alerts</Button>
 

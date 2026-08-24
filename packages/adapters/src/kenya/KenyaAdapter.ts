@@ -1,8 +1,8 @@
-import { BaseAdapter } from '../base/BaseAdapter';
-import { RoadType, Severity } from '../base/ICountryAdapter';
-import { KENHA_HIERARCHY } from './authorities/kenha';
-import { KERRA_HIERARCHY } from './authorities/kerra';
-import { KURA_HIERARCHY } from './authorities/kura';
+import { BaseAdapter } from '../base/BaseAdapter.js';
+import { RoadType, Severity } from '../base/ICountryAdapter.js';
+import { KENHA_HIERARCHY } from './authorities/kenha.js';
+import { KERRA_HIERARCHY } from './authorities/kerra.js';
+import { KURA_HIERARCHY } from './authorities/kura.js';
 
 /**
  * Concrete Execution Node mapping standard Kenyan structures dynamically without disrupting generic Core APIs.

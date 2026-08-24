@@ -131,7 +131,7 @@ function Initialize-KafkaTopics {
         }
 
         if ($currentPartitions -lt $desiredPartitions) {
-            Write-Host "    ↳ Increasing partitions from $currentPartitions to $desiredPartitions" -ForegroundColor DarkGray
+            Write-Host "    -> Increasing partitions from $currentPartitions to $desiredPartitions" -ForegroundColor DarkGray
             & docker exec roadwatch_kafka kafka-topics `
                 --bootstrap-server $bootstrapServer `
                 --alter `
@@ -142,7 +142,7 @@ function Initialize-KafkaTopics {
                 throw "Failed to alter Kafka topic $topicName to $desiredPartitions partitions"
             }
         } elseif ($currentPartitions -gt $desiredPartitions) {
-            Write-Host "    ↳ Topic already has $currentPartitions partitions; leaving as-is because Kafka cannot shrink partitions" -ForegroundColor DarkGray
+            Write-Host "    -> Topic already has $currentPartitions partitions; leaving as-is because Kafka cannot shrink partitions" -ForegroundColor DarkGray
         }
     }
 
@@ -168,4 +168,4 @@ function Initialize-Redis {
 Write-Host "⏳ Initializing Redis and Kafka messaging infrastructure..." -ForegroundColor Blue
 Initialize-Redis
 Initialize-KafkaTopics
-Write-Host "✓ Redis and Kafka initialization complete" -ForegroundColor Green
+Write-Host "Redis and Kafka initialization complete" -ForegroundColor Green

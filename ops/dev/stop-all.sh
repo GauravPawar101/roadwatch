@@ -1,79 +1,61 @@
-#!/bin/bash
-# stop-all.sh - Stop all RoadWatch services
+#!/usr/bin/env bash
+# ops/dev/stop-all.sh — Stop local RoadWatch processes and Docker Compose stack
+# Usage: ./ops/dev/stop-all.sh
 
-set -e
+set -euo pipefail
 
-echo "🛑 Stopping RoadWatch Services..."
-echo ""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
+ensure_docker_group "$@"
 
-# Stop Frontend
-if [ -f .pids/frontend.pid ]; then
-    FRONTEND_PID=$(cat .pids/frontend.pid)
-    echo "Stopping Frontend (PID: $FRONTEND_PID)..."
-    kill $FRONTEND_PID 2>/dev/null || echo "Process already stopped"
-    rm .pids/frontend.pid
-    echo -e "${GREEN}✓ Frontend stopped${NC}"
+echo "Stopping RoadWatch services..."
+echo
+
+stop_named() {
+  local name="$1" pidfile="$2"
+  if [[ -f "$pidfile" ]]; then
+    local pid
+    pid="$(tr -d '[:space:]' <"$pidfile" || true)"
+    if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+      sleep 0.2
+      kill -9 "$pid" 2>/dev/null || true
+      ok "Stopped $name (PID $pid)"
+    else
+      warn "$name not running (stale PID ${pid:-none})"
+    fi
+    rm -f "$pidfile"
+  else
+    echo "  No PID file for $name — skipping"
+  fi
+}
+
+stop_named "Frontend" .pids/frontend.pid
+stop_named "Backend API" .pids/backend-api.pid
+stop_named "Gateway API" .pids/gateway-api.pid
+stop_named "Scheduler" .pids/scheduler.pid
+stop_named "Webhook Handler" .pids/webhook-handler.pid
+stop_named "Fabric Anchor Consumer" .pids/fabric-anchor-consumer.pid
+stop_named "Fabric" .pids/fabric.pid
+
+# Stop Fabric docker network if present (native Linux, not WSL)
+if [[ -f fabric/network/docker/docker-compose.yaml ]]; then
+  echo
+  echo "Stopping Fabric docker compose (if running)..."
+  (cd fabric/network && docker compose -f docker/docker-compose.yaml stop >/dev/null 2>&1) || true
 fi
 
-# Stop Backend API
-if [ -f .pids/backend-api.pid ]; then
-    BACKEND_PID=$(cat .pids/backend-api.pid)
-    echo "Stopping Backend API (PID: $BACKEND_PID)..."
-    kill $BACKEND_PID 2>/dev/null || echo "Process already stopped"
-    rm .pids/backend-api.pid
-    echo -e "${GREEN}✓ Backend API stopped${NC}"
+echo
+echo "Stopping Docker Compose infrastructure..."
+docker compose stop || docker-compose stop || warn "docker compose stop failed"
+
+if [[ -d .pids ]] && [[ -z "$(ls -A .pids 2>/dev/null || true)" ]]; then
+  rmdir .pids 2>/dev/null || true
 fi
 
-# Stop Gateway API
-if [ -f .pids/gateway-api.pid ]; then
-    GATEWAY_PID=$(cat .pids/gateway-api.pid)
-    echo "Stopping Gateway API (PID: $GATEWAY_PID)..."
-    kill $GATEWAY_PID 2>/dev/null || echo "Process already stopped"
-    rm .pids/gateway-api.pid
-    echo -e "${GREEN}✓ Gateway API stopped${NC}"
-fi
-
-# Stop Scheduler
-if [ -f .pids/scheduler.pid ]; then
-    SCHEDULER_PID=$(cat .pids/scheduler.pid)
-    echo "Stopping Scheduler (PID: $SCHEDULER_PID)..."
-    kill $SCHEDULER_PID 2>/dev/null || echo "Process already stopped"
-    rm .pids/scheduler.pid
-    echo -e "${GREEN}✓ Scheduler stopped${NC}"
-fi
-
-# Stop Webhook Handler
-if [ -f .pids/webhook-handler.pid ]; then
-    WEBHOOK_PID=$(cat .pids/webhook-handler.pid)
-    echo "Stopping Webhook Handler (PID: $WEBHOOK_PID)..."
-    kill $WEBHOOK_PID 2>/dev/null || echo "Process already stopped"
-    rm .pids/webhook-handler.pid
-    echo -e "${GREEN}✓ Webhook Handler stopped${NC}"
-fi
-
-# Stop Fabric Anchor Consumer
-if [ -f .pids/fabric-anchor-consumer.pid ]; then
-    FABRIC_ANCHOR_PID=$(cat .pids/fabric-anchor-consumer.pid)
-    echo "Stopping Fabric Anchor Consumer (PID: $FABRIC_ANCHOR_PID)..."
-    kill $FABRIC_ANCHOR_PID 2>/dev/null || echo "Process already stopped"
-    rm .pids/fabric-anchor-consumer.pid
-    echo -e "${GREEN}✓ Fabric Anchor Consumer stopped${NC}"
-fi
-
-# Stop Fabric in WSL
-echo "Stopping Hyperledger Fabric in WSL..."
-wsl bash -c "cd /mnt/c/$(pwd | sed 's|C:/|/c/|' | sed 's|\\|/|g')/fabric/network && docker compose -f docker/docker-compose.yaml stop"
-echo -e "${GREEN}✓ Hyperledger Fabric stopped${NC}"
-
-# Stop Docker services
-echo "Stopping Docker services..."
-docker-compose stop
-echo -e "${GREEN}✓ PostgreSQL stopped${NC}"
-
-echo ""
-echo -e "${GREEN}✨ All services stopped${NC}"
+echo
+ok "All RoadWatch services stopped."
+echo "  Start again: pnpm start:all"
+echo

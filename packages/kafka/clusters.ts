@@ -2,10 +2,17 @@ import { KafkaTopics, type KafkaTopic } from './topics.js';
 
 export type KafkaCluster = 'hlf' | 'events';
 
-/** Topics consumed/produced only on the HLF backpressure cluster. */
-const HLF_ONLY_TOPICS = new Set<string>([KafkaTopics.dlq]);
+/** Dead-letter events are mirrored to both clusters for ops visibility. */
+const DUAL_CLUSTER_TOPICS = new Set<string>([
+  KafkaTopics.complaintSubmitted,
+  KafkaTopics.complaintStatusChanged,
+  KafkaTopics.dlq
+]);
 
-/** Topics for SLA, notifications, triggers, and operational fan-out. */
+/** Topics consumed/produced only on the HLF backpressure cluster. */
+const HLF_ONLY_TOPICS = new Set<string>([]);
+
+/** Topics that must stay on the events cluster only (SLA, notifications, webhooks). */
 const EVENTS_ONLY_TOPICS = new Set<string>([
   KafkaTopics.complaintAnchored,
   KafkaTopics.notificationSend,
@@ -17,12 +24,6 @@ const EVENTS_ONLY_TOPICS = new Set<string>([
   KafkaTopics.mediaUploaded,
   KafkaTopics.mediaAnalyzed,
   KafkaTopics.fabricEvents
-]);
-
-/** Complaint lifecycle events that feed both HLF anchoring and operational consumers. */
-const DUAL_CLUSTER_TOPICS = new Set<string>([
-  KafkaTopics.complaintSubmitted,
-  KafkaTopics.complaintStatusChanged
 ]);
 
 export function getPublishClustersForTopic(topic: string): KafkaCluster[] {

@@ -6,16 +6,31 @@ set -e
 # Usage: ./fabric-start.sh [--reset]
 # By default preserves existing artifacts. Pass --reset for full teardown.
 
-RESET=false
-if [ "$1" = "--reset" ] || [ "$1" = "-r" ]; then
-  RESET=true
-fi
-
 # Resolve repo root (ops/deploy/ → repo root is two levels up)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 NETWORK_DIR="$REPO_ROOT/fabric/network"
 ROOT_DIR="$REPO_ROOT"
+
+# Prefer repo-local Fabric binaries + jq (do not rely on sudo PATH)
+export PATH="$REPO_ROOT/bin:/usr/local/bin/fabric:$PATH"
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required for Fabric channel/anchor setup." >&2
+  echo "  Arch: sudo pacman -S jq" >&2
+  echo "  Or:   curl -fsSL -o $REPO_ROOT/bin/jq https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 && chmod +x $REPO_ROOT/bin/jq" >&2
+  exit 1
+fi
+
+# Activate docker group for this session if needed (Arch/Linux after usermod)
+# shellcheck source=../dev/ensure-docker-group.sh
+source "$REPO_ROOT/ops/dev/ensure-docker-group.sh"
+ensure_docker_group "$@"
+
+RESET=false
+if [ "$1" = "--reset" ] || [ "$1" = "-r" ]; then
+  RESET=true
+fi
 
 source "$SCRIPT_DIR/fabric-env.sh"
 
@@ -90,8 +105,9 @@ if [ -z "${DOCKER_HOST:-}" ]; then
   elif [ -S /mnt/wsl/shared-docker/docker.sock ]; then
     export DOCKER_HOST=unix:///mnt/wsl/shared-docker/docker.sock
   else
-    echo "ERROR: Docker daemon is not reachable from this WSL distro."
-    echo "       Enable Docker Desktop WSL integration for Ubuntu or set DOCKER_HOST to a valid unix socket."
+    echo "ERROR: Docker daemon is not reachable (no docker.sock found)."
+    echo "       Linux: sudo systemctl enable --now docker"
+    echo "       WSL: enable Docker Desktop WSL integration, or set DOCKER_HOST."
     exit 1
   fi
 fi
@@ -175,8 +191,8 @@ waitForChannelReadiness() {
 retryCommand() {
   local LABEL="$1"
   shift
-  local ATTEMPTS=20
-  local SLEEP_SECONDS=3
+  local ATTEMPTS="${RETRY_ATTEMPTS:-20}"
+  local SLEEP_SECONDS="${RETRY_SLEEP_SECONDS:-3}"
 
   for i in $(seq 1 "$ATTEMPTS"); do
     if "$@"; then
@@ -432,7 +448,9 @@ waitForChannelReadiness roadwatch "RoadWatch peer"
 echo "==> Creating channel"
 setPeerContext nhai
 
-if retryCommand "peer channel fetch 0" peer channel fetch 0 ${CHANNEL}.block \
+# Quick existence probe (NOT_FOUND is expected on first boot — do not retry 20x)
+if RETRY_ATTEMPTS=2 RETRY_SLEEP_SECONDS=1 \
+  retryCommand "peer channel fetch 0" peer channel fetch 0 ${CHANNEL}.block \
   -o localhost:$FABRIC_ORDERER_PORT \
   -c "$CHANNEL" \
   --tls \
@@ -442,6 +460,7 @@ else
   if [ -f "${CHANNEL}.block" ]; then
     echo "==> Channel $CHANNEL block already exists locally; reusing ${CHANNEL}.block"
   else
+    echo "==> Channel $CHANNEL not found yet; creating..."
     retryCommand "peer channel create" peer channel create \
       -o localhost:$FABRIC_ORDERER_PORT \
       -c "$CHANNEL" \

@@ -1,4 +1,4 @@
-import { RoadType, ComplaintStatus, DamageType, Severity, UserRole } from './Enums';
+import { RoadType, ComplaintStatus, DamageType, Severity, UserRole } from './Enums.js';
 
 export interface GeoLocation {
   readonly latitude: number;

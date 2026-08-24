@@ -1,4 +1,4 @@
-import type { AppEvent } from './AppEvents';
+import type { AppEvent } from './AppEvents.js';
 
 /**
  * Lightweight, purely typed Event Driven singleton bridge.

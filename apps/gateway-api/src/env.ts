@@ -3,6 +3,8 @@ import { z } from 'zod';
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).optional().default('development'),
   PORT: z.coerce.number().int().positive().optional().default(3100),
+  // Bind address — use 0.0.0.0 so Docker workers can reach the gateway via host.docker.internal
+  HOST: z.string().optional().default('127.0.0.1'),
 
   // PostgreSQL (use a PgBouncer-backed pooled endpoint)
   DATABASE_URL: z.string().optional().default('postgresql://postgres:postgres@127.0.0.1:16432/roadwatch'),
@@ -15,11 +17,8 @@ const envSchema = z.object({
   POSTGRES_POOL_MAX: z.coerce.number().int().positive().optional().default(10),
 
   JWT_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
-  // Backwards-compatible: ACCESS_SECRET used for access tokens, REFRESH_SECRET for refresh tokens.
   ACCESS_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
   REFRESH_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
-  SERVICE_AUTH_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
-  SERVICE_REGISTRY_SECRET: z.string().optional(),
   ACCESS_TOKEN_EXPIRES_MINUTES: z.coerce.number().int().positive().optional().default(15),
   REFRESH_TOKEN_EXPIRES_DAYS: z.coerce.number().int().positive().optional().default(7),
   OTP_TTL_SECONDS: z.coerce.number().int().positive().optional().default(300),
@@ -75,6 +74,9 @@ export type Env = z.infer<typeof envSchema>;
 
 export function getEnv(): Env {
   // eslint-disable-next-line no-process-env
+  if (process.env.ACCESS_SECRET && !process.env.ACCESS_SECRET) {
+    process.env.ACCESS_SECRET = process.env.ACCESS_SECRET;
+  }
   return envSchema.parse(process.env);
 }
 

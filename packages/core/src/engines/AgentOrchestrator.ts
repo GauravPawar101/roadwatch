@@ -1,9 +1,9 @@
-import type { UserContext } from './AccessControl';
-import { PermissionGatekeeper, UserRole } from './AccessControl';
-import type { BoundingBox } from './ContextBuilder';
-import { ContextBuilder } from './ContextBuilder';
-import { IntentClassifier, RecognizedIntent } from './IntentClassifier';
-import { NetworkDegradationManager, NetworkState } from './NetworkDegradationManager';
+import type { UserContext } from './AccessControl.js';
+import { PermissionGatekeeper, UserRole } from './AccessControl.js';
+import type { BoundingBox } from './ContextBuilder.js';
+import { ContextBuilder } from './ContextBuilder.js';
+import { IntentClassifier, RecognizedIntent } from './IntentClassifier.js';
+import { NetworkDegradationManager, NetworkState } from './NetworkDegradationManager.js';
 
 export class AgentOrchestrator {
   constructor(

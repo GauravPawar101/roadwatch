@@ -1,4 +1,4 @@
-import type { Complaint, GeoLocation } from '../domain/Entities';
+import type { Complaint, GeoLocation } from '../domain/Entities.js';
 
 /**
  * The Central Nervous System Registry.

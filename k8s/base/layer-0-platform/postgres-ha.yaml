@@ -1,0 +1,392 @@
+# ── Postgres HA — primary + streaming replica (postgres:15-alpine) ───────────
+# Primary: wal_level=replica, replication user, hot_standby enabled.
+# Replica: pg_basebackup on init, then standby.signal streaming from primary.
+#
+# Services:
+#   postgres-rw  → primary (write)
+#   postgres-ro  → replica (read)
+#   postgres     → alias to postgres-rw
+#   postgres-primary / postgres-replica → headless StatefulSet DNS
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-ha-config
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+data:
+  primary-init.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+      DO \$\$
+      BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'replicator') THEN
+          CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD '${POSTGRES_REPLICATION_PASSWORD}';
+        END IF;
+      END
+      \$\$;
+    EOSQL
+    cat >> "${PGDATA}/postgresql.conf" <<'CONF'
+    wal_level = replica
+    max_wal_senders = 3
+    max_replication_slots = 3
+    hot_standby = on
+    CONF
+    echo "host replication replicator 0.0.0.0/0 scram-sha-256" >> "${PGDATA}/pg_hba.conf"
+  replica-init.sh: |
+    #!/bin/sh
+    set -eu
+    PRIMARY_HOST="postgres-primary-0.postgres-primary.roadwatch.svc.cluster.local"
+    until pg_isready -h "$PRIMARY_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do
+      echo "waiting for primary..."
+      sleep 2
+    done
+    if [ ! -f "${PGDATA}/PG_VERSION" ]; then
+      rm -rf "${PGDATA:?}"/*
+      PGPASSWORD="${POSTGRES_REPLICATION_PASSWORD}" pg_basebackup \
+        -h "$PRIMARY_HOST" \
+        -U replicator \
+        -D "$PGDATA" \
+        -Fp -Xs -P -R
+      chown -R postgres:postgres "$PGDATA"
+    fi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-primary
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: postgres-primary
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+    postgres-role: primary
+spec:
+  serviceName: postgres-primary
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-primary
+      postgres-role: primary
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        mesh.roadwatch.io/role: infra
+        app: postgres-primary
+        app.kubernetes.io/name: postgres-primary
+        layer: platform
+        postgres-role: primary
+    spec:
+      terminationGracePeriodSeconds: 60
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 999:999 /var/lib/postgresql/data"]
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: ha-scripts
+              mountPath: /scripts
+          securityContext:
+            runAsUser: 0
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - name: pg
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: infra-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: infra-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_REPLICATION_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-sql
+              mountPath: /docker-entrypoint-initdb.d/00-schema.sql
+              subPath: init.sql
+            - name: ha-scripts
+              mountPath: /docker-entrypoint-initdb.d/10-replication.sh
+              subPath: primary-init.sh
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "roadwatch"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 5
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+      volumes:
+        - name: init-sql
+          configMap:
+            name: postgres-init-sql
+        - name: ha-scripts
+          configMap:
+            name: postgres-ha-config
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+        labels:
+          app.kubernetes.io/part-of: roadwatch
+          layer: platform
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-replica
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: postgres-replica
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+    postgres-role: replica
+spec:
+  serviceName: postgres-replica
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-replica
+      postgres-role: replica
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        mesh.roadwatch.io/role: infra
+        app: postgres-replica
+        app.kubernetes.io/name: postgres-replica
+        layer: platform
+        postgres-role: replica
+    spec:
+      terminationGracePeriodSeconds: 60
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 999:999 /var/lib/postgresql/data"]
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: ha-scripts
+              mountPath: /scripts
+          securityContext:
+            runAsUser: 0
+        - name: basebackup
+          image: postgres:15-alpine
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: infra-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: infra-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_REPLICATION_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          command: ["/scripts/replica-init.sh"]
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: ha-scripts
+              mountPath: /scripts
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - name: pg
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: infra-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 12
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            failureThreshold: 5
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+      volumes:
+        - name: ha-scripts
+          configMap:
+            name: postgres-ha-config
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+        labels:
+          app.kubernetes.io/part-of: roadwatch
+          layer: platform
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-primary
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: postgres-primary
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  clusterIP: None
+  selector:
+    app: postgres-primary
+    postgres-role: primary
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: pg
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-replica
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: postgres-replica
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  clusterIP: None
+  selector:
+    app: postgres-replica
+    postgres-role: replica
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: pg
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-rw
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  selector:
+    app: postgres-primary
+    postgres-role: primary
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: pg
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-ro
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  selector:
+    app: postgres-replica
+    postgres-role: replica
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: pg
+---
+# Legacy alias — PgBouncer and apps use postgres:5432 for writes
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  selector:
+    app: postgres-primary
+    postgres-role: primary
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: pg

@@ -27,13 +27,14 @@ RoadWatch is a blockchain-enabled citizen complaint platform for road infrastruc
 
 ## Quick start
 
-**Prerequisites:** Node.js 20+, pnpm 8+, Docker Desktop. See [full prerequisites](./docs/getting-started/prerequisites.md).
+**Prerequisites:** Node.js 20+, pnpm 8.10+, Docker. See [full prerequisites](./docs/getting-started/prerequisites.md) (includes **Arch Linux**).
 
-```powershell
+```bash
 pnpm install
-docker compose up -d
+pnpm setup                 # env files + tool checks (Linux/macOS/Windows)
+docker compose up -d       # or: pnpm infra:up
 pnpm seed:demo
-pnpm start:all
+pnpm start:all             # or: pnpm dev
 ```
 
 | Surface | URL |
@@ -44,6 +45,8 @@ pnpm start:all
 
 **Demo login:** `super.admin.01` / `RoadWatch@123`  
 Full role list: [test credentials](./docs/reference/test-credentials.md).
+
+Stop local background services: `pnpm stop:all`
 
 ---
 
@@ -118,12 +121,15 @@ docs/           Canonical documentation
 
 ## Key commands
 
-```powershell
+```bash
+pnpm setup                # Bootstrap (bash on Linux, pwsh on Windows)
+pnpm start:all            # Infra + apps
+pnpm stop:all             # Stop local background services
 pnpm dev                  # All Node apps (Turbo)
 pnpm dev:api              # Gateway only
 pnpm test                 # Full test suite
-pnpm fabric:start         # Fabric network (WSL)
-pnpm deploy:kind          # Local Kubernetes (kind)
+pnpm fabric:start         # Fabric network (native Linux / WSL on Windows)
+pnpm deploy:kind          # Local Kubernetes (kind) — still PowerShell today
 pnpm infra:up             # Docker Compose only
 pnpm infra:down           # Stop Compose stack
 ```

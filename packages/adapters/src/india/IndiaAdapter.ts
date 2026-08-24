@@ -1,11 +1,11 @@
-import { BaseAdapter } from '../base/BaseAdapter';
-import { RoadType, Severity, ComplaintStatus } from '../base/ICountryAdapter';
-import { INDIA_ROAD_REGEX } from './road-types/india-road-types';
+import { BaseAdapter } from '../base/BaseAdapter.js';
+import { RoadType, Severity, ComplaintStatus } from '../base/ICountryAdapter.js';
+import { INDIA_ROAD_REGEX } from './road-types/india-road-types.js';
 
-import { NHAI_HIERARCHY } from './authorities/nhai';
-import { PWD_HIERARCHY } from './authorities/pwd';
-import { MUNICIPAL_HIERARCHY } from './authorities/municipal';
-import { RTI_MAX_LEGAL_DAYS } from './legal/rti-framework';
+import { NHAI_HIERARCHY } from './authorities/nhai.js';
+import { PWD_HIERARCHY } from './authorities/pwd.js';
+import { MUNICIPAL_HIERARCHY } from './authorities/municipal.js';
+import { RTI_MAX_LEGAL_DAYS } from './legal/rti-framework.js';
 
 /**
  * Explicit Structural Strategy implementing precisely isolated Indian Laws securely physically.
@@ -34,16 +34,22 @@ export class IndiaAdapter extends BaseAdapter {
   }
 
   /**
-   * Merges pure mathematical resolution abstractions with hard Indian Constitutional matrices inherently.
+   * Road-type primary grace (overrides severity-fraction baseline):
+   * - NH / SH / MDR (big projects): 7 days (168h)
+   * - URBAN / RURAL (local): 2 days (48h)
+   * Env overrides: SLA_GRACE_HIGHWAY_HOURS / SLA_GRACE_LOCAL_HOURS
    */
-  public override calculateSLA(severity: Severity, roadType: RoadType): number {
-    // Fetches pure algorithmic fractionally scaled timeline natively inherited from BaseAdapter
-    const algorithmicHours = super.calculateSLA(severity, roadType);
-    
-    // Enforces the supreme legal 30-Day limit ceiling structurally across all algorithmic derivations.
-    const supremeLegalHardStop = RTI_MAX_LEGAL_DAYS * 24; 
-    
-    return Math.min(algorithmicHours, supremeLegalHardStop);
+  public override calculateSLA(_severity: Severity, roadType: RoadType): number {
+    const highwayHours = Number(process.env.SLA_GRACE_HIGHWAY_HOURS ?? 168);
+    const localHours = Number(process.env.SLA_GRACE_LOCAL_HOURS ?? 48);
+    const supremeLegalHardStop = RTI_MAX_LEGAL_DAYS * 24;
+
+    const graded =
+      roadType === RoadType.NH || roadType === RoadType.SH || roadType === RoadType.MDR
+        ? highwayHours
+        : localHours;
+
+    return Math.min(Math.max(1, graded), supremeLegalHardStop);
   }
 
   /**

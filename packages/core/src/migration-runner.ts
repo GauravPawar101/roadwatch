@@ -6,19 +6,19 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { pool } from './postgres';
+import { pool } from './postgres.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export async function runMigrations(migrationsDir: string): Promise<void> {
-  console.log('🚀 Starting database migrations...');
+  console.log('Starting database migrations...');
 
   // Updated to read standard .sql migration files instead of Cassandra .cql files
   const files = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'));
 
   if (files.length === 0) {
-    console.warn('⚠️  No migration files found');
+    console.warn('No migration files found');
     return;
   }
 
@@ -30,19 +30,19 @@ export async function runMigrations(migrationsDir: string): Promise<void> {
     const rawSql = fs.readFileSync(filePath, 'utf-8');
 
     try {
-      console.log(`📝 Running migration: ${file}`);
+      console.log(`Running migration: ${file}`);
       
       await pool.query(rawSql);
       
-      console.log(`✅ Completed: ${file}`);
+      console.log(`Completed: ${file}`);
     } catch (err) {
-      console.error(`❌ Failed: ${file}`);
+      console.error(`Failed: ${file}`);
       console.error(err);
       throw err;
     }
   }
 
-  console.log('🎉 All migrations completed successfully!');
+  console.log('All migrations completed successfully!');
 }
 
 /**
@@ -52,7 +52,7 @@ export async function setupDevelopmentDatabase(): Promise<void> {
   try {
     // Test connection using standard Postgres version lookup instead of Cassandra system keyspaces
     await pool.query('SELECT version()');
-    console.log('✅ PostgreSQL connection successful');
+    console.log('PostgreSQL connection successful');
 
     // Run SQL migrations
     const migrationsDir = path.join(__dirname, '..', 'migrations');
@@ -61,7 +61,7 @@ export async function setupDevelopmentDatabase(): Promise<void> {
     // Seed initial data
     await seedInitialData();
   } catch (err) {
-    console.error('❌ Database initialization failed:', err);
+    console.error('Database initialization failed:', err);
     throw err;
   }
 }
@@ -70,7 +70,7 @@ export async function setupDevelopmentDatabase(): Promise<void> {
  * Seed initial data
  */
 async function seedInitialData(): Promise<void> {
-  console.log('🌱 Seeding initial data...');
+  console.log('Seeding initial data...');
 
   const userId = 'admin-system';
   
@@ -84,5 +84,5 @@ async function seedInitialData(): Promise<void> {
     [userId, null]
   );
 
-  console.log('✅ Seeding completed.');
+  console.log('Seeding completed.');
 }

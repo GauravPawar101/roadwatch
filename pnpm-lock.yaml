@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+neverBuiltDependencies:
+  - pkcs11js
+
 importers:
 
   .:
@@ -59,9 +62,6 @@ importers:
       '@roadwatch/redis':
         specifier: workspace:*
         version: link:../../packages/redis
-      '@roadwatch/sidecar-auth':
-        specifier: workspace:*
-        version: link:../../packages/sidecar-auth
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
@@ -256,9 +256,6 @@ importers:
       '@roadwatch/redis':
         specifier: workspace:*
         version: link:../packages/redis
-      '@roadwatch/sidecar-auth':
-        specifier: workspace:*
-        version: link:../packages/sidecar-auth
       cors:
         specifier: ^2.8.5
         version: 2.8.6
@@ -398,6 +395,9 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4
 
   packages/authority-node:
     dependencies:
@@ -569,6 +569,21 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  packages/observability:
+    devDependencies:
+      '@types/express':
+        specifier: ^4.17.23
+        version: 4.17.25
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.19.17
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@22.19.17)
+
   packages/providers:
     dependencies:
       react:
@@ -626,34 +641,6 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
-  packages/sidecar-auth:
-    dependencies:
-      express:
-        specifier: ^4.18.0
-        version: 4.22.1
-      jsonwebtoken:
-        specifier: ^9.0.2
-        version: 9.0.3
-      node-fetch:
-        specifier: ^3.3.2
-        version: 3.3.2
-    devDependencies:
-      '@types/express':
-        specifier: ^4.17.21
-        version: 4.17.25
-      '@types/express-serve-static-core':
-        specifier: ^4.19.0
-        version: 4.19.8
-      '@types/jsonwebtoken':
-        specifier: ^9.0.5
-        version: 9.0.10
-      '@types/node':
-        specifier: ^20.10.5
-        version: 20.19.41
-      typescript:
-        specifier: ^5.3.3
-        version: 5.9.3
-
   packages/test-utils:
     dependencies:
       '@roadwatch/core':
@@ -678,9 +665,6 @@ importers:
       '@roadwatch/kafka':
         specifier: workspace:*
         version: link:../../packages/kafka
-      '@roadwatch/sidecar-auth':
-        specifier: workspace:*
-        version: link:../../packages/sidecar-auth
       dotenv:
         specifier: ^16.6.1
         version: 16.6.1
@@ -733,9 +717,9 @@ importers:
 
   services/scheduler:
     dependencies:
-      '@roadwatch/sidecar-auth':
+      '@roadwatch/core':
         specifier: workspace:*
-        version: link:../../packages/sidecar-auth
+        version: link:../../packages/core
       dotenv:
         specifier: ^16.6.1
         version: 16.6.1
@@ -761,12 +745,15 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@22.19.17)
 
   services/webhook-handler:
     dependencies:
-      '@roadwatch/sidecar-auth':
+      '@roadwatch/redis':
         specifier: workspace:*
-        version: link:../../packages/sidecar-auth
+        version: link:../../packages/redis
       axios:
         specifier: ^1.7.7
         version: 1.16.0
@@ -4534,7 +4521,7 @@ packages:
       std-env: 3.10.0
       test-exclude: 7.0.2
       tinyrainbow: 2.0.0
-      vitest: 3.2.4
+      vitest: 3.2.4(@types/node@20.19.41)
     transitivePeerDependencies:
       - supports-color
     dev: true
@@ -4563,7 +4550,7 @@ packages:
       '@vitest/spy': 3.2.4
       estree-walker: 3.0.3
       magic-string: 0.30.21
-      vite: 5.4.21(@types/node@20.19.41)
+      vite: 5.4.21(@types/node@22.19.17)
     dev: true
 
   /@vitest/pretty-format@3.2.4:
@@ -8381,7 +8368,6 @@ packages:
   /pkcs11js@2.1.6:
     resolution: {integrity: sha512-+t5jxzB749q8GaEd1yNx3l98xYuaVK6WW/Vjg1Mk1Iy5bMu/A5W4O/9wZGrpOknWF6lFQSb12FXX+eSNxdriwA==}
     engines: {node: '>=18.0.0'}
-    requiresBuild: true
     optional: true
 
   /pkg-dir@3.0.0:

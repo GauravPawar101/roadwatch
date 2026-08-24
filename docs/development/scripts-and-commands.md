@@ -2,21 +2,28 @@
 
 Reference for all development, build, test, and deployment commands.
 
+Platform note: `pnpm setup`, `pnpm start:all`, `pnpm stop:all`, `pnpm init:messaging`, and `pnpm fabric:*` go through `ops/dev/run.mjs`, which runs **bash scripts on Linux/macOS** and **PowerShell on Windows**.
+
 ## Setup
 
 | Command | Description |
 |---------|-------------|
 | `pnpm install` | Install all workspace dependencies |
-| `pnpm setup` | Guided first-time bootstrap (`ops/dev/setup.ps1`) |
+| `pnpm setup` | Guided first-time bootstrap |
 | `pnpm setup:skip-install` | Bootstrap without `pnpm install` |
+| `pnpm verify:bootstrap` | Sanity-check bootstrap scripts / compose config |
+
+Linux direct: `./ops/dev/setup.sh` · Windows: `.\ops\dev\setup.ps1`
 
 ## Development
 
 | Command | Description |
 |---------|-------------|
 | `pnpm dev` | Start all apps via Turbo (parallel) |
-| `pnpm start:all` | Windows all-in-one start (`ops/dev/start-all.ps1`) |
+| `pnpm start:all` | One-command local start (Compose + background apps) |
 | `pnpm start:all:k8s` | Start with Kubernetes target |
+| `pnpm stop:all` | Stop PID-tracked local services + Compose |
+| `pnpm init:messaging` | Create Kafka topics + ping Redis DBs |
 | `pnpm dev:api` | Gateway API only |
 | `pnpm dev:backend` | Backend API only |
 | `pnpm dev:frontend` | Frontend only |
@@ -24,7 +31,14 @@ Reference for all development, build, test, and deployment commands.
 | `pnpm dev:scheduler` | Scheduler only |
 | `pnpm dev:webhook` | Webhook handler only |
 | `pnpm dev:fabric-consumer` | Fabric anchor consumer only |
-| `pnpm dev:sidecar` | Sidecar auth package dev |
+
+Linux helpers:
+
+```bash
+./ops/dev/start-all.sh --skip-fabric
+./ops/dev/stop-all.sh
+./scripts/init-messaging.sh
+```
 
 ## Mobile
 
@@ -82,7 +96,7 @@ Reference for all development, build, test, and deployment commands.
 
 | Command | Description |
 |---------|-------------|
-| `pnpm fabric:start` | Start Fabric network (WSL) |
+| `pnpm fabric:start` | Start Fabric network (native Linux / WSL on Windows) |
 | `pnpm fabric:deploy` | Deploy chaincode |
 | `pnpm fabric:reset` | Full Fabric reset |
 | `pnpm fabric:seed` | Seed test complaints on ledger |
@@ -107,6 +121,8 @@ Reference for all development, build, test, and deployment commands.
 | `pnpm deploy:k8s` | Existing k8s cluster |
 | `pnpm deploy:aws` | AWS/EKS deploy |
 
+> Kind/k8s/AWS deploy scripts are still PowerShell. On Linux you can install `pwsh` or run the underlying `kubectl`/`kind` flows from `k8s/`.
+
 ## Kubernetes
 
 | Command | Description |
@@ -129,7 +145,7 @@ Reference for all development, build, test, and deployment commands.
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/init-messaging.ps1` | Create Kafka topics |
+| `scripts/init-messaging.sh` / `.ps1` | Create Kafka topics |
 | `scripts/fabric-ledger.ts` | Fabric CLI (seed, query) |
 | `scripts/seed-backend.ts` | Backend seeding |
 | `scripts/test-ids.ts` | Deterministic test IDs |
@@ -142,8 +158,10 @@ Reference for all development, build, test, and deployment commands.
 
 | Script | Purpose |
 |--------|---------|
-| `ops/dev/setup.ps1` | First-time bootstrap |
-| `ops/dev/start-all.ps1` | One-command local start |
-| `ops/dev/verify-bootstrap.ps1` | Post-setup verification |
-| `ops/deploy/deploy.ps1` | Deploy router |
-| `ops/teardown/stop-all.ps1` | Tear down local resources |
+| `ops/dev/run.mjs` | OS-aware dispatcher for setup/start/stop/fabric |
+| `ops/dev/setup.sh` / `setup.ps1` | First-time bootstrap |
+| `ops/dev/start-all.sh` / `start-all.ps1` | One-command local start |
+| `ops/dev/stop-all.sh` | Stop local Linux services |
+| `ops/dev/verify-bootstrap.sh` / `.ps1` | Post-setup verification |
+| `ops/deploy/deploy.ps1` | Deploy router (Windows / pwsh) |
+| `ops/teardown/stop-all.sh` / `.ps1` | Tear down local resources |

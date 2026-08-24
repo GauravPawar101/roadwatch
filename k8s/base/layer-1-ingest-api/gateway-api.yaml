@@ -1,5 +1,4 @@
-# ── Gateway API — Deployment + HPA ───────────────────────────────────────────
-# Stateless HTTP gateway. Auth, routing, service registry, Kafka event outbox.
+# Stateless HTTP gateway. Auth, routing, Kafka event outbox.
 # Scales horizontally — no local state (all state in Postgres + Redis).
 apiVersion: apps/v1
 kind: Deployment
@@ -17,11 +16,16 @@ spec:
       app: gateway
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3100"
+        prometheus.io/path: "/metrics/admission"
       labels:
         app: gateway
         app.kubernetes.io/name: gateway
         layer: ingest-api
     spec:
+      serviceAccountName: gateway
       containers:
         - name: gateway
           image: roadwatch/gateway-api:local
@@ -39,8 +43,6 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "gateway"
-            - name: SERVICE_URL
-              value: "http://gateway:3100"
             - name: DATABASE_URL
               value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
             - name: REDIS_URL
@@ -65,7 +67,7 @@ spec:
               memory: "256Mi"
             limits:
               cpu: "1000m"
-              memory: "512Mi"
+              memory: "768Mi"
 ---
 apiVersion: v1
 kind: Service

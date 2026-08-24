@@ -17,7 +17,10 @@ spec:
       app: pgbouncer
   template:
     metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
       labels:
+        mesh.roadwatch.io/role: infra
         app: pgbouncer
         app.kubernetes.io/name: pgbouncer
         layer: platform

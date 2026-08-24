@@ -1,14 +1,14 @@
-import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ComplaintHeatmap from '../components/ComplaintHeatmap'
 import { useComplaints, type ComplaintFilters } from '../hooks/useComplaints'
 import { getActiveRole, getRoleLabel } from '../lib/session'
+import { DELHI_CENTER, resolveMapCenter } from '../lib/mapLocation'
 
 const roads = [
-  { id: 'r1', name: 'NH-48: Pune–Mumbai Bypass', km: '120 km', lat: 18.5204, lng: 73.8567 },
-  { id: 'r2', name: 'SH-27: Outer Ring Expressway', km: '45 km', lat: 19.076, lng: 72.8777 },
-  { id: 'r3', name: 'NH-66: Coastal Highway Link', km: '200 km', lat: 15.4789, lng: 73.8278 },
+  { id: 'r1', name: 'NH-48: Delhi–Jaipur Corridor', km: '120 km', lat: 28.6139, lng: 77.209 },
+  { id: 'r2', name: 'Ring Road: Outer Expressway', km: '45 km', lat: 28.7041, lng: 77.1025 },
+  { id: 'r3', name: 'NH-24: East Delhi Link', km: '40 km', lat: 28.5355, lng: 77.391 },
 ]
 
 export default function MapView() {
@@ -18,7 +18,17 @@ export default function MapView() {
   const [layers, setLayers] = useState({ structural: true, lighting: false, drainage: true, resolved: true })
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedRoad, setSelectedRoad] = useState<string | null>(null)
-  const [mapCenter, setMapCenter] = useState({ lat: 19.076, lng: 72.8777 })
+  const [mapCenter, setMapCenter] = useState(DELHI_CENTER)
+
+  useEffect(() => {
+    let cancelled = false
+    resolveMapCenter().then((center) => {
+      if (!cancelled) setMapCenter(center)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filters: ComplaintFilters = useMemo(() => {
     const result: ComplaintFilters = { limit: 1000 };
@@ -70,20 +80,7 @@ export default function MapView() {
 
   const mapModeLabel = complaints.length >= 20 ? 'Regional heatmap' : selectedRoad ? 'Focused route view' : 'Local pin view'
 
-  const handleComplaintClick = (c: any) => navigate(`/complaints/${c.id}`)
-  const hotspots = useMemo(() => {
-    const list = [
-      { id: 'hotspot-1', type: 'structural', top: '33%', left: '25%', count: 14, label: 'CRITICAL SECTOR', desc: 'Deep pothole clusters reported on Midtown Link.', roadId: 'r1' },
-      { id: 'hotspot-2', type: 'lighting', top: '50%', left: '66%', icon: 'warning', desc: 'Streetlight outages near exit 4.', roadId: 'r2', colorClass: 'border-[#1960a3] text-[#1960a3]' },
-      { id: 'hotspot-3', type: 'drainage', top: '75%', left: '50%', icon: 'water_drop', desc: 'Waterlogged shoulder area on SH-27.', roadId: 'r3', colorClass: 'border-[#005231] text-[#005231]' },
-      { id: 'hotspot-4', type: 'resolved', top: '25%', left: '75%', icon: 'check_circle', desc: 'Faded lane markings resolved.', roadId: 'r1', colorClass: 'border-[#74777f] text-[#74777f] opacity-80' }
-    ]
-    return list.filter(item => {
-      if (!layers[item.type as keyof typeof layers]) return false
-      if (!searchQuery) return true
-      return (item.desc || '').toLowerCase().includes(searchQuery.toLowerCase()) || (item.label || '').toLowerCase().includes(searchQuery.toLowerCase())
-    })
-  }, [layers, searchQuery])
+  const handleComplaintClick = (c: { id: string }) => navigate(`/complaints/${c.id}`)
 
   return (
     <div className="page-radial-bg h-[calc(100vh-64px)] w-full flex flex-col md:flex-row text-on-surface relative overflow-hidden font-sans">
@@ -146,9 +143,21 @@ export default function MapView() {
         </div>
       </aside>
       <main className="flex-1 relative">
-        {loading ? (<div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10"><div className="text-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-secondary mx-auto mb-4" /><p className="text-on-surface-variant">Loading complaint data...</p></div></div>) : (<ComplaintHeatmap complaints={complaints} center={mapCenter} zoom={selectedRoad ? 14 : 10} height="100%" showControls heatmapThreshold={16} cityZoomThreshold={11} onComplaintClick={handleComplaintClick} />)}
-        <div className="absolute bottom-6 left-6 flex gap-3"><button onClick={() => navigate('/complaints/new')} className="px-4 py-2 bg-secondary hover:bg-primary text-white rounded-lg shadow-lg transition-colors text-sm font-medium flex items-center gap-2"><span className="material-symbols-outlined text-[18px]">add</span>Report Issue</button><button onClick={() => setMapCenter({ lat: 19.076, lng: 72.8777 })} className="px-4 py-2 bg-white hover:bg-surface-container-low text-on-surface-variant rounded-lg shadow-lg transition-colors text-sm font-medium flex items-center gap-2 border border-outline-variant"><span className="material-symbols-outlined text-[18px]">my_location</span>Reset View</button></div>
-        <div className="absolute inset-0 z-10 pointer-events-none"><AnimatePresence>{hotspots.map(pt => (<motion.div key={pt.id} initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.7 }} transition={{ duration: 0.3 }} className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center cursor-pointer pointer-events-auto" style={{ top: pt.top, left: pt.left }} onClick={() => navigate(`/road/${pt.roadId}`)}>{pt.type === 'structural' ? (<div className="relative flex flex-col items-center"><div className="relative"><div className="absolute inset-0 animate-ping rounded-full bg-error opacity-30" /><div className="w-12 h-12 bg-white/95 rounded-full flex items-center justify-center border-2 border-error shadow-lg hover:scale-105 transition-transform font-bold text-error text-[14px]">{pt.count}</div></div>{pt.label && (<div className="mt-2 bg-error text-white px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shadow-sm">{pt.label}</div>)}</div>) : (<div className={`w-10 h-10 bg-white/95 rounded-full flex items-center justify-center border-2 shadow-md hover:scale-105 transition-transform ${pt.colorClass}`}><span className="material-symbols-outlined mat-fill text-[20px]">{pt.icon}</span></div>)} </motion.div>))}</AnimatePresence></div>
+        {loading ? (<div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10"><div className="text-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-secondary mx-auto mb-4" /><p className="text-on-surface-variant">Loading complaint data...</p></div></div>) : null}
+        <ComplaintHeatmap
+          complaints={complaints}
+          heatmapAggregates={heatmapData}
+          center={mapCenter}
+          zoom={selectedRoad ? 14 : 11}
+          height="100%"
+          showControls
+          showLegend
+          legendPosition="bottom-right"
+          heatmapThreshold={16}
+          cityZoomThreshold={11}
+          onComplaintClick={handleComplaintClick}
+        />
+        <div className="absolute bottom-6 left-6 flex gap-3 z-20"><button onClick={() => navigate('/complaints/new')} className="px-4 py-2 bg-secondary hover:bg-primary text-white rounded-lg shadow-lg transition-colors text-sm font-medium flex items-center gap-2"><span className="material-symbols-outlined text-[18px]">add</span>Report Issue</button><button onClick={() => { void resolveMapCenter().then(setMapCenter) }} className="px-4 py-2 bg-white hover:bg-surface-container-low text-on-surface-variant rounded-lg shadow-lg transition-colors text-sm font-medium flex items-center gap-2 border border-outline-variant"><span className="material-symbols-outlined text-[18px]">my_location</span>My location</button></div>
       </main>
     </div>
   )

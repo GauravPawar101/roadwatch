@@ -1,5 +1,5 @@
-import type { PromptTemplate } from '../types';
-import { buildRoadWatchAgentPreamble } from './roadwatch-agent';
+import type { PromptTemplate } from '../types.js';
+import { buildRoadWatchAgentPreamble } from './roadwatch-agent.js';
 
 export interface DamageClassificationInput {
   imageFrames: any[];

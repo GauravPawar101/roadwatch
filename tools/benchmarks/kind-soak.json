@@ -1,0 +1,73 @@
+{
+  "services": [
+    "gateway-api",
+    "backend-api",
+    "webhook-handler",
+    "fabric-anchor-consumer",
+    "scheduler"
+  ],
+  "k6": {
+    "before": "logs/stress/k6-summary-before.json",
+    "after": "logs/stress/k6-summary-after.json"
+  },
+  "coverage": [
+    {
+      "label": "unit",
+      "lcov": "packages/core/coverage"
+    },
+    {
+      "label": "integration",
+      "lcov": "apps/gateway-api/coverage"
+    },
+    {
+      "label": "api",
+      "lcov": "backend-api/coverage"
+    }
+  ],
+  "prometheus": {
+    "baseUrl": "http://127.0.0.1:30090",
+    "dbBeforeQuery": "sum(rate(pg_stat_database_tup_fetched{datname=\"roadwatch\"}[5m]))",
+    "dbAfterQuery": "sum(rate(pg_stat_database_tup_fetched{datname=\"roadwatch\"}[5m]))",
+    "uptimeQuery": "avg_over_time(up{job=\"gateway-admission\"}[15m]) * 100"
+  },
+  "incident": {
+    "start": "2026-08-24T08:01:47.547Z",
+    "detectedBefore": "2026-08-24T08:01:49.941Z",
+    "detectedAfter": "2026-08-24T08:02:54.941Z"
+  },
+  "notes": [
+    "Reused existing core + gateway clover coverage; skipped verbose backend coverage."
+  ],
+  "snapshots": {
+    "dbOff": {
+      "dbOff": 2372557,
+      "dbOffAfter": 437.77930736909155,
+      "dbOnAfter": 411.67116228511617,
+      "tupOffStart": 2372557,
+      "tupOffEnd": 2415170,
+      "tupOnStart": 2428899,
+      "tupOnEnd": 2469801,
+      "elapsedOffSec": 97.339,
+      "elapsedOnSec": 99.356,
+      "cacheHitsDelta": 896,
+      "cacheMissesDelta": 56
+    },
+    "uptimeFile": {
+      "uptime": 78.33333333333333,
+      "uptimeProm": 78.33333333333333,
+      "healthRate": 1
+    },
+    "mttd": {
+      "authInject": "2026-08-24T07:46:40.084Z",
+      "authRestored": "2026-08-24T07:48:32.003Z",
+      "incidentStart": "2026-08-24T08:01:47.547Z",
+      "detectedBefore": "2026-08-24T08:01:49.941Z",
+      "detectedAfter": "2026-08-24T08:02:54.941Z",
+      "detectedBeforeMs": 2394
+    },
+    "auth": {
+      "createOkBefore": 0,
+      "createOkAfter": 1
+    }
+  }
+}

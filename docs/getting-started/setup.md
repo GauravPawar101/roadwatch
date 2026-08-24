@@ -2,9 +2,11 @@
 
 Step-by-step guide to get RoadWatch running from a clean checkout.
 
+`pnpm setup`, `pnpm start:all`, and `pnpm fabric:*` auto-pick **PowerShell on Windows** or **bash on Linux/macOS** via `ops/dev/run.mjs`.
+
 ## 1. Clone and install
 
-```powershell
+```bash
 git clone <repo-url> roadwatch
 cd roadwatch
 pnpm install
@@ -14,75 +16,100 @@ pnpm workspaces install all apps, services, and packages from the root.
 
 ## 2. Copy environment files
 
+**Linux / macOS**
+
+```bash
+cp -n .env.example .env
+cp -n apps/gateway-api/.env.example apps/gateway-api/.env
+cp -n backend-api/.env.example backend-api/.env 2>/dev/null || true
+cp -n services/fabric-anchor-consumer/.env.example services/fabric-anchor-consumer/.env
+cp -n apps/mobile-host/.env.example apps/mobile-host/.env
+```
+
+Or run the bootstrapper (copies all examples + checks tools):
+
+```bash
+pnpm setup
+# same as: ./ops/dev/setup.sh
+```
+
+**Windows (PowerShell)**
+
 ```powershell
-# Root (optional — used by some scripts)
 Copy-Item .env.example .env
-
-# Gateway API (required)
 Copy-Item apps/gateway-api/.env.example apps/gateway-api/.env
-
-# Backend API (optional — inherits gateway secrets when present)
-Copy-Item backend-api/.env.example backend-api/.env
-
-# Fabric anchor consumer (required for anchoring)
 Copy-Item services/fabric-anchor-consumer/.env.example services/fabric-anchor-consumer/.env
-
-# Mobile (optional)
 Copy-Item apps/mobile-host/.env.example apps/mobile-host/.env
+# or: pnpm setup
 ```
 
 Edit `apps/gateway-api/.env` at minimum. Set `DATABASE_URL`, `JWT_SECRET`, and Kafka/Redis URLs. See [Environment variables](./environment-variables.md).
 
 ## 3. Start infrastructure
 
-```powershell
+```bash
 docker compose up -d
+# or: pnpm infra:up
 ```
 
-This starts Postgres, PgBouncer, dual Kafka clusters, Redis, and background workers (scheduler, webhook-handler, fabric-anchor-consumer). No profiles are required for the default stack.
+This starts Postgres, PgBouncer, dual Kafka clusters, Redis, and background workers (scheduler, webhook-handler, fabric-anchor-consumer).
 
-Optional media ingest service:
+Infra only (skip building worker images):
 
-```powershell
+```bash
+docker compose up -d postgres pgbouncer kafka-hlf kafka-events redis
+```
+
+Optional media ingest:
+
+```bash
 docker compose --profile media up -d
 ```
 
 ## 4. Initialize Kafka topics (first run)
 
-```powershell
-pwsh -File scripts/init-messaging.ps1
+```bash
+pnpm init:messaging
+# Linux: ./scripts/init-messaging.sh
+# Windows: pwsh -File scripts/init-messaging.ps1
 ```
 
 ## 5. Seed demo data
 
-```powershell
+```bash
 pnpm seed:demo
 ```
 
-This populates Postgres with demo users, roads, and complaints. Login credentials are in [Test credentials](../reference/test-credentials.md).
+Login credentials: [Test credentials](../reference/test-credentials.md).
 
 ## 6. Start application servers
 
-**Option A — one command (recommended on Windows):**
+**Option A — one command**
 
-```powershell
+```bash
 pnpm start:all
-# or
-.\ops\dev\start-all.ps1
+# Linux: ./ops/dev/start-all.sh [--skip-fabric] [--skip-seed]
+# Windows: .\ops\dev\start-all.ps1
 ```
 
-**Option B — Turbo dev (all Node apps in parallel):**
+**Option B — Turbo dev**
 
-```powershell
+```bash
 pnpm dev
 ```
 
-**Option C — individual services:**
+**Option C — individual services**
 
-```powershell
+```bash
 pnpm dev:api        # Gateway API on :3100
 pnpm dev:backend    # Backend API on :4001
 pnpm dev:frontend   # Frontend on :5173
+```
+
+Stop background services started by `start:all`:
+
+```bash
+pnpm stop:all
 ```
 
 ## 7. Verify
@@ -96,23 +123,22 @@ pnpm dev:frontend   # Frontend on :5173
 
 ## 8. Optional: Fabric network
 
-Fabric runs outside Docker Compose on the WSL host. See [Fabric deployment](../infrastructure/fabric-deployment.md).
+**Linux:** Fabric runs on the host (same Docker daemon).
 
-```powershell
+```bash
 pnpm fabric:start    # Start network + channel
 pnpm fabric:deploy   # Deploy complaint-anchor chaincode
 pnpm fabric:seed     # Seed test complaints on ledger
 ```
 
+**Windows:** Fabric runs inside WSL. See [Fabric deployment](../infrastructure/fabric-deployment.md).
+
 ## Automated bootstrap
 
-For a guided first-time setup:
-
-```powershell
+```bash
 pnpm setup
+pnpm verify:bootstrap
 ```
-
-This runs `ops/dev/setup.ps1`, which checks prerequisites, copies env templates, and verifies tooling.
 
 ## Next steps
 

@@ -1,0 +1,46 @@
+# Ambient mesh notes:
+# - Namespace uses istio.io/dataplane-mode=ambient (ztunnel L4 mTLS).
+# - Waypoint gateway named `waypoint` provides L7 policy (AuthorizationPolicy paths).
+# - Classic sidecar.istio.io/inject annotations on infra are ignored under ambient.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: mesh
+spec:
+  mtls:
+    mode: STRICT
+---
+# Gateway accepts plaintext from NodePort while offering mTLS to mesh peers.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: gateway-north-south
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: mesh
+spec:
+  selector:
+    matchLabels:
+      app: gateway
+  mtls:
+    mode: PERMISSIVE
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: infra-permissive
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: mesh
+spec:
+  selector:
+    matchLabels:
+      mesh.roadwatch.io/role: infra
+  mtls:
+    mode: PERMISSIVE

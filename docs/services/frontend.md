@@ -40,7 +40,6 @@ React + Vite web application serving all user roles and public dashboards.
 | `VITE_API_BASE` | Gateway API URL |
 | `VITE_PORT` | Dev server port |
 | `GATEWAY_URL` | For service registration |
-| `SERVICE_REGISTRY_SECRET` | Service auth |
 
 ## Build
 

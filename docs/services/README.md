@@ -26,7 +26,7 @@ See [shared-packages.md](./shared-packages.md) for the full package inventory.
 
 ## Service discovery
 
-In development, the frontend and backend register with the gateway service registry on startup. In production/k8s, services communicate via cluster DNS names defined in ConfigMaps.
+Services use **Kubernetes DNS** / ConfigMap URLs (`GATEWAY_URL`, `BACKEND_URL`, Kafka, Redis). There is no application-level service registry. In-cluster identity uses **Istio Envoy sidecars** (mTLS). Locally, workers authenticate to gateway `/internal/*` with `INTERNAL_SERVICE_TOKEN`.
 
 ## Docker Compose services
 

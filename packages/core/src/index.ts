@@ -11,3 +11,4 @@ export * from './karma-service.js';
 export * from './nonce-service.js';
 export * from './privacy-service.js';
 export * from './verification-service.js';
+export * from './utils/holidays.js';

@@ -1,6 +1,6 @@
-import type { BudgetRecord, Complaint, GeoLocation, Road } from '../domain/Entities';
-import { ComplaintStatus } from '../domain/Enums';
-import { calculateHaversineDistance } from '../utils/geo';
+import type { BudgetRecord, Complaint, GeoLocation, Road } from '../domain/Entities.js';
+import { ComplaintStatus } from '../domain/Enums.js';
+import { calculateHaversineDistance } from '../utils/geo.js';
 
 export class RoadEngine {
   

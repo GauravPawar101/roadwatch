@@ -1,0 +1,33 @@
+# Kafka lag scaler for fabric-anchor-consumer on the HLF cluster.
+# Requires KEDA CRDs — see keda-install.md.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: fabric-anchor-kafka
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: fabric-anchor
+    app.kubernetes.io/part-of: roadwatch
+    layer: autoscaling
+spec:
+  scaleTargetRef:
+    name: fabric-anchor
+  minReplicaCount: 1
+  maxReplicaCount: 6
+  pollingInterval: 15
+  cooldownPeriod: 180
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka-hlf-0.kafka-hlf-headless.roadwatch.svc.cluster.local:29092,kafka-hlf-1.kafka-hlf-headless.roadwatch.svc.cluster.local:29092,kafka-hlf-2.kafka-hlf-headless.roadwatch.svc.cluster.local:29092
+        consumerGroup: fabric-anchor-consumer-k8s
+        topic: complaint-submitted
+        lagThreshold: "50"
+        offsetResetPolicy: latest
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka-hlf-0.kafka-hlf-headless.roadwatch.svc.cluster.local:29092,kafka-hlf-1.kafka-hlf-headless.roadwatch.svc.cluster.local:29092,kafka-hlf-2.kafka-hlf-headless.roadwatch.svc.cluster.local:29092
+        consumerGroup: fabric-anchor-consumer-k8s
+        topic: complaint-status-changed
+        lagThreshold: "50"
+        offsetResetPolicy: latest

@@ -1,5 +1,5 @@
-import type { ICountryAdapter } from './ICountryAdapter';
-import { ComplaintStatus, RoadType, Severity } from './ICountryAdapter';
+import type { ICountryAdapter } from './ICountryAdapter.js';
+import { ComplaintStatus, RoadType, Severity } from './ICountryAdapter.js';
 
 /**
  * Abstract Generic Base.

@@ -199,3 +199,6 @@ htmlcov/
 *.tfstate
 *.tfstate.*
 .terraform.lock.hcl
+
+# Istio download cache
+.tools/

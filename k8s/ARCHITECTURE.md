@@ -289,13 +289,15 @@ Layer 4 (frontend)        → stateless, no hard startup dependency
 
 ## Future Enhancements
 
-- [ ] Multi-replica Kafka (3 brokers) + ZK ensemble (3 nodes) for HA
-- [ ] Postgres streaming replication (primary + read replica)
-- [ ] Redis Sentinel for automatic failover
+- [x] Istio Ambient (ztunnel + waypoint) + PeerAuthentication / AuthorizationPolicy / DestinationRules
+- [x] PodDisruptionBudget for gateway / backend / webhook
+- [x] HPA for gateway + backend; KEDA Kafka-lag scaling for webhook / fabric-anchor
+- [x] Multi-replica Kafka (3 brokers per cluster, RF=3)
+- [x] Postgres streaming replication (primary + replica)
+- [x] Redis Sentinel (3 Redis + 3 Sentinel)
+- [x] Prometheus + Loki + Grafana (`layer-observability`)
 - [ ] Ingress with TLS termination (cert-manager + Let's Encrypt)
 - [ ] NetworkPolicy for pod-to-pod isolation
 - [ ] PodDisruptionBudget on all StatefulSets
 - [ ] Velero PVC backups
-- [ ] HPA for gateway + backend (metrics-server required in kind)
-- [ ] Prometheus + Grafana
 - [ ] Jaeger distributed tracing

@@ -3,8 +3,8 @@
  * Default settings for verification, karma, and privacy
  */
 
-import type { VerificationConfig } from './image-types';
-import type { KarmaConfig } from './karma-service';
+import type { VerificationConfig } from './image-types.js';
+import type { KarmaConfig } from './karma-service.js';
 
 export const VERIFICATION_CONFIG: VerificationConfig = {
   // Timestamp validation

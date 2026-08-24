@@ -1,4 +1,4 @@
-import { RoadType } from '../../base/ICountryAdapter';
+import { RoadType } from '../../base/ICountryAdapter.js';
 
 /**
  * Standard explicitly mapped RegEx boundaries extracting bureaucratic validation patterns naturally.

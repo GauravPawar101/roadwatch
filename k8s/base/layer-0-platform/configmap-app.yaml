@@ -10,6 +10,7 @@ data:
   # ── Runtime ────────────────────────────────────────────────────
   NODE_ENV:  "production"
   LOG_LEVEL: "info"
+  HOST:      "0.0.0.0"
 
   # ── Gateway API ────────────────────────────────────────────────
   PORT:               "3100"
@@ -27,6 +28,9 @@ data:
   CRON_SLA_CHECK:         "*/30 * * * *"
   CRON_AUDIT_CLEANUP:     "0 2 * * *"
   CRON_REPORT_GENERATION: "0 1 * * *"
+
+  REDIS_READ_CACHE: "on"
+  COMPLAINT_WRITE_MODE: "outbox"
 
   # ── CORS (presentation layer origins) ──────────────────────────
   CORS_ORIGINS: "http://localhost:30080,http://localhost:5173"

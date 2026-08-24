@@ -9,7 +9,6 @@
     "@roadwatch/core": "workspace:*",
     "@roadwatch/kafka": "workspace:*",
     "@roadwatch/redis": "workspace:*",
-    "@roadwatch/sidecar-auth": "workspace:*",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
@@ -34,6 +33,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run --config vitest.config.ts",
-    "test:watch": "vitest --config vitest.config.ts"
+    "test:watch": "vitest --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage"
   }
 }

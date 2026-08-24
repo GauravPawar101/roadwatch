@@ -41,7 +41,7 @@ export class R2MediaProvider {
       // Get pre-signed upload URL
       const { uploadUrl, mediaKey } = await this.urlGenerator.requestUploadUrl('image/webp', compressedBuffer.length);
       
-      console.log(`⚡ Uploading ${compressedBuffer.length} bytes to Cloudflare R2: ${uploadUrl}`);
+      console.log(`Uploading ${compressedBuffer.length} bytes to Cloudflare R2: ${uploadUrl}`);
       
       // Upload to Cloudflare R2
       const tmp = bufferToUint8Array(compressedBuffer as Buffer);

@@ -29,10 +29,10 @@ export default function BudgetHistory() {
 
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'Sanctioned': return '📋'
-      case 'Released': return '✅'
-      case 'Spent': return '💸'
-      default: return '❓'
+      case 'Sanctioned': return 'S'
+      case 'Released': return 'R'
+      case 'Spent': return 'X'
+      default: return '?'
     }
   }
 
@@ -55,15 +55,15 @@ export default function BudgetHistory() {
 
       {/* Summary Stats */}
       <StatsGrid>
-        <StatCard value={`₹${(stats.sanctioned / 1000000).toFixed(1)}M`} label="Sanctioned" icon="📋" />
-        <StatCard value={`₹${(stats.released / 1000000).toFixed(1)}M`} label="Released" icon="✅" />
-        <StatCard value={`₹${(stats.spent / 1000000).toFixed(1)}M`} label="Spent" icon="💸" />
-        <StatCard value={`₹${(stats.available / 1000000).toFixed(1)}M`} label="Available" icon="💼" />
+        <StatCard value={`₹${(stats.sanctioned / 1000000).toFixed(1)}M`} label="Sanctioned" />
+        <StatCard value={`₹${(stats.released / 1000000).toFixed(1)}M`} label="Released" />
+        <StatCard value={`₹${(stats.spent / 1000000).toFixed(1)}M`} label="Spent" />
+        <StatCard value={`₹${(stats.available / 1000000).toFixed(1)}M`} label="Available" />
       </StatsGrid>
 
       {/* Anomaly Alert */}
       {stats.spent > stats.released && (
-        <Alert variant="error" title="⚠️ Budget Anomaly Detected">
+        <Alert variant="error" title="Budget Anomaly Detected">
           Amount spent (₹{(stats.spent / 1000000).toFixed(1)}M) exceeds amount released (₹{(stats.released / 1000000).toFixed(1)}M). This requires immediate investigation.
         </Alert>
       )}
@@ -107,7 +107,7 @@ export default function BudgetHistory() {
                         </h4>
                       </div>
                       <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', margin: 0 }}>
-                        📅 {new Date(t.date).toLocaleDateString()} • 📌 {t.source}
+                        {new Date(t.date).toLocaleDateString()} • {t.source}
                       </p>
                     </div>
                     <div className="stitch-text-right">
@@ -120,7 +120,7 @@ export default function BudgetHistory() {
                   {t.anomaly && (
                     <div style={{ marginTop: 'var(--spacing-3)', padding: 'var(--spacing-2) var(--spacing-3)', background: 'rgba(232, 76, 61, 0.1)', borderLeft: '3px solid var(--color-error)', borderRadius: 'var(--radius-sm)' }}>
                       <p style={{ margin: 0, fontSize: 'var(--font-size-sm)', color: 'var(--color-error)' }}>
-                        ⚠️ Anomaly: Spending exceeds released amount
+                        Anomaly: Spending exceeds released amount
                       </p>
                     </div>
                   )}
@@ -151,7 +151,7 @@ export default function BudgetHistory() {
               <div className="stitch-display-flex stitch-justify-between stitch-items-center">
                 <span style={{ color: 'var(--color-text-secondary)' }}>Spending Status</span>
                 <Badge variant={stats.spent > stats.released ? 'error' : 'success'}>
-                  {stats.spent > stats.released ? '⚠️ Over Budget' : '✓ Within Budget'}
+                  {stats.spent > stats.released ? 'Over Budget' : 'Within Budget'}
                 </Badge>
               </div>
             </div>

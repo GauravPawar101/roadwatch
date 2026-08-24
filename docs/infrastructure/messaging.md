@@ -20,9 +20,9 @@ Defined in `config/messaging-topology.json`:
 
 | Topic | Partitions | Cluster |
 |-------|------------|---------|
-| `complaint-submitted` | 3 | Both |
+| `complaint-submitted` | 6 | Both |
 | `complaint-anchored` | 3 | Events |
-| `complaint-status-changed` | 3 | Both |
+| `complaint-status-changed` | 6 | Both |
 | `notification-send` | 2 | Events |
 | `authority-action` | 2 | Events |
 | `escalation-due` | 2 | Events |
@@ -31,7 +31,10 @@ Defined in `config/messaging-topology.json`:
 | `media-uploaded` | 3 | Events |
 | `media-analyzed` | 3 | Events |
 | `fabric-events` | 2 | Events |
-| `dlq-events` | 1 | HLF |
+| `dlq-events` | 3 | Both |
+
+
+Partition counts for `complaint-submitted` / `complaint-status-changed` are set to **6** so `fabric-anchor-consumer` can scale up to that many replicas (one consumer per partition). Webhook HPA scales on CPU independently on the events cluster.
 
 ### Initialize topics
 

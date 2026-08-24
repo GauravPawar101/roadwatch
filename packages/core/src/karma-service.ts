@@ -1,4 +1,4 @@
-import type { KarmaRecord, KarmaTier } from './image-types';
+import type { KarmaRecord, KarmaTier } from './image-types.js';
 
 /**
  * Karma System Service
@@ -301,4 +301,55 @@ export function applyKarmaDecay(
     return Math.max(0, newScore);
   }
   return current.score;
+}
+
+export type WorkBand = 'Trusted' | 'Standard' | 'AtRisk' | 'Suspended' | 'Banned';
+
+/** Map karma score to work-band level for contractors / engineers. */
+export function getWorkBandFromScore(score: number, penaltyCount = 0): WorkBand {
+  return getTierFromScore(score, penaltyCount, 0) as WorkBand;
+}
+
+export interface OrgKarmaDeltaInput {
+  basePenalty: number; // negative for penalties, positive for rewards
+  orgRoadKm: number;
+}
+
+/**
+ * Size-fair org karma: larger networks (e.g. NHAI) lose fewer points per patch.
+ * delta = basePenalty / max(1, log10(orgRoadKm + 10))
+ */
+export function scaleOrgKarmaDelta(input: OrgKarmaDeltaInput): number {
+  const km = Math.max(0, Number(input.orgRoadKm) || 0);
+  const divisor = Math.max(1, Math.log10(km + 10));
+  const scaled = input.basePenalty / divisor;
+  return Math.trunc(scaled * 100) / 100;
+}
+
+export function applySlaBreachContractorPenalty(
+  userId: string,
+  delta = Number(process.env.KARMA_SLA_CONTRACTOR ?? -20)
+): KarmaTransaction {
+  return { user_id: userId, delta, reason: 'sla_breach_contractor', timestamp: Date.now() };
+}
+
+export function applySlaBreachEngineerPenalty(
+  userId: string,
+  delta = Number(process.env.KARMA_SLA_ENGINEER ?? -15)
+): KarmaTransaction {
+  return { user_id: userId, delta, reason: 'sla_breach_engineer', timestamp: Date.now() };
+}
+
+export function applyRecurrencePenalty(
+  userId: string,
+  delta = Number(process.env.KARMA_RECURRENCE ?? -25)
+): KarmaTransaction {
+  return { user_id: userId, delta, reason: 'recurrence_after_complete', timestamp: Date.now() };
+}
+
+export function applyInspectionOverduePenalty(
+  userId: string,
+  delta = Number(process.env.KARMA_SLA_ENGINEER ?? -15)
+): KarmaTransaction {
+  return { user_id: userId, delta, reason: 'inspection_overdue', timestamp: Date.now() };
 }

@@ -1,4 +1,4 @@
-import type { Complaint, GeoLocation, Road } from '../../domain/Entities';
+import type { Complaint, GeoLocation, Road } from '../../domain/Entities.js';
 
 export interface ILocalStore {
   /**

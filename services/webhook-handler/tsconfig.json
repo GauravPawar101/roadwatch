@@ -2,14 +2,14 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./",
     "baseUrl": ".",
     "module": "esnext",
+    "noEmit": true,
     "paths": {
       "@roadwatch/core": ["../../packages/core/src/index.ts"],
       "@roadwatch/core/src/*": ["../../packages/core/src/*"],
       "@roadwatch/kafka": ["../../packages/kafka/index.ts"],
-      "@roadwatch/sidecar-auth": ["../../packages/sidecar-auth/src/index.ts"]
+      "@roadwatch/redis": ["../../packages/redis/index.ts"]
     }
   },
   "include": ["./**/*.ts"],

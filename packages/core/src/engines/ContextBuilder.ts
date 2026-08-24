@@ -1,7 +1,7 @@
-import type { Complaint } from '../domain/Complaint';
-import type { GeoCoordinate } from '../domain/GeoCoordinate';
-import type { IStorageProvider } from '../interfaces/IStorageProvider';
-import type { RecognizedIntent } from './IntentClassifier';
+import type { Complaint } from '../domain/Complaint.js';
+import type { GeoCoordinate } from '../domain/GeoCoordinate.js';
+import type { IStorageProvider } from '../interfaces/IStorageProvider.js';
+import type { RecognizedIntent } from './IntentClassifier.js';
 
 // Explicit bounding box defining the spatial context for queries.
 export interface BoundingBox {

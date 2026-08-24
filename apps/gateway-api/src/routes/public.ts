@@ -96,7 +96,7 @@ router.get('/roads/segments.geojson', async (req, res) => {
 
   const limit = Math.min(20000, Math.max(1, query.limit));
   const roadsRes = await pool.query(
-    `SELECT id, name, road_type, authority_id, geometry FROM roads_catalog
+    `SELECT id, name, road_type, authority_id, authority_org, block_code, geometry FROM roads_catalog
      WHERE district_id = $1 AND geometry IS NOT NULL
      LIMIT $2`,
     [districtId, limit]
@@ -141,6 +141,7 @@ router.get('/roads/segments.geojson', async (req, res) => {
       [authorityIds]
     );
     for (const row of authRes.rows) {
+      authorities[row.authority_id] = row;
     }
   }
 
@@ -217,6 +218,8 @@ router.get('/roads/segments.geojson', async (req, res) => {
         name: row.name,
         roadType: row.road_type,
         authorityId: row.authority_id,
+        authorityOrg: row.authority_org ?? null,
+        blockCode: row.block_code ?? null,
         districtCode: null,
         assignment: {
           contractorId: assignment?.contractor_id ?? null,
@@ -230,6 +233,8 @@ router.get('/roads/segments.geojson', async (req, res) => {
         authority: {
           name: authority?.name ?? null,
           department: authority?.department ?? null,
+          blockCode: row.block_code ?? null,
+          org: row.authority_org ?? null,
           publicPhone: authority?.public_phone ?? null,
           publicEmail: authority?.public_email ?? null,
           website: authority?.website ?? null,
@@ -268,6 +273,61 @@ router.get('/authorities/:authorityId', async (req, res) => {
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
   res.json({ authority: result.rows[0] });
+});
+
+router.get('/roads/:roadId', async (req, res) => {
+  const params = z.object({ roadId: z.string().min(1) }).parse(req.params);
+  const result = await pool.query(
+    `SELECT rc.id, rc.name, rc.road_type, rc.authority_id, rc.authority_org, rc.block_code,
+            rc.total_length_km, rc.district_id, rc.geometry,
+            ad.name AS authority_name, ad.department, ad.public_phone, ad.public_email,
+            ad.website, ad.address
+     FROM roads_catalog rc
+     LEFT JOIN authority_directory ad ON ad.authority_id = rc.authority_id
+     WHERE rc.id = $1
+     LIMIT 1`,
+    [params.roadId]
+  ).catch(async () =>
+    pool.query(
+      `SELECT rc.id, rc.name, rc.road_type, rc.authority_id,
+              NULL::text AS authority_org, NULL::text AS block_code,
+              rc.total_length_km, rc.district_id, rc.geometry,
+              ad.name AS authority_name, ad.department, ad.public_phone, ad.public_email,
+              ad.website, ad.address
+       FROM roads_catalog rc
+       LEFT JOIN authority_directory ad ON ad.authority_id = rc.authority_id
+       WHERE rc.id = $1
+       LIMIT 1`,
+      [params.roadId]
+    )
+  );
+
+  if (!result.rows.length) return res.status(404).json({ error: 'Not found' });
+  const row = result.rows[0];
+  res.json({
+    road: {
+      id: row.id,
+      name: row.name,
+      roadType: row.road_type,
+      districtId: row.district_id,
+      totalLengthKm: row.total_length_km,
+      blockCode: row.block_code ?? null,
+      authorityOrg: row.authority_org ?? null,
+      authorityId: row.authority_id,
+      geometry: row.geometry,
+      concernedAuthority: {
+        authorityId: row.authority_id,
+        name: row.authority_name ?? null,
+        department: row.department ?? null,
+        blockCode: row.block_code ?? null,
+        org: row.authority_org ?? null,
+        publicPhone: row.public_phone ?? null,
+        publicEmail: row.public_email ?? null,
+        website: row.website ?? null,
+        address: row.address ?? null,
+      },
+    },
+  });
 });
 
 // ---------------------------------------------------------------------------

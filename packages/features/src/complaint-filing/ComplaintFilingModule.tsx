@@ -158,7 +158,7 @@ const ReviewStep: React.FC<{ viewModel: ReturnType<typeof useComplaintFilingView
     {viewModel.isOffline && (
       <View style={styles.offlineNotice}>
          <Text style={styles.offlineNoticeText}>
-           ⚠️ You are operating offline securely. 
+           You are operating offline securely. 
            This log will physically evaluate to your Outbox and sequentially sync exactly 
            when WiFi/4G network packets align successfully.
          </Text>

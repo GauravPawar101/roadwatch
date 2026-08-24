@@ -85,7 +85,7 @@ export const ProofBadge: React.FC<{ status: 'LOCAL' | 'CHAIN' }> = ({ status }) 
   return (
     <View style={[styles.badge, status === 'CHAIN' ? styles.chainBadge : styles.localBadge]}>
       <Text style={[styles.badgeText, { color: status === 'CHAIN' ? '#065F46' : '#9D174D' }]}>
-        {status === 'CHAIN' ? '🔗 Verified receipt (online)' : '🔒 Proof saved on device'}
+        {status === 'CHAIN' ? 'Verified receipt (online)' : 'Proof saved on device'}
       </Text>
     </View>
   );
@@ -113,7 +113,7 @@ export const CameraCapture: React.FC<{ viewModel: ReturnType<typeof useMediaProo
       <View style={styles.cameraCanvas}>
          <Text style={styles.cameraCanvasText}>[ Live Optical Sensor Output ]</Text>
          <View style={styles.spoofWarning}>
-           <Text style={styles.warningText}>⚠️ Gallery uploads disabled to reduce location spoofing risk.</Text>
+           <Text style={styles.warningText}>Gallery uploads disabled to reduce location spoofing risk.</Text>
          </View>
       </View>
       

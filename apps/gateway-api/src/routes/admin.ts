@@ -15,7 +15,6 @@ import {
 import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult, type IdempotencyClaim } from '../idempotency.js';
 import { pool } from '../postgres.js';
 import { requireAuth, requireRole } from '../rbac.js';
-import { requireRegistrySecret } from '../services/discovery.js';
 import { uuidv7 } from '../uuid.js';
 
 const router = express.Router();
@@ -73,7 +72,7 @@ router.post('/users', requireAuth, requireRole(['CE']), async (req, res) => {
   res.json(responseBody);
 });
 
-router.post('/fabric-identities/seed', requireRegistrySecret, async (req, res) => {
+router.post('/fabric-identities/seed', requireAuth, requireRole(['CE']), async (req, res) => {
   const body = z
     .object({
       identities: z

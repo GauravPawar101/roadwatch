@@ -1,5 +1,5 @@
-import { buildRoadWatchAgentPreamble } from '../system/roadwatch-agent';
-import type { PromptTemplate } from '../types';
+import { buildRoadWatchAgentPreamble } from '../system/roadwatch-agent.js';
+import type { PromptTemplate } from '../types.js';
 
 export interface RTIGuidanceInput {
   complaint: any;

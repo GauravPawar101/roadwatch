@@ -2,13 +2,27 @@ import { KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedE
 import express from 'express';
 import { z } from 'zod';
 import { getContractorScorecard, trackAnalyticsEvent } from '../analytics/service.js';
+import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
 import { enqueueKafkaEvent } from '../kafka/outbox.js';
 import { createAndFanoutNotification } from '../notifications/service.js';
 import { sql as pool } from '../postgres.js'; // Use `sql` tagged-template executor exported from postgres.ts
 import { assertDistrictAccess, assertZoneAccess, requireAuth, requireRole } from '../rbac.js';
 import { broadcastComplaintEvent } from '../realtime/sse.js';
 import { fabricLedgerService } from '../services/fabric-ledger.js';
+import {
+  awardValidSubmissionKarma,
+  ensureSlaTracking,
+  haversineMeters,
+  shouldEscalateOnMerge,
+  slaHoursForRoadType,
+  rewardOrgForRepair,
+} from '../services/complaint-lifecycle.js';
+import { bumpComplaintReadCache } from '@roadwatch/redis';
+import { maybeSyncAnchorComplaint } from '../services/sync-anchor.js';
 import { uuidv7 } from '../uuid.js';
+
+const MERGE_RADIUS_M = 100;
+const MERGE_SLA_WINDOW_MS = (roadTypeOrId?: string) => slaHoursForRoadType(roadTypeOrId ?? 'URBAN') * 60 * 60 * 1000;
 
 const router = express.Router();
 
@@ -71,7 +85,7 @@ async function writeAudit(
 }
 
 // ---------------------------------------------------------------------------
-// POST /complaints
+// POST /complaints — idempotent create with proximity merge, SLA + karma
 // ---------------------------------------------------------------------------
 router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, res) => {
   const user = (req as any).user as {
@@ -85,7 +99,10 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
       zone: z.string().min(1),
       description: z.string().min(1),
       lat: z.number().optional().nullable(),
-      lng: z.number().optional().nullable()
+      lng: z.number().optional().nullable(),
+      severity: z.number().int().min(1).max(5).optional().default(3),
+      capturedLat: z.number().optional().nullable(),
+      capturedLng: z.number().optional().nullable(),
     })
     .parse(req.body);
 
@@ -93,63 +110,214 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const generatedId = uuidv7();
-  const id = body.id ?? generatedId;
+  if (
+    body.lat != null && body.lng != null &&
+    body.capturedLat != null && body.capturedLng != null
+  ) {
+    const captureDistance = haversineMeters(
+      { lat: body.lat, lng: body.lng },
+      { lat: body.capturedLat, lng: body.capturedLng }
+    );
+    if (captureDistance > 80) {
+      return res.status(400).json({
+        error: 'Capture location must match complaint location',
+        captureDistanceM: Math.round(captureDistance),
+      });
+    }
+  }
 
-  const event: ComplaintSubmittedEvent = {
-    type: 'complaint-submitted',
-    idempotencyKey: `complaint:${id}:submitted`,
-    occurredAt: new Date().toISOString(),
-    version: 1,
-    complaintId: id,
-    district: body.district,
-    zone: body.zone,
-    lat: body.lat ?? undefined,
-    lng: body.lng ?? undefined,
-    description: body.description,
-    roadId: `${body.district}:${body.zone}`,
-    authorityOrg: body.zone,
-    citizenId: user.sub,
-    location: { district: body.district, zone: body.zone, lat: body.lat ?? null, lng: body.lng ?? null },
-    merged: false,
-    reportCount: 1
-  };
+  const idempotencyKey = deriveIdempotencyKey(req, 'authority:complaints:create');
+  const requestHash = buildRequestHash({ actor: user.sub, body });
+  const claimed = await claimIdempotency('authority:complaints:create', idempotencyKey, requestHash);
+  if ('replay' in claimed) {
+    return res.status(claimed.statusCode).json(claimed.body as any);
+  }
+
+  let id = body.id ?? uuidv7();
+  let merged = false;
+  let escalated = false;
+  let reportCount = 1;
+  let mergeReason: string | null = null;
+  let status = 'FILED';
 
   await pool.begin(async (tx: any) => {
-    await tx`
-      INSERT INTO complaints (id, district, zone, status, description, lat, lng, user_id, created_at, updated_at)
-      VALUES (${id}, ${body.district}, ${body.zone}, 'FILED', ${body.description}, ${body.lat ?? null}, ${body.lng ?? null}, ${user.sub}, NOW(), NOW())
-      ON CONFLICT (id) DO NOTHING
-    `;
+    if (body.lat != null && body.lng != null) {
+      const candidates = await tx`
+        SELECT id, status, report_count, created_at, updated_at, lat, lng
+        FROM complaints
+        WHERE district = ${body.district}
+          AND zone = ${body.zone}
+          AND lat IS NOT NULL AND lng IS NOT NULL
+          AND UPPER(status) NOT IN ('RESOLVED', 'DISMISSED', 'CLOSED')
+        ORDER BY created_at DESC
+        LIMIT 25
+        FOR UPDATE
+      `;
 
-    await enqueueKafkaEvent(tx, KafkaTopics.complaintSubmitted, event, { key: id, idempotencyKey: event.idempotencyKey });
+      const near = (candidates as any[]).find((row) => {
+        if (row.lat == null || row.lng == null) return false;
+        return haversineMeters(
+          { lat: Number(body.lat), lng: Number(body.lng) },
+          { lat: Number(row.lat), lng: Number(row.lng) }
+        ) <= MERGE_RADIUS_M;
+      });
+
+      if (near) {
+        const decision = shouldEscalateOnMerge(near, MERGE_SLA_WINDOW_MS());
+        merged = true;
+        id = String(near.id);
+        mergeReason = decision.reason;
+        escalated = decision.escalate;
+        status = escalated ? 'ESCALATED' : String(near.status ?? 'FILED');
+
+        const updated = await tx`
+          UPDATE complaints
+          SET report_count = COALESCE(report_count, 1) + 1,
+              status = ${status},
+              description = CASE
+                WHEN ${escalated} THEN ${body.description}
+                ELSE description
+              END,
+              updated_at = NOW()
+          WHERE id = ${id}
+          RETURNING report_count
+        `;
+        reportCount = Number(updated[0]?.report_count ?? 2);
+
+        if (escalated) {
+          const event: ComplaintStatusChangedEvent = {
+            type: 'complaint-status-changed',
+            idempotencyKey: `complaint:${id}:status:merge-escalate`,
+            occurredAt: new Date().toISOString(),
+            version: 1,
+            complaintId: id,
+            fromStatus: String(near.status ?? 'FILED'),
+            toStatus: 'ESCALATED',
+            changedBy: { actorType: 'system', actorId: user.sub },
+          };
+          await enqueueKafkaEvent(tx, KafkaTopics.complaintStatusChanged, event, {
+            key: id,
+            idempotencyKey: event.idempotencyKey,
+          });
+        }
+      }
+    }
+
+    if (!merged) {
+      await tx`
+        INSERT INTO complaints (id, district, zone, status, description, lat, lng, user_id, report_count, created_at, updated_at)
+        VALUES (${id}, ${body.district}, ${body.zone}, 'FILED', ${body.description}, ${body.lat ?? null}, ${body.lng ?? null}, ${user.sub}, 1, NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING
+      `;
+
+      const event: ComplaintSubmittedEvent = {
+        type: 'complaint-submitted',
+        idempotencyKey: `complaint:${id}:submitted`,
+        occurredAt: new Date().toISOString(),
+        version: 1,
+        complaintId: id,
+        district: body.district,
+        zone: body.zone,
+        lat: body.lat ?? undefined,
+        lng: body.lng ?? undefined,
+        description: body.description,
+        roadId: `${body.district}:${body.zone}`,
+        authorityOrg: body.zone,
+        citizenId: user.sub,
+        location: { district: body.district, zone: body.zone, lat: body.lat ?? null, lng: body.lng ?? null },
+        merged: false,
+        reportCount: 1,
+      };
+
+      await enqueueKafkaEvent(tx, KafkaTopics.complaintSubmitted, event, {
+        key: id,
+        idempotencyKey: event.idempotencyKey,
+      });
+    }
   });
 
-  await writeAudit(user.sub, user.phoneHash, user.phone, 'COMPLAINT_CREATED', 'complaint', id, { district: body.district, zone: body.zone });
+  if (!merged) {
+    await ensureSlaTracking(id, { severity: body.severity });
+  } else if (escalated) {
+    // Shorten remaining SLA on escalation (half window)
+    await ensureSlaTracking(id, {
+      severity: body.severity,
+      deadline: new Date(Date.now() + (MERGE_SLA_WINDOW_MS() / 2)),
+    });
+  }
+
+  await awardValidSubmissionKarma(user.sub, id).catch(() => null);
+
+  await writeAudit(
+    user.sub,
+    user.phoneHash,
+    user.phone,
+    escalated ? 'COMPLAINT_ESCALATED' : merged ? 'COMPLAINT_MERGED' : 'COMPLAINT_CREATED',
+    'complaint',
+    id,
+    { district: body.district, zone: body.zone, merged, escalated, reportCount, mergeReason }
+  );
 
   await trackAnalyticsEvent({
-    type: 'COMPLAINT_CREATED',
+    type: escalated ? 'COMPLAINT_ESCALATED' : 'COMPLAINT_CREATED',
     actorUserId: user.sub,
     complaintId: id,
     district: body.district,
     zone: body.zone,
     lat: body.lat ?? null,
     lng: body.lng ?? null,
-    properties: { status: 'FILED' }
+    properties: { status, merged, escalated, reportCount, mergeReason },
   });
 
   await createAndFanoutNotification({
     message: {
-      type: 'new_complaint',
-      title: `New complaint ${id}`,
-      body: `New complaint filed in ${body.district} / ${body.zone}.`,
-      data: { complaintId: id, district: body.district, zone: body.zone },
+      type: escalated ? 'status_change' : 'new_complaint',
+      title: escalated
+        ? `Complaint ${id} escalated`
+        : merged
+          ? `Complaint merged into ${id}`
+          : `New complaint ${id}`,
+      body: escalated
+        ? `SLA-based escalation for ${body.district} / ${body.zone}.`
+        : merged
+          ? `Nearby report merged (count=${reportCount}).`
+          : `New complaint filed in ${body.district} / ${body.zone}.`,
+      data: { complaintId: id, district: body.district, zone: body.zone, merged, escalated, reportCount },
       audience: { kind: 'jurisdiction', district: body.district, zone: body.zone },
-      critical: false
-    }
+      critical: escalated,
+    },
   });
 
-  res.json({ ok: true, complaint: { id, district: body.district, zone: body.zone, status: 'FILED', description: body.description, lat: body.lat ?? null, lng: body.lng ?? null, updatedAt: new Date().toISOString() } });
+  const responseBody = {
+    ok: true,
+    merged,
+    escalated,
+    reportCount,
+    mergeReason,
+    complaint: {
+      id,
+      district: body.district,
+      zone: body.zone,
+      status,
+      description: body.description,
+      lat: body.lat ?? null,
+      lng: body.lng ?? null,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  await storeIdempotencyResult(claimed, 200, responseBody);
+  await bumpComplaintReadCache();
+  await maybeSyncAnchorComplaint({
+    complaintId: id,
+    citizenId: user.sub,
+    lat: body.lat ?? null,
+    lng: body.lng ?? null,
+    district: body.district,
+    zone: body.zone,
+    merged,
+    reportCount
+  });
+  res.json(responseBody);
 });
 
 // ---------------------------------------------------------------------------
@@ -304,6 +472,7 @@ router.post('/complaints/:id/status', requireAuth, requireRole(['CE', 'EE']), as
     });
   }
 
+  await bumpComplaintReadCache();
   res.json({ ok: true });
 });
 
@@ -511,7 +680,7 @@ router.post('/complaints/:id/resolve', requireAuth, async (req, res) => {
   const body = z.object({ resolutionNote: z.string().optional() }).parse(req.body);
 
   const [row] = await pool`
-    SELECT id, district, zone, status, description, lat, lng FROM complaints WHERE id = ${params.id} LIMIT 1
+    SELECT id, district, zone, status, description, lat, lng, authority_org, authority_id, road_id FROM complaints WHERE id = ${params.id} LIMIT 1
   `;
   if (!row) return res.status(404).json({ error: 'Not found' });
 
@@ -534,6 +703,17 @@ router.post('/complaints/:id/resolve', requireAuth, async (req, res) => {
     await tx`
       UPDATE complaints SET status = 'RESOLVED', updated_at = NOW() WHERE id = ${params.id}
     `;
+
+    try {
+      await tx`
+        UPDATE complaint_assignments
+        SET inspection_completed_at = NOW(),
+            status = 'VERIFIED'
+        WHERE complaint_id = ${params.id}
+      `;
+    } catch {
+      // inspection columns may be missing on older DBs
+    }
 
     const event: ComplaintStatusChangedEvent = {
       type: 'complaint-status-changed',
@@ -571,6 +751,8 @@ router.post('/complaints/:id/resolve', requireAuth, async (req, res) => {
       complaint: { id: u.id, district: u.district, zone: u.zone, status: u.status, description: u.description, lat: u.lat, lng: u.lng, updatedAt: new Date(u.updated_at).toISOString() }
     });
 
+    await rewardOrgForRepair(row.authority_org ?? row.authority_id ?? null, params.id).catch(() => null);
+
     await createAndFanoutNotification({
       message: {
         type: 'resolved',
@@ -583,6 +765,7 @@ router.post('/complaints/:id/resolve', requireAuth, async (req, res) => {
     });
   }
 
+  await bumpComplaintReadCache();
   res.json({ ok: true });
 });
 

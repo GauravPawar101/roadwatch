@@ -10,6 +10,8 @@ import {
     YAxis,
 } from 'recharts'
 import MapEmbed from '../../components/MapEmbed'
+import { useComplaints } from '../../hooks/useComplaints'
+import { DELHI_CENTER } from '../../lib/mapLocation'
 import { authorityProfiles, getAuthorityComplaintRows, getAuthorityProfileForLevel, insights, jurisdictionMap, roleActionLabels } from '../../data/roadwatchDashboard'
 
 const shellStyle: React.CSSProperties = {
@@ -72,6 +74,11 @@ const jurisdictionCoordinates: Record<string, { lat: number; lng: number }> = {
 export default function AuthorityDashboard() {
   const navigate = useNavigate()
   const [level, setLevel] = useState<(typeof hierarchyLevels)[number]>('district')
+  const { complaints: mapComplaints } = useComplaints({ limit: 500 })
+  const mapDensityPoints = useMemo(
+    () => mapComplaints.map((c) => ({ lat: c.lat, lng: c.lng, severity: c.severity })),
+    [mapComplaints],
+  )
   const activeProfile = useMemo(() => getAuthorityProfileForLevel(level), [level])
   const authorityQueue = useMemo(() => getAuthorityComplaintRows(level), [level])
 
@@ -245,9 +252,12 @@ export default function AuthorityDashboard() {
               </p>
               <div style={{ marginTop: 16, borderRadius: 20, overflow: 'hidden' }}>
                 <MapEmbed
-                  center={{ lat: 20.5937, lng: 78.9629 }}
-                  zoom={4}
+                  center={DELHI_CENTER}
+                  zoom={10}
                   markers={topMarkers.map((marker) => ({ lat: marker.coords!.lat, lng: marker.coords!.lng, label: `${marker.name} · ${jurisdictionMap.find((item) => item.name === marker.name)?.risk}% risk` }))}
+                  densityPoints={mapDensityPoints}
+                  showLegend
+                  legendPosition="bottom-right"
                   height="260px"
                 />
               </div>

@@ -5,7 +5,9 @@
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: roadwatch
+
+# Resources use explicit namespace metadata (roadwatch or observability).
+# Do not set a global namespace here — it breaks the observability namespace.
 
 # ── Resource Deployment Order (by layer) ──────────────────────────────────────
 # Apply in order: platform → ingest → HLF buffer → schedule → presentation
@@ -18,7 +20,7 @@ resources:
   - layer-0-platform/configmap-cluster.yaml
   - layer-0-platform/configmap-postgres-init.yaml
   - layer-0-platform/secret.yaml
-  - layer-0-platform/postgres.yaml
+  - layer-0-platform/postgres-ha.yaml
   - layer-0-platform/pgbouncer.yaml
   - layer-0-platform/redis.yaml
 
@@ -26,11 +28,22 @@ resources:
   - layer-1-ingest-api/gateway-api.yaml
   - layer-1-ingest-api/backend-api.yaml
 
+  # Layer mesh — Istio SAs, mTLS, authz, DestinationRules, PDBs
+  - layer-mesh
+
   # Layer 2 — Ingest.HLF (backpressure buffer between fast DB and slow HLF)
   - layer-2-ingest-hlf/configmap-fabric.yaml
+  - layer-2-ingest-hlf/kafka-startup-configmap.yaml
   - layer-2-ingest-hlf/kafka-hlf.yaml
   - layer-2-ingest-hlf/kafka-events.yaml
   - layer-2-ingest-hlf/consumers.yaml
+
+  # Layer observability — Prometheus, Loki, Grafana (observability namespace)
+  - layer-observability
+  - layer-observability/exporters.yaml
+
+  # Layer autoscaling — KEDA ScaledObjects (requires KEDA CRDs; see keda-install.md)
+  - layer-autoscaling
 
   # Layer 3 — Schedule (cron jobs on DB state, not event-driven)
   - layer-3-schedule/scheduler.yaml
@@ -47,4 +60,4 @@ configMapGenerator:
     namespace: roadwatch
     behavior: merge
     files:
-      - init.sql=../../docker/postgres/init.sql
+      - init.sql=layer-0-platform/init.sql

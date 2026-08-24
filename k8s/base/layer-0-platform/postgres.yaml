@@ -19,7 +19,10 @@ spec:
       app: postgres
   template:
     metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
       labels:
+        mesh.roadwatch.io/role: infra
         app: postgres
         app.kubernetes.io/name: postgres
         layer: platform

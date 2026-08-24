@@ -1,3 +1,5 @@
+import { setOutboxDepthGauge } from '@roadwatch/redis';
+import { OUTBOX_MAX_ATTEMPTS_BEFORE_DEAD, KafkaTopics } from '@roadwatch/kafka';
 import { pool } from '../postgres.js';
 import { getKafkaProducer } from './producer.js';
 
@@ -114,6 +116,19 @@ async function markSent(id: string): Promise<void> {
 }
 
 async function markFailed(id: string, attempts: number, error: string): Promise<void> {
+  if (attempts >= OUTBOX_MAX_ATTEMPTS_BEFORE_DEAD) {
+    await pool.query(
+      `UPDATE kafka_event_outbox
+       SET status = 'DEAD',
+           attempts = $2,
+           last_error = $3,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [id, attempts, error]
+    );
+    return;
+  }
+
   const delaySeconds = Math.min(60, Math.max(5, attempts * 5));
   await pool.query(
     `UPDATE kafka_event_outbox
@@ -127,7 +142,45 @@ async function markFailed(id: string, attempts: number, error: string): Promise<
   );
 }
 
+async function publishOutboxDeadLetter(row: OutboxRow, error: string): Promise<void> {
+  try {
+    const producer = getKafkaProducer();
+    await producer.publish(KafkaTopics.dlq, {
+      type: 'dlq-events',
+      idempotencyKey: row.id,
+      occurredAt: new Date().toISOString(),
+      version: 1,
+      originalTopic: row.topic,
+      consumerId: 'gateway-kafka-outbox',
+      attempts: row.attempts,
+      error,
+      rawMessage: {
+        id: row.id,
+        topic: row.topic,
+        message_key: row.message_key,
+        headers: row.headers,
+        payload: row.payload
+      }
+    });
+  } catch (dlqError) {
+    console.error(
+      '[gateway-kafka-outbox] failed to publish DLQ for',
+      row.id,
+      dlqError instanceof Error ? dlqError.message : String(dlqError)
+    );
+  }
+}
+
 export async function drainKafkaEventOutbox(batchSize = 25): Promise<number> {
+  try {
+    const depthRes = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM kafka_event_outbox WHERE status IN ('PENDING', 'FAILED', 'IN_FLIGHT')`
+    );
+    await setOutboxDepthGauge(Number.parseInt(depthRes.rows[0]?.count ?? '0', 10) || 0);
+  } catch {
+    // best-effort gauge
+  }
+
   const rows = await claimPendingEvents(batchSize);
   if (rows.length === 0) return 0;
 
@@ -145,6 +198,9 @@ export async function drainKafkaEventOutbox(batchSize = 25): Promise<number> {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await markFailed(row.id, row.attempts, message);
+      if (row.attempts >= OUTBOX_MAX_ATTEMPTS_BEFORE_DEAD) {
+        await publishOutboxDeadLetter(row, message);
+      }
     }
   }
 

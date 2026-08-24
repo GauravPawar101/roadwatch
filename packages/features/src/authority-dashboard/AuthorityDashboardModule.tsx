@@ -146,7 +146,7 @@ export const DashboardScreen: React.FC<{ viewModel: ReturnType<typeof useDashboa
   if (viewModel.error) {
     return (
       <View style={styles.errorScreen}>
-        <Text style={styles.errorText}>⛔ {viewModel.error}</Text>
+        <Text style={styles.errorText}>{viewModel.error}</Text>
       </View>
     );
   }

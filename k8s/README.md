@@ -21,7 +21,8 @@ k8s/
 │   ├── layer-1-ingest-api/        # gateway-api, backend-api (Deployments + HPAs)
 │   │   ├── gateway-api.yaml
 │   │   └── backend-api.yaml
-│   ├── layer-2-ingest-hlf/        # Zookeeper+Kafka (HLF + events), consumers
+│   ├── layer-mesh/                # Istio SAs, mTLS, AuthorizationPolicy, DestinationRules, PDBs
+│   ├── layer-2-ingest-hlf/        # Kafka (HLF + events), consumers + webhook HPA
 │   │   ├── configmap-fabric.yaml
 │   │   ├── kafka-hlf.yaml
 │   │   ├── kafka-events.yaml
@@ -60,7 +61,7 @@ k8s/
 
 | Secret | How created | Keys |
 |--------|-------------|------|
-| `app-secrets` | `layer-0-platform/secret.yaml` (dev placeholders) or `kubectl create secret` (prod) | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ACCESS_SECRET`, `REFRESH_SECRET`, `SERVICE_AUTH_SECRET`, `SERVICE_REGISTRY_SECRET`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` + optional keys below |
+| `app-secrets` | `layer-0-platform/secret.yaml` (dev placeholders) or `kubectl create secret` (prod) | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ACCESS_SECRET`, `REFRESH_SECRET`, `INTERNAL_SERVICE_TOKEN`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` + optional keys below |
 | `fabric-certs` | `ops/deploy/deploy-kind.ps1` at deploy time (or manual `kubectl create secret`) | `tls-ca.crt`, `msp-cert.pem`, `msp-key.pem` |
 
 Optional keys in `app-secrets` (leave empty until the service is wired up):
@@ -99,8 +100,7 @@ kubectl create secret generic app-secrets `
   --from-literal=JWT_SECRET='<32+-char-random>' `
   --from-literal=ACCESS_SECRET='<32+-char-random>' `
   --from-literal=REFRESH_SECRET='<32+-char-random>' `
-  --from-literal=SERVICE_AUTH_SECRET='<32+-char-random>' `
-  --from-literal=SERVICE_REGISTRY_SECRET='<32+-char-random>' `
+  --from-literal=INTERNAL_SERVICE_TOKEN='<32+-char-random>' `
   --from-literal=SUPABASE_URL='https://<project>.supabase.co' `
   --from-literal=SUPABASE_ANON_KEY='<supabase-anon-key>' `
   --namespace roadwatch `

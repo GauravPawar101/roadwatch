@@ -23,6 +23,7 @@ spec:
         app.kubernetes.io/name: webhook
         layer: ingest-hlf
     spec:
+      serviceAccountName: webhook
       containers:
         - name: webhook
           image: roadwatch/webhook-handler:local
@@ -37,17 +38,21 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "webhook"
-            - name: SERVICE_URL
-              value: "service://webhook"
             - name: DATABASE_URL
               value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
             # db 1 — webhook-handler partition
             - name: REDIS_URL
               value: "redis://redis-0.redis.roadwatch.svc.cluster.local:6379/1"
             - name: KAFKA_EVENTS_BROKERS
-              value: "kafka-events:29092"
+              valueFrom:
+                configMapKeyRef:
+                  name: infra-config
+                  key: KAFKA_EVENTS_BROKERS
             - name: KAFKA_BROKERS
-              value: "kafka-events:29092"
+              valueFrom:
+                configMapKeyRef:
+                  name: infra-config
+                  key: KAFKA_BROKERS
             - name: KAFKA_GROUP_ID
               value: "webhook-handler-k8s"
           resources:
@@ -88,6 +93,7 @@ spec:
         app.kubernetes.io/name: fabric-anchor
         layer: ingest-hlf
     spec:
+      serviceAccountName: fabric-anchor
       # hostAliases.ip is set from cluster-config.FABRIC_HOST_IP via kustomize replacements
       hostAliases:
         - ip: "172.17.0.1"
@@ -109,8 +115,6 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "fabric-anchor"
-            - name: SERVICE_URL
-              value: "service://fabric-anchor"
             - name: DATABASE_URL
               value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
             # db 2 — fabric-anchor partition
@@ -138,3 +142,4 @@ spec:
                 path: msp/cert.pem
               - key: msp-key.pem
                 path: msp/key.pem
+# webhook CPU HPA removed — KEDA Kafka lag ScaledObject in layer-autoscaling/

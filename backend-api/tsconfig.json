@@ -16,8 +16,7 @@
       "@roadwatch/adapters/src/*": ["../packages/adapters/src/*"],
       "@roadwatch/kafka": ["../packages/kafka/index.ts"],
       "@roadwatch/kafka/src/*": ["../packages/kafka/*"],
-      "@roadwatch/redis": ["../packages/redis/index.ts"],
-      "@roadwatch/sidecar-auth": ["../packages/sidecar-auth/src/index.ts"]
+      "@roadwatch/redis": ["../packages/redis/index.ts"]
     }
   },
   "include": ["./src/**/*"],

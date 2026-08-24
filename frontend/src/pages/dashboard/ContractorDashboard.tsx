@@ -31,6 +31,8 @@ import {
     YAxis
 } from 'recharts'
 import MapEmbed from '../../components/MapEmbed'
+import { useComplaints } from '../../hooks/useComplaints'
+import { DELHI_CENTER } from '../../lib/mapLocation'
 import { Badge, Button, Card, CardBody, Container } from '../../components/UIComponents'
 import { contractorProfiles, getContractorComplaintRows } from '../../data/roadwatchDashboard'
 
@@ -80,8 +82,8 @@ const seedProjects = [
 
 const projectCoordinates: Record<string, { lat: number; lng: number }> = {
   p1: { lat: 28.6139, lng: 77.209 },
-  p2: { lat: 19.076, lng: 72.8777 },
-  p3: { lat: 18.5204, lng: 73.8567 },
+  p2: { lat: 28.7041, lng: 77.1025 },
+  p3: { lat: 28.5355, lng: 77.391 },
 }
 
 export default function ContractorDashboard() {
@@ -91,6 +93,20 @@ export default function ContractorDashboard() {
   const apiBase = ((import.meta as any).env?.VITE_API_BASE as string | undefined) || 'http://localhost:3100'
   const [projects] = useState(seedProjects)
   const assignedComplaints = useMemo(() => getContractorComplaintRows(contractorProfile.name), [contractorProfile.name])
+  const { complaints: liveComplaints } = useComplaints({ limit: 300 })
+  const mapDensityPoints = useMemo(() => {
+    const fromLive = liveComplaints.map((c) => ({ lat: c.lat, lng: c.lng, severity: c.severity }))
+    if (fromLive.length > 0) return fromLive
+    return assignedComplaints
+      .map((item) => {
+        const [lat, lng] = String(item.geo || '')
+          .split(',')
+          .map((part) => Number(part.trim()))
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+        return { lat, lng, severity: Math.min(5, Math.ceil(item.severity / 2)) }
+      })
+      .filter((point): point is { lat: number; lng: number; severity: number } => point !== null)
+  }, [assignedComplaints, liveComplaints])
   const projectChartData = useMemo(() => projects.map((project) => ({ name: project.type, completion: project.completionPercent, complaints: project.complaints })), [projects])
   const mapMarkers = projects.map((project) => ({ ...projectCoordinates[project.id], label: `${project.roadName} · ${project.completionPercent}% complete` }))
   const openCases = assignedComplaints.filter((item) => item.status !== 'Resolved')
@@ -180,7 +196,7 @@ export default function ContractorDashboard() {
                     <AlertTriangle className="h-5 w-5 text-error" />
                   </div>
                 </div>
-                <p className="text-xs text-on-surface-variant mt-3 font-medium">⚠️ {criticalCases.length} critical complaints need attention</p>
+                <p className="text-xs text-on-surface-variant mt-3 font-medium">{criticalCases.length} critical complaints need attention</p>
               </CardBody>
             </Card>
           </motion.div>
@@ -197,7 +213,7 @@ export default function ContractorDashboard() {
                     <Wrench className="h-5 w-5 text-secondary" />
                   </div>
                 </div>
-                <p className="text-xs text-on-surface-variant mt-3 font-medium">⚡ Assigned complaints routed to this contractor</p>
+                <p className="text-xs text-on-surface-variant mt-3 font-medium">Assigned complaints routed to this contractor</p>
               </CardBody>
             </Card>
           </motion.div>
@@ -214,7 +230,7 @@ export default function ContractorDashboard() {
                     <Activity className="h-5 w-5 text-secondary" />
                   </div>
                 </div>
-                <p className="text-xs text-on-surface-variant mt-3 font-medium">✓ Regions: {contractorProfile.regions.join(', ')}</p>
+                <p className="text-xs text-on-surface-variant mt-3 font-medium">Regions: {contractorProfile.regions.join(', ')}</p>
               </CardBody>
             </Card>
           </motion.div>
@@ -398,7 +414,15 @@ export default function ContractorDashboard() {
                   </Button>
                 </div>
                 <div className="rounded-xl overflow-hidden border border-outline-variant">
-                  <MapEmbed center={{ lat: 22.0, lng: 78.5 }} zoom={5} markers={mapMarkers} height="240px" />
+                  <MapEmbed
+                    center={DELHI_CENTER}
+                    zoom={11}
+                    markers={mapMarkers}
+                    densityPoints={mapDensityPoints}
+                    showLegend
+                    legendPosition="bottom-right"
+                    height="240px"
+                  />
                 </div>
               </CardBody>
             </Card>

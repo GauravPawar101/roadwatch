@@ -104,7 +104,7 @@ export default function Onboarding() {
                   {interests.map((interest) => {
                     const active = selectedInterests.includes(interest)
                     return (
-                      <Button key={interest} variant={active ? 'primary' : 'ghost'} onClick={() => toggleInterest(interest)}>{active ? '✓ ' : ''}{interest}</Button>
+                      <Button key={interest} variant={active ? 'primary' : 'ghost'} onClick={() => toggleInterest(interest)}>{active ? 'Selected: ' : ''}{interest}</Button>
                     )
                   })}
                 </div>

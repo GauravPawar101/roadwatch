@@ -27,10 +27,8 @@ All services start by default. There is **no `kafka` or `redis` profile** — th
 |---------|-----------|-----------|----------|---------|
 | postgres | `roadwatch_postgres` | 15433 | 5432 | Primary database |
 | pgbouncer | `roadwatch_pgbouncer` | 16432 | 6432 | Connection pooler |
-| zookeeper-hlf | `roadwatch_zookeeper_hlf` | 2181 | 2181 | ZK for HLF Kafka |
-| kafka-hlf | `roadwatch_kafka_hlf` | 9094 | 29092 | HLF backpressure buffer |
-| zookeeper-events | `roadwatch_zookeeper_events` | 2182 | 2181 | ZK for events Kafka |
-| kafka-events | `roadwatch_kafka_events` | 9095 | 29092 | Operational event bus |
+| kafka-hlf | `roadwatch_kafka_hlf` | 9094 | 29092 | KRaft HLF backpressure buffer |
+| kafka-events | `roadwatch_kafka_events` | 9095 | 29092 | KRaft operational event bus |
 | redis | `roadwatch_redis` | 16379 | 6379 | Cache, OTP, idempotency |
 | scheduler | `roadwatch_scheduler` | — | — | Cron worker |
 | webhook-handler | `roadwatch_webhook_handler` | — | — | Kafka events consumer |

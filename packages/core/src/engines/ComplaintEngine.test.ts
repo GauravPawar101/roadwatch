@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DamageType, Severity } from '../domain/Enums';
-import { ComplaintEngine } from './ComplaintEngine';
+import { DamageType, Severity } from '../domain/Enums.js';
+import { ComplaintEngine } from './ComplaintEngine.js';
 
 describe('ComplaintEngine', () => {
   it('files a complaint with deterministic id prefix', () => {

@@ -4,11 +4,12 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@8.10.0 --activate
 
-COPY pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY .npmrc ./
 COPY frontend ./frontend
 COPY packages ./packages
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --filter roadwatch-frontend...
 
 WORKDIR /app/frontend
 ARG VITE_API_BASE=http://localhost:3100

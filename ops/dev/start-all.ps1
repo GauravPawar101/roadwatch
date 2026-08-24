@@ -165,8 +165,6 @@ $GatewayPort = 3100
 $GatewayUrl = "http://localhost:$GatewayPort"
 $LocalDatabaseUrl = "postgresql://postgres:postgres@127.0.0.1:16432/roadwatch"
 $LocalRedisUrl = "redis://127.0.0.1:16379/0"
-$ServiceRegistrySecret = "roadwatch-local-service-registry-secret"
-$ServiceAuthSecret = "local_development_cryptographic_secret"
 $PostgresHostPort = if ($env:TOP_POSTGRES_HOST_PORT) { [int]$env:TOP_POSTGRES_HOST_PORT } else { 15433 }
 $PgBouncerHostPort = if ($env:TOP_PGBOUNCER_HOST_PORT) { [int]$env:TOP_PGBOUNCER_HOST_PORT } else { 16432 }
 
@@ -197,8 +195,6 @@ function Get-LocalServiceEnvBlock {
         KAFKA_BROKERS           = '127.0.0.1:9095'
         GATEWAY_URL             = $GatewayUrl
         JWT_SECRET              = 'roadwatch-local-dev-jwt-secret-replace-in-production'
-        SERVICE_AUTH_SECRET     = $ServiceAuthSecret
-        SERVICE_REGISTRY_SECRET = $ServiceRegistrySecret
         SERVICE_NAME            = $ServiceName
         SERVICE_URL             = $ServiceUrl
         ALLOW_DEV_OTP_ECHO      = 'true'
@@ -402,7 +398,6 @@ Start-ServiceWindow `
         VITE_PORT               = $VitePort
         GATEWAY_URL             = $GatewayUrl
         SERVICE_NAME            = 'roadwatch-frontend'
-        SERVICE_REGISTRY_SECRET = $ServiceRegistrySecret
     })) + "; pnpm --filter roadwatch-frontend dev") `
     -Color "Magenta" -PidFile ".pids\frontend.pid" -LogFile ".\logs\frontend.log" | Out-Null
 

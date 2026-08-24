@@ -1,4 +1,4 @@
-import type { Complaint } from '../domain/Complaint';
+import type { Complaint } from '../domain/Complaint.js';
 
 export interface IStorageProvider {
   /**

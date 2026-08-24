@@ -1,12 +1,53 @@
-# ── Redis — StatefulSet ───────────────────────────────────────────────────────
-# Session tokens, OTP cache, rate-limiter windows, and idempotency keys all
-# live here. Loss of Redis causes auth failures and double-processing of events,
-# so we persist it to a PVC and use a stable StatefulSet identity.
+# ── Redis HA — StatefulSet (3 nodes) + Sentinel ─────────────────────────────
+# redis-0 is the initial master; redis-1/redis-2 replicate via replicaof.
+# Three redis-sentinel pods monitor redis-0 and perform automatic failover.
 #
-# DB partitioning (matches docker-compose.yml and start-all.ps1):
+# App clients (kind/dev): connect to the stable master DNS:
+#   redis://redis-0.redis.roadwatch.svc.cluster.local:6379/<db>
+# Sentinel endpoints (for future sentinel-aware clients):
+#   redis-sentinel-0.redis-sentinel:26379, redis-sentinel-1..., redis-sentinel-2...
+#
+# DB partitioning:
 #   db 0 — gateway-api  (sessions, rate limits, idempotency)
 #   db 1 — webhook-handler
 #   db 2 — fabric-anchor-consumer
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+data:
+  redis.conf: |
+    bind 0.0.0.0
+    port 6379
+    appendonly yes
+    maxmemory 256mb
+    maxmemory-policy allkeys-lru
+    save 900 1
+    save 300 10
+    protected-mode no
+  redis-start.sh: |
+    #!/bin/sh
+    set -eu
+    ORDINAL="${HOSTNAME##*-}"
+    cp /config/redis.conf /data/redis.conf
+    if [ "$ORDINAL" != "0" ]; then
+      echo "replicaof redis-0.redis.roadwatch.svc.cluster.local 6379" >> /data/redis.conf
+    fi
+    exec redis-server /data/redis.conf
+  sentinel.conf: |
+    port 26379
+    bind 0.0.0.0
+    protected-mode no
+    sentinel monitor mymaster redis-0.redis.roadwatch.svc.cluster.local 6379 2
+    sentinel down-after-milliseconds mymaster 5000
+    sentinel failover-timeout mymaster 10000
+    sentinel parallel-syncs mymaster 1
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -18,13 +59,17 @@ metadata:
     layer: platform
 spec:
   serviceName: redis
-  replicas: 1
+  replicas: 3
+  podManagementPolicy: OrderedReady
   selector:
     matchLabels:
       app: redis
   template:
     metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
       labels:
+        mesh.roadwatch.io/role: infra
         app: redis
         app.kubernetes.io/name: redis
         layer: platform
@@ -37,29 +82,22 @@ spec:
           volumeMounts:
             - name: redis-data
               mountPath: /data
+            - name: redis-config
+              mountPath: /config
           securityContext:
             runAsUser: 0
       containers:
         - name: redis
           image: redis:7.2-alpine
-          command:
-            - redis-server
-            - "--appendonly"
-            - "yes"
-            - "--maxmemory"
-            - "256mb"
-            - "--maxmemory-policy"
-            - "allkeys-lru"
-            - "--save"
-            - "900 1"
-            - "--save"
-            - "300 10"
+          command: ["/config/redis-start.sh"]
           ports:
             - name: redis
               containerPort: 6379
           volumeMounts:
             - name: redis-data
               mountPath: /data
+            - name: redis-config
+              mountPath: /config
           readinessProbe:
             exec:
               command: ["redis-cli", "ping"]
@@ -79,6 +117,11 @@ spec:
             limits:
               cpu: "500m"
               memory: "384Mi"
+      volumes:
+        - name: redis-config
+          configMap:
+            name: redis-config
+            defaultMode: 0755
   volumeClaimTemplates:
     - metadata:
         name: redis-data
@@ -90,6 +133,72 @@ spec:
         resources:
           requests:
             storage: 1Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-sentinel
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: redis-sentinel
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  serviceName: redis-sentinel
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: redis-sentinel
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        mesh.roadwatch.io/role: infra
+        app: redis-sentinel
+        app.kubernetes.io/name: redis-sentinel
+        layer: platform
+    spec:
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: sentinel
+          image: redis:7.2-alpine
+          command:
+            - redis-sentinel
+            - /config/sentinel.conf
+          ports:
+            - name: sentinel
+              containerPort: 26379
+          volumeMounts:
+            - name: sentinel-config
+              mountPath: /config
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "-p", "26379", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "-p", "26379", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+      volumes:
+        - name: sentinel-config
+          configMap:
+            name: redis-config
+            items:
+              - key: sentinel.conf
+                path: sentinel.conf
 ---
 # Headless service for StatefulSet DNS (redis-0.redis.roadwatch)
 apiVersion: v1
@@ -110,7 +219,26 @@ spec:
       port: 6379
       targetPort: redis
 ---
-# ClusterIP alias — services that just need "redis:6379"
+# Stable master selector — always routes to redis-0 (apps use master DNS directly)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-master
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  selector:
+    app: redis
+    statefulset.kubernetes.io/pod-name: redis-0
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+# Legacy alias — points at redis-0 for write traffic
 apiVersion: v1
 kind: Service
 metadata:
@@ -123,7 +251,26 @@ metadata:
 spec:
   selector:
     app: redis
+    statefulset.kubernetes.io/pod-name: redis-0
   ports:
     - name: redis
       port: 6379
       targetPort: redis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-sentinel
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/name: redis-sentinel
+    app.kubernetes.io/part-of: roadwatch
+    layer: platform
+spec:
+  clusterIP: None
+  selector:
+    app: redis-sentinel
+  ports:
+    - name: sentinel
+      port: 26379
+      targetPort: sentinel

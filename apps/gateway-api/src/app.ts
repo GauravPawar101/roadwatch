@@ -1,4 +1,3 @@
-import { acquireDistributedBackpressurePermit } from '@roadwatch/redis';
 import cors from 'cors';
 import express from 'express';
 import morgan from 'morgan';
@@ -14,11 +13,11 @@ import complaintsRouter from './routes/complaints.js';
 import contractorRouter from './routes/contractor.js';
 import internalNotificationsRouter from './routes/internal-notifications.js';
 import notificationsRouter from './routes/notifications.js';
-import proxyRouter from './routes/proxy.js';
 import publicRouter from './routes/public.js';
 import reportsRouter from './routes/reports.js';
 import rtiRouter from './routes/rti.js';
-import servicesRouter from './routes/services.js';
+import { acquireComplaintWriteAdmission } from './security/write-backpressure.js';
+import { getAdmissionMetrics } from './security/admission-metrics.js';
 
 export function createApp() {
   const app = express();
@@ -53,17 +52,30 @@ export function createApp() {
     }
 
     try {
-      const permit = await acquireDistributedBackpressurePermit({
-        scope: `gateway:${req.method}:${req.path.split('/')[1] ?? 'write'}`,
-        principal: req.ip ?? 'unknown-ip',
-        maxRequestsPerWindow: 120,
-        windowSeconds: 60,
-        maxInflight: 24,
-        inflightTtlSeconds: 120
-      });
+      let userSub: string | undefined;
+      const authHeader = req.headers.authorization;
+      if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+        try {
+          const payloadPart = authHeader.slice('Bearer '.length).split('.')[1];
+          if (payloadPart) {
+            const json = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as { sub?: string };
+            if (typeof json.sub === 'string' && json.sub.trim()) userSub = json.sub.trim();
+          }
+        } catch {
+          // ignore malformed tokens; fall back to IP
+        }
+      }
+      const principal = userSub || req.ip || 'unknown-ip';
+      const routeScope = `gateway:${req.method}:${req.path.split('/')[1] ?? 'write'}`;
+
+      const [routePermit, globalPermit] = await Promise.all([
+        acquireComplaintWriteAdmission({ scope: routeScope, principal }),
+        acquireComplaintWriteAdmission({ scope: 'gateway:writes:global', principal: 'global' })
+      ]);
 
       res.on('finish', () => {
-        void permit.release();
+        void routePermit.release();
+        void globalPermit.release();
       });
 
       return next();
@@ -103,6 +115,16 @@ export function createApp() {
     });
   });
 
+  // Prometheus-friendly admission / outbox gauges (text exposition)
+  app.get('/metrics/admission', async (_req, res) => {
+    try {
+      const metrics = await getAdmissionMetrics();
+      res.type('text/plain').send(metrics);
+    } catch (error) {
+      res.status(503).type('text/plain').send(`# error ${error instanceof Error ? error.message : 'unknown'}\n`);
+    }
+  });
+
   app.use('/auth', authRouter);
   // Mounting public router under /public to serve citizen dashboard + onboarding endpoints without authentication
   app.use('/public', publicRouter);
@@ -120,10 +142,8 @@ export function createApp() {
   app.use('/authority', authorityRouter);
   app.use('/reports', reportsRouter);
   app.use('/notifications', notificationsRouter);
-  // Internal service endpoints (protected by shared token)
+  // Internal service endpoints (protected by shared token locally; Istio in k8s)
   app.use('/internal/notifications', internalNotificationsRouter);
-  app.use('/services', servicesRouter);
-  app.use('/proxy', proxyRouter);
 
   // Real-time SSE stream
   app.get('/events', requireAuth, (req, res) => {

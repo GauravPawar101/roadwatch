@@ -32,7 +32,6 @@ In Kubernetes, the scheduler runs as a **StatefulSet with replicas=1**. A Deploy
 | `DATABASE_URL` | Postgres |
 | `GATEWAY_URL` | API calls for escalation |
 | `SERVICE_NAME` | `scheduler` |
-| `SERVICE_REGISTRY_SECRET` | Service auth |
 | `CRON_*` | Per-job cron expressions |
 
 ## Docker

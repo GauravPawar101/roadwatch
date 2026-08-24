@@ -78,7 +78,7 @@ export function useAuditLogs(filters: AuditLogFilters = {}) {
           details: {
             title: 'Pothole on NH-48',
             severity: 4,
-            location: { lat: 18.5204, lng: 73.8567 }
+            location: { lat: 28.6139, lng: 77.209 }
           },
           createdAt: '2024-01-15T10:30:00Z'
         },

@@ -11,7 +11,8 @@
     "seed:backend": "tsx scripts/seed-backend.ts",
     "seed:demo": "tsx scripts/seed-demo-data.ts",
     "test": "vitest run --config vitest.config.ts",
-    "test:watch": "vitest --config vitest.config.ts"
+    "test:watch": "vitest --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.0",
@@ -21,7 +22,6 @@
     "@roadwatch/core": "workspace:*",
     "@roadwatch/kafka": "workspace:*",
     "@roadwatch/redis": "workspace:*",
-    "@roadwatch/sidecar-auth": "workspace:*",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

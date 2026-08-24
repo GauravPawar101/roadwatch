@@ -33,21 +33,20 @@ Refresh tokens rotate on use and are invalidated on logout.
 | `/admin/*` | `CE` | AdminGuard |
 | `/public/*` | None | Public |
 
-## Service-to-service auth (sidecar)
+## Service-to-service auth (Istio / local)
 
-Internal services (backend-api, scheduler, webhook-handler, fabric-anchor-consumer) authenticate to the gateway using `@roadwatch/sidecar-auth`:
+In Kubernetes, service identity is provided by **Istio Envoy sidecars** (mTLS + SPIFFE ServiceAccounts). AuthorizationPolicies restrict:
 
-1. Service registers with gateway on startup using `SERVICE_REGISTRY_SECRET`.
-2. Gateway issues a service JWT.
-3. Service includes JWT in requests to protected internal endpoints.
+- only `gateway` SA → `backend`
+- only `scheduler` / `webhook` SAs → gateway `/internal/*`
 
-Configuration:
+Locally (`pnpm start:all` / docker-compose), there is no mesh. Workers call gateway `/internal/*` with `INTERNAL_SERVICE_TOKEN` (`x-service-token`). Discovery uses static env URLs / Kubernetes DNS (`GATEWAY_URL`, `BACKEND_URL`).
 
-| Variable | Service |
+| Variable | Purpose |
 |----------|---------|
-| `SERVICE_REGISTRY_SECRET` | Shared secret for registration |
-| `SERVICE_NAME` | Service identifier |
-| `GATEWAY_URL` | Gateway base URL |
+| `INTERNAL_SERVICE_TOKEN` | Local shared secret for `/internal/*` |
+| `SERVICE_NAME` | Logging identity (optional) |
+| `GATEWAY_URL` | Gateway base URL for workers |
 
 ## PII protection
 

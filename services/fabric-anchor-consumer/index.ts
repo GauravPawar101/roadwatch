@@ -8,7 +8,6 @@ import { Kafka as KafkaJS } from 'kafkajs';
 import { Pool } from 'pg';
 
 import { fabricLedgerService } from '@roadwatch/core';
-import { registerServiceWithGateway } from '@roadwatch/sidecar-auth';
 import { getHlfKafkaBrokers, KafkaProducer, KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '@roadwatch/kafka';
 
 type DbClient = Pool;
@@ -351,19 +350,6 @@ async function main(): Promise<void> {
   const consumerId = 'fabric-anchor-consumer';
   const env: Env = process.env;
 
-  void registerServiceWithGateway({
-    gatewayUrl: env.GATEWAY_URL ?? 'http://127.0.0.1:3100',
-    service: {
-      name: env.SERVICE_NAME ?? consumerId,
-      address: env.SERVICE_URL ?? `service://${env.SERVICE_NAME ?? consumerId}`,
-      description: 'RoadWatch Fabric anchor consumer'
-    }
-  }).then(() => {
-    console.log(`[${consumerId}] registered with gateway`);
-  }).catch(error => {
-    console.warn(`[${consumerId}] service registration failed:`, error instanceof Error ? error.message : String(error));
-  });
-
   const db = await connectPostgres(env);
   await ensureTables(db);
 
@@ -391,6 +377,40 @@ async function main(): Promise<void> {
   let lastFlushAt = Date.now();
   let flushing = false;
   let shutdown = false;
+  let paused = false;
+  let consecutiveFlushFailures = 0;
+
+  const batchSizeLimit = Math.max(1, Number.parseInt(process.env.FABRIC_ANCHOR_BATCH_SIZE ?? '100', 10) || 100);
+  const flushIntervalMs = Math.max(1000, Number.parseInt(process.env.FABRIC_ANCHOR_FLUSH_INTERVAL_MS ?? '60000', 10) || 60_000);
+  const pauseAfterFailures = Math.max(1, Number.parseInt(process.env.FABRIC_ANCHOR_PAUSE_AFTER_FAILURES ?? '3', 10) || 3);
+  const pauseMs = Math.max(1000, Number.parseInt(process.env.FABRIC_ANCHOR_PAUSE_MS ?? '15000', 10) || 15_000);
+
+  // Lightweight circuit around Fabric RPCs
+  let fabricFailures = 0;
+  let fabricCircuitOpenUntil = 0;
+  const fabricFailureThreshold = Math.max(1, Number.parseInt(process.env.FABRIC_CIRCUIT_FAILURES ?? '5', 10) || 5);
+  const fabricCircuitOpenMs = Math.max(1000, Number.parseInt(process.env.FABRIC_CIRCUIT_OPEN_MS ?? '30000', 10) || 30_000);
+
+  async function withFabricCircuit<T>(fn: () => Promise<T>): Promise<T> {
+    if (Date.now() < fabricCircuitOpenUntil) {
+      const error = new Error('Fabric circuit open');
+      (error as any).statusCode = 503;
+      throw error;
+    }
+    try {
+      const result = await fn();
+      fabricFailures = 0;
+      return result;
+    } catch (error) {
+      fabricFailures += 1;
+      if (fabricFailures >= fabricFailureThreshold) {
+        fabricCircuitOpenUntil = Date.now() + fabricCircuitOpenMs;
+        paused = true;
+        console.warn(`[${consumerId}] Fabric circuit open for ${fabricCircuitOpenMs}ms`);
+      }
+      throw error;
+    }
+  }
 
   async function sendDlq(rawMessage: unknown, attempts: number, error: string): Promise<void> {
     const dlq: DlqEvent = {
@@ -455,7 +475,7 @@ async function main(): Promise<void> {
       for (const item of submittedEvents) {
         const event = item.event;
         const location = event.location && typeof event.location === 'object' ? event.location : { lat: event.lat ?? null, lng: event.lng ?? null };
-        await fabricLedgerService.createComplaint({
+        await withFabricCircuit(() => fabricLedgerService.createComplaint({
           complaintId: event.complaintId,
           citizenId: event.citizenId ?? event.complaintId,
           roadId: event.roadId ?? `${event.district}:${event.zone}`,
@@ -466,18 +486,18 @@ async function main(): Promise<void> {
           merged: event.merged,
           reportCount: event.reportCount,
           eventIdempotencyKey: event.idempotencyKey
-        });
+        }));
         processedSubmitted.push({ event });
       }
 
       for (const item of statusEvents) {
         const event = item.event;
-        await fabricLedgerService.updateComplaintStatus(
+        await withFabricCircuit(() => fabricLedgerService.updateComplaintStatus(
           event.complaintId,
           event.toStatus,
           event.changedBy.actorId ?? 'system',
           event.idempotencyKey
-        );
+        ));
       }
 
       if (processedSubmitted.length > 0) {
@@ -543,8 +563,14 @@ async function main(): Promise<void> {
       await consumer.commit({ consumerGroupId, instanceId });
       batch.length = 0;
       lastFlushAt = Date.now();
+      consecutiveFlushFailures = 0;
+      if (paused) {
+        paused = false;
+        console.log(`[${consumerId}] resuming consume after successful flush`);
+      }
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
+      consecutiveFlushFailures += 1;
 
       // Record failures and DLQ any messages that have exceeded retry budget.
       for (const item of batch) {
@@ -573,6 +599,11 @@ async function main(): Promise<void> {
         lastFlushAt = Date.now();
       }
 
+      if (consecutiveFlushFailures >= pauseAfterFailures) {
+        paused = true;
+        console.warn(`[${consumerId}] pausing consume for ${pauseMs}ms after ${consecutiveFlushFailures} flush failures`);
+      }
+
       console.error(`[${consumerId}] flush failed: ${error}`);
     } finally {
       flushing = false;
@@ -583,7 +614,7 @@ async function main(): Promise<void> {
     if (shutdown) return;
     if (flushing) return;
     if (batch.length === 0) return;
-    if (Date.now() - lastFlushAt >= 60_000) {
+    if (Date.now() - lastFlushAt >= flushIntervalMs) {
       void flush('timer');
     }
   }, 1_000);
@@ -596,6 +627,14 @@ async function main(): Promise<void> {
   process.on('SIGTERM', onSignal);
 
   while (!shutdown) {
+    if (paused) {
+      await new Promise(r => setTimeout(r, pauseMs));
+      paused = false;
+      consecutiveFlushFailures = 0;
+      console.log(`[${consumerId}] pause elapsed; resuming consume`);
+      continue;
+    }
+
     if (flushing) {
       await new Promise(r => setTimeout(r, 50));
       continue;
@@ -638,7 +677,7 @@ async function main(): Promise<void> {
       await consumer.commit({ consumerGroupId, instanceId });
     }
 
-    if (batch.length >= 100) {
+    if (batch.length >= batchSizeLimit) {
       await flush('size');
     }
   }

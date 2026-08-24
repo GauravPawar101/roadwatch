@@ -14,17 +14,17 @@ const statusProgress: Record<string, number> = {
 function getStatusIcon(status: string) {
   switch (status) {
     case 'Submitted':
-      return '📋'
+      return 'Submitted'
     case 'Anchored':
-      return '⛓️'
+      return 'Anchored'
     case 'In Progress':
-      return '⚙️'
+      return 'In Progress'
     case 'Resolved':
-      return '✅'
+      return 'Resolved'
     case 'Escalated':
-      return '🚀'
+      return 'Escalated'
     default:
-      return '❓'
+      return status
   }
 }
 

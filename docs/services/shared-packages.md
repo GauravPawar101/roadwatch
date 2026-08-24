@@ -16,7 +16,6 @@ Workspace libraries shared across apps and services.
 |---------|------|---------|
 | `@roadwatch/kafka` | `packages/kafka/` | KafkaJS client, dual-cluster config, topic definitions, event types |
 | `@roadwatch/redis` | `packages/redis/` | ioredis client, idempotency helpers, backpressure |
-| `@roadwatch/sidecar-auth` | `packages/sidecar-auth/` | Service-to-gateway JWT middleware and registration |
 
 ## Providers and storage
 

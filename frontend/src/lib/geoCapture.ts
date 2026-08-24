@@ -1,3 +1,5 @@
+import { DELHI_CENTER } from './mapLocation'
+
 export type GeoCapture = {
   lat: number
   lng: number
@@ -6,8 +8,8 @@ export type GeoCapture = {
 }
 
 const DEFAULT_FALLBACK: GeoCapture = {
-  lat: 18.5204,
-  lng: 73.8567,
+  lat: DELHI_CENTER.lat,
+  lng: DELHI_CENTER.lng,
   capturedAt: new Date().toISOString(),
 }
 

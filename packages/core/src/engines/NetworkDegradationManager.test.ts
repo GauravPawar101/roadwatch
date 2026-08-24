@@ -4,7 +4,7 @@ import {
     NetworkDegradationManager,
     NetworkState,
     type ComplaintPayload
-} from './NetworkDegradationManager';
+} from './NetworkDegradationManager.js';
 
 describe('NetworkDegradationManager', () => {
   const manager = new NetworkDegradationManager();

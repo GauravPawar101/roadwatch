@@ -1,0 +1,48 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: backend-allow-gateway
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: mesh
+spec:
+  selector:
+    matchLabels:
+      app: backend
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/roadwatch/sa/gateway
+      to:
+        - operation:
+            methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
+    - to:
+        - operation:
+            paths: ["/health", "/health/db"]
+---
+# Deny /internal to everyone except scheduler and webhook SAs.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: gateway-deny-internal-default
+  namespace: roadwatch
+  labels:
+    app.kubernetes.io/part-of: roadwatch
+    layer: mesh
+spec:
+  selector:
+    matchLabels:
+      app: gateway
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            paths: ["/internal/*"]
+      from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/roadwatch/sa/scheduler
+              - cluster.local/ns/roadwatch/sa/webhook

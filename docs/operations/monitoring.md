@@ -2,77 +2,57 @@
 
 Observability for RoadWatch services.
 
+## Stack (Kubernetes)
+
+Deployed under namespace `observability` via `k8s/base/layer-observability/`:
+
+| Component | Access |
+|-----------|--------|
+| Prometheus | in-cluster `http://prometheus.observability:9090` |
+| Loki | in-cluster `http://loki.observability:3100` |
+| Grafana | NodePort **30301** (`http://localhost:30301`, admin/admin) |
+
+`deploy-kind.sh` installs **Istio Ambient**, **KEDA**, then applies the overlay (including observability).
+
 ## Health checks
 
 | Service | Endpoint | Expected |
 |---------|----------|----------|
 | Gateway API | `GET /health` | `200 OK` |
+| Gateway admission metrics | `GET /metrics/admission` | Prometheus text |
 | Backend API | `GET /health` | `200 OK` |
-| Postgres | `pg_isready` (Docker healthcheck) | healthy |
-| Kafka | `kafka-topics --list` (Docker healthcheck) | topics listed |
-| Redis | `redis-cli ping` | `PONG` |
+| Postgres | `pg_isready` | healthy |
+| Redis / Sentinel | `redis-cli ping` / sentinel masters | PONG / mymaster |
+| Kafka | topic list on both clusters | topics present |
 
-## Docker monitoring
+## Autoscaling
 
-```powershell
-docker compose ps              # Service status
-docker compose logs -f         # All logs
-docker compose logs -f gateway # Specific service (if in compose)
-pnpm infra:logs                # Alias for logs -f
-```
+- **KEDA** ScaledObjects (`k8s/base/layer-autoscaling/`) scale `webhook` and `fabric-anchor` from Kafka lag.
+- Gateway / backend retain CPU/memory HPAs.
 
-## Kubernetes monitoring
+## Key metrics
 
-```powershell
-pnpm k8s:status                           # Pod status
-pnpm k8s:logs                             # Gateway logs
-kubectl get pods -n roadwatch             # All pods
-kubectl logs -n roadwatch -l app=gateway  # Gateway logs
-kubectl describe pod <name> -n roadwatch  # Pod details
-```
+| Metric | Where | Alert |
+|--------|-------|-------|
+| `roadwatch_outbox_unpublished` | `/metrics/admission` | Rising backlog |
+| `roadwatch_outbox_dead` | `/metrics/admission` | > 0 sustained |
+| Kafka consumer lag | KEDA / Kafka | Scale / investigate |
+| DLQ topic growth | `dlq-events` | See [dlq.md](./dlq.md) |
+| OTP rate limit hits | Redis `otp_rate:*` | Abuse spike |
 
-## Application logs
+## Logs
 
-Background workers log to stdout with prefixed tags:
+Workers log to stdout; ship via cluster logging to Loki (Grafana Explore → Loki).
 
 | Prefix | Service |
 |--------|---------|
 | `[webhook]` | Webhook handler |
 | `[fabric-anchor]` | Fabric anchor consumer |
-| `[scheduler]` | Scheduler cron jobs |
-| `[seed-demo]` | Demo data seeder |
-
-## Key metrics to watch
-
-| Metric | Where | Alert threshold |
-|--------|-------|-----------------|
-| Kafka consumer lag | kafka-hlf, kafka-events | > 1000 messages |
-| Fabric anchor failures | fabric-anchor-consumer logs | Any DLQ events |
-| Postgres connections | PgBouncer stats | > 80% pool utilization |
-| OTP rate limit hits | Redis `otp_rate:*` keys | Spike indicates abuse |
-| Complaint SLA breaches | scheduler logs | `escalation-due` events |
-
-## Audit log
-
-All significant actions are recorded in the `audit_log` table:
-
-- Complaint status changes
-- Authority actions
-- RTI filings and responses
-- Fabric anchor confirmations
-
-Query via Postgres or authority analytics dashboard.
-
-## Production recommendations
-
-- Add Prometheus metrics exporters to gateway and workers
-- Set up Grafana dashboards for Kafka lag, API latency, error rates
-- Configure alerting on DLQ topic growth
-- Enable Postgres slow query logging
-- Use structured JSON logging in production
+| `[scheduler]` | Scheduler |
 
 ## Related docs
 
+- [DLQ](./dlq.md)
 - [Troubleshooting](./troubleshooting.md)
 - [Event pipeline](../architecture/event-pipeline.md)
-- [Docker Compose](../infrastructure/docker-compose.md)
+- [K8s architecture](../../k8s/ARCHITECTURE.md)

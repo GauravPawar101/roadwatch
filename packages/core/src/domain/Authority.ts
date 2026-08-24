@@ -1,4 +1,4 @@
-import { isValidPinCode } from './Validators';
+import { isValidPinCode } from './Validators.js';
 
 export enum AuthorityType {
   Municipal = 'Municipal',

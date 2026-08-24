@@ -91,7 +91,7 @@ export default function ComplaintWizard() {
 
   async function submit() {
     setStatus('submitting')
-    const pin = location ?? { lat: 18.5204, lng: 73.8567 }
+    const pin = location ?? { lat: 28.6139, lng: 77.209 }
     const capturedLat = mediaAsset?.capturedLat ?? pin.lat
     const capturedLng = mediaAsset?.capturedLng ?? pin.lng
     const capturedAt = mediaAsset?.capturedAt ?? new Date().toISOString()

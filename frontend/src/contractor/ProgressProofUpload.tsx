@@ -217,7 +217,7 @@ export default function ProgressProofUpload() {
     Promise.all(anchored.map((proof) => saveRecord('contractor_proofs', proof.id, proof)))
       .then(() => enqueueAction('contractor.proof.submit', { projectId: id, phase, count: anchored.length }))
     
-    alert('✓ Cryptographic proof details successfully signed and anchored to Ledger registry.')
+    alert('Cryptographic proof details successfully signed and anchored to Ledger registry.')
     navigate(`/contractor/project/${id}`)
   }
 
@@ -464,7 +464,7 @@ export default function ProgressProofUpload() {
                 <span className="text-xs text-slate-400">Decentralized CID:</span>
                 {uploadCid ? (
                   <Badge tone="success" className="font-mono text-[9px] select-all px-2 py-0.5 text-[#06B6D4] bg-[#06B6D4]/10 border border-[#06B6D4]/20">
-                    ✓ {uploadCid}
+                    {uploadCid}
                   </Badge>
                 ) : (
                   <span className="text-[10px] text-slate-500 italic">Pending IPFS distribution</span>
@@ -490,7 +490,7 @@ export default function ProgressProofUpload() {
             className="flex-1 text-xs font-bold py-3 rounded-xl bg-gradient-to-r from-[#002045] to-[#1960a3] text-white hover:opacity-95 flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <CheckCircle2 className="h-4.5 w-4.5" />
-            {proofs.length === 0 ? 'Capture Visual Proofs First' : '✓ Anchor & Register Proof'}
+            {proofs.length === 0 ? 'Capture Visual Proofs First' : 'Anchor & Register Proof'}
           </Button>
         </div>
       </div>

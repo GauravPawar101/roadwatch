@@ -17,12 +17,12 @@ const env = getEnv();
 
 export function signAccessToken(claims: any): string {
   const expires = `${env.ACCESS_TOKEN_EXPIRES_MINUTES}m`;
-  const secret = (env.ACCESS_SECRET || env.JWT_SECRET) as string;
+  const secret = (env.ACCESS_SECRET || env.ACCESS_SECRET || env.JWT_SECRET) as string;
   return (jwt as any).sign(claims, secret, { expiresIn: expires });
 }
 
 export function verifyAccessToken(token: string): JwtClaims {
-  const secret = (env.ACCESS_SECRET || env.JWT_SECRET) as string;
+  const secret = (env.ACCESS_SECRET || env.ACCESS_SECRET || env.JWT_SECRET) as string;
   const payload = (jwt as any).verify(token, secret);
   return payload as JwtClaims;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SyncEngine, type BaseEntity } from './SyncEngine';
+import { SyncEngine, type BaseEntity } from './SyncEngine.js';
 
 describe('SyncEngine', () => {
   it('diffLocalVsRemote produces create/update/delete patches', () => {

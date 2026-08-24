@@ -27,6 +27,7 @@ spec:
         app.kubernetes.io/name: scheduler
         layer: schedule
     spec:
+      serviceAccountName: scheduler
       terminationGracePeriodSeconds: 60
       containers:
         - name: scheduler
@@ -42,8 +43,6 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "scheduler"
-            - name: SERVICE_URL
-              value: "service://scheduler"
             - name: DATABASE_URL
               value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(PGBOUNCER_HOST):$(PGBOUNCER_PORT)/$(POSTGRES_DB)"
           resources:

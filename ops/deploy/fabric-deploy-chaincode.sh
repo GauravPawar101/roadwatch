@@ -1,15 +1,15 @@
 #!/bin/bash
-# fabric/network/scripts/deploy-chaincode.sh
+# ops/deploy/fabric-deploy-chaincode.sh
 #
 # Deploys a chaincode to the local RoadWatch Fabric dev network using Fabric v2 lifecycle:
 # package -> install -> approve (each org) -> commit.
 
 set -euo pipefail
 
-NETWORK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROOT_DIR="$(cd "$NETWORK_DIR/../.." && pwd)"
-
-source "$NETWORK_DIR/scripts/env.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=fabric-env.sh
+source "$SCRIPT_DIR/fabric-env.sh"
+ROOT_DIR="$REPO_ROOT"
 
 # Prefer repo-local Fabric binaries if present.
 if [ -d "$ROOT_DIR/bin" ]; then

@@ -7,14 +7,23 @@ import { createAndFanoutNotification } from '../notifications/service.js';
 import { pool } from '../postgres.js';
 import { requireAuth, type AuthedRequest } from '../rbac.js';
 import { broadcastComplaintEvent } from '../realtime/sse.js';
+import {
+  awardValidSubmissionKarma,
+  ensureSlaTracking,
+  applyRecurrenceKarmaPenalties,
+  haversineMeters,
+  RECURRENCE_RADIUS_M,
+  slaHoursForRoadType,
+} from '../services/complaint-lifecycle.js';
+import { bumpComplaintReadCache, readCachedJson, writeCachedJson } from '@roadwatch/redis';
+import { maybeSyncAnchorComplaint } from '../services/sync-anchor.js';
 import { uuidv7 } from '../uuid.js';
 
 const router = express.Router();
 
-// Use the adapter's SLA baseline (72 h for India) as the merge escalation window.
-// A complaint that has been open longer than its SLA baseline is eligible for escalation.
-const MERGE_ESCALATION_WINDOW_MS =
-  countryAdapter.calculateSLA(Severity.MODERATE, RoadType.URBAN) * 60 * 60 * 1000;
+function mergeEscalationWindowMs(roadId: string): number {
+  return slaHoursForRoadType(roadId) * 60 * 60 * 1000;
+}
 
 // Validation schemas
 const complaintSchema = z.object({
@@ -160,6 +169,20 @@ router.get('/', requireAuth, async (req, res) => {
   try {
     const query = querySchema.parse(req.query);
     const user = (req as AuthedRequest).user;
+    const cacheParts = {
+      route: 'list',
+      query,
+      role: user.role,
+      sub: user.sub,
+      districts: user.districts ?? []
+    };
+    const cached = await readCachedJson<{ complaints: unknown; pagination: unknown }>(
+      'complaints-list',
+      cacheParts
+    );
+    if (cached) {
+      return res.json(cached);
+    }
 
     let sql = `
       SELECT 
@@ -343,14 +366,16 @@ router.get('/', requireAuth, async (req, res) => {
       attachments: row.attachments || []
     }));
 
-    res.json({
+    const payload = {
       complaints,
       pagination: {
         limit: query.limit,
         offset: query.offset,
         total: totalCount
       }
-    });
+    };
+    await writeCachedJson('complaints-list', cacheParts, payload);
+    res.json(payload);
 
   } catch (error) {
     console.error('Failed to fetch complaints:', error);
@@ -470,21 +495,30 @@ router.post('/', requireAuth, async (req, res) => {
       );
 
       let existing: ComplaintMergeCandidate | undefined = activeResult.rows[0];
+      const MERGE_ESCALATION_WINDOW_MS = mergeEscalationWindowMs(data.roadId);
 
       if (!existing) {
+        const resolvedLookbackHours = Math.max(24, Math.ceil(MERGE_ESCALATION_WINDOW_MS / (60 * 60 * 1000)));
         const resolvedResult = await client.query(
-          `SELECT id, status, report_count, created_at, updated_at, metadata
+          `SELECT id, status, report_count, created_at, updated_at, metadata, lat, lng
            FROM complaints
            WHERE road_id = $1
              AND metadata->>'damageType' = $2
-             AND UPPER(status) = 'RESOLVED'
-             AND updated_at >= NOW() - INTERVAL '24 hours'
+             AND UPPER(status) IN ('RESOLVED', 'RESOLUTION_SUBMITTED')
+             AND updated_at >= NOW() - ($3::text || ' hours')::interval
            ORDER BY updated_at DESC, created_at DESC
-           LIMIT 1
+           LIMIT 5
            FOR UPDATE`,
-          [data.roadId, data.damageType]
+          [data.roadId, data.damageType, String(resolvedLookbackHours)]
         );
-        existing = resolvedResult.rows[0];
+        // Prefer a prior complaint within 100m of this report
+        existing = resolvedResult.rows.find((row: any) => {
+          if (row.lat == null || row.lng == null) return true;
+          return haversineMeters(
+            { lat: Number(row.lat), lng: Number(row.lng) },
+            { lat: data.lat, lng: data.lng }
+          ) <= RECURRENCE_RADIUS_M;
+        });
       }
 
       if (existing) {
@@ -492,7 +526,7 @@ router.post('/', requireAuth, async (req, res) => {
         reused = true;
         reportCount = Number(existing.report_count ?? 1) + 1;
 
-        const isResolvedRecurrence = existing.status === 'Resolved';
+        const isResolvedRecurrence = ['RESOLVED', 'RESOLUTION_SUBMITTED', 'Resolved'].includes(String(existing.status));
         const ageMs = isResolvedRecurrence
           ? Date.now() - new Date(existing.updated_at).getTime()
           : Date.now() - new Date(existing.created_at).getTime();
@@ -513,7 +547,7 @@ router.post('/', requireAuth, async (req, res) => {
           finalStatus = nextStatus;
           // Severity bump: recurrence after resolution is more severe (+2), active recurrence is +1
           finalSeverity = Math.min(finalSeverity + (isResolvedRecurrence ? 2 : 1), 5);
-          mergeReason = isResolvedRecurrence ? 'resolved-within-24h' : 'active-over-24h';
+          mergeReason = isResolvedRecurrence ? 'resolved-within-sla-window' : 'active-past-sla-window';
         } else {
           finalStatus = existing.status;
           mergeReason = 'same-road-same-type-merge';
@@ -689,6 +723,28 @@ router.post('/', requireAuth, async (req, res) => {
       });
     }
 
+    if (!reused && existingComplaintId) {
+      await ensureSlaTracking(existingComplaintId, { severity: finalSeverity, roadType: data.roadId });
+    } else if (escalated && existingComplaintId) {
+      await ensureSlaTracking(existingComplaintId, {
+        severity: finalSeverity,
+        roadType: data.roadId,
+        deadline: new Date(Date.now() + mergeEscalationWindowMs(data.roadId) / 2),
+      });
+    }
+    if (existingComplaintId) {
+      await awardValidSubmissionKarma(user.sub, existingComplaintId).catch(() => null);
+    }
+
+    // Dual karma when same-road / 100m recurrence after complete/resolve
+    if (reused && existingComplaintId && mergeReason === 'resolved-within-sla-window') {
+      await applyRecurrenceKarmaPenalties({
+        complaintId: existingComplaintId,
+        roadId: data.roadId,
+        withinOriginalSla: true,
+      }).catch((err) => console.warn('[complaints] recurrence karma failed:', err));
+    }
+
     const responseBody = {
       id: existingComplaintId,
       message: escalated
@@ -708,6 +764,16 @@ router.post('/', requireAuth, async (req, res) => {
     };
 
     await storeIdempotencyResult(claimed, 201, responseBody);
+    await bumpComplaintReadCache();
+    await maybeSyncAnchorComplaint({
+      complaintId: String(existingComplaintId),
+      citizenId: user.sub,
+      roadId: data.roadId,
+      lat: data.lat,
+      lng: data.lng,
+      merged: reused,
+      reportCount
+    });
 
     res.status(201).json(responseBody);
 
@@ -724,6 +790,11 @@ router.post('/', requireAuth, async (req, res) => {
 router.get('/heatmap/data', requireAuth, async (req, res) => {
   try {
     const query = querySchema.parse(req.query);
+    const cacheParts = { route: 'heatmap', query };
+    const cached = await readCachedJson<{ heatmapData: unknown[] }>('complaints-heatmap', cacheParts);
+    if (cached) {
+      return res.json(cached);
+    }
 
     let sql = `
       SELECT 
@@ -766,11 +837,11 @@ router.get('/heatmap/data', requireAuth, async (req, res) => {
       }
     }
 
-    sql += ` GROUP BY lat, lng, severity, status, damage_type ORDER BY complaint_count DESC`;
+    sql += ` GROUP BY lat, lng, (metadata->>'severity')::int, status, metadata->>'damageType' ORDER BY complaint_count DESC`;
 
     const result = await pool.query(sql, params);
 
-    res.json({
+    const payload = {
       heatmapData: result.rows.map(row => ({
         lat: parseFloat(row.lat),
         lng: parseFloat(row.lng),
@@ -779,7 +850,9 @@ router.get('/heatmap/data', requireAuth, async (req, res) => {
         damageType: row.damage_type,
         count: parseInt(row.complaint_count)
       }))
-    });
+    };
+    await writeCachedJson('complaints-heatmap', cacheParts, payload);
+    res.json(payload);
 
   } catch (error) {
     console.error('Failed to fetch heatmap data:', error);
