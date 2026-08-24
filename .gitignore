@@ -202,3 +202,4 @@ htmlcov/
 
 # Istio download cache
 .tools/
+k8s/base/layer-0-platform/secret.yaml
