@@ -24,15 +24,28 @@ Across 14 commits, 157 files, +5,984 / −1,449 lines:
   the fix, a live probe writes to a real second Postgres and Redis and confirms
   which server received the data — 12/12 checks.
 - **A 76% reduction in Redis commands per write**, measured, with a
-  corresponding 15% throughput gain.
-- **Load measured at 591 req/s** with a 2.07 s p95 — but with two significant
-  measurement caveats documented in §8, one of which materially changes what
-  that number means.
+  corresponding 15% throughput gain, then **write p95 cut 80% (3.06 s → 628 ms)**
+  by fixing a sequential scan, a limiter that could not leave its floor, an
+  outbox relay capped at 25 events/second, and an inflight cap set far above the
+  connection pool.
+- **A data-flow audit found four more defects**, three reproduced end to end
+  against a real database. The worst: complaint creation was not atomic, so a
+  transient failure returned a 500 for an already-durable complaint and the
+  caller's retry merged into it — **one citizen report counted twice**,
+  corrupting the escalation and scoring signals. An incomplete idempotency
+  claim was likewise unrecoverable, so a crash mid-request made that complaint
+  permanently unwritable.
+- **A 15-minute soak issued 18,000 unique writes and reconciled exactly**:
+  18,000 complaints, 18,000 SLA rows, 18,000 notifications, 18,000 events
+  published, **0 orphaned claims, 0 double-counted reports, 0 failures**. RSS is
+  flat from minute six while the dataset grows 127%, so the memory growth
+  flagged earlier as a possible leak was warm-up.
 
 The most important finding of this exercise is not a performance number. It is
 that **the previously documented configuration behaviour did not match the
-actual code**, and that several of the project's own operational scripts had
-never worked. Both are now verified by execution rather than inspection.
+actual code**, that several of the project's own operational scripts had never
+worked, and that the write path was neither atomic nor honestly reported. All
+three are now verified by execution rather than inspection.
 
 ---
 
@@ -234,19 +247,22 @@ timeouts**, which is precisely the hang.
 
 ## 5. Test coverage
 
+Measured with `npx turbo run test --force` at `HEAD`; the per-package figures
+are parsed from the runner output rather than counted by hand.
+
 | Package | Tests |
 |---|---|
 | `@roadwatch/core` | 72 |
-| `@roadwatch/gateway-api` | 29 |
-| `@roadwatch/redis` | 27 |
+| `@roadwatch/gateway-api` | 43 |
+| `@roadwatch/redis` | 29 |
 | `@roadwatch/backend-api` | 21 |
+| `@roadwatch/scheduler` | 21 |
 | `@roadwatch/fabric-anchor-consumer` | 20 |
-| `@roadwatch/scheduler` | 17 |
 | `roadwatch-frontend` | 14 |
 | `@roadwatch/kafka` | 10 |
 | `@roadwatch/webhook-handler` | 9 |
 | `@roadwatch/adapters` | 2 |
-| **Total** | **221** |
+| **Total** | **241** |
 
 Every regression test added this exercise was **verified to fail against the
 original code**, by reverting the fix and re-running. Specifically:
