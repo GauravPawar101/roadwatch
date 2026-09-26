@@ -71,6 +71,31 @@ and apply `k8s/overlays/aws`.
 Managed databases and caches require TLS: include `?sslmode=require` on the
 Postgres URL and use `rediss://` for Redis.
 
+For provider choices, free-tier limits and the per-request Redis cost that
+determines how much of a command-metered plan you get, see
+[MANAGED_SERVICES.md](./MANAGED_SERVICES.md).
+
+## Verifying precedence against a real second server
+
+Setting the variable is easy to get subtly wrong, and a typo silently falls
+back to the in-cluster endpoint. The `cloud-sim` compose profile starts a second
+Postgres and Redis that stand in for a managed offering, so precedence can be
+observed rather than assumed:
+
+```bash
+./ops/dev/compose.sh up -d postgres pgbouncer redis kafka-hlf kafka-events
+./ops/dev/compose.sh --profile cloud-sim up -d managed-postgres managed-redis
+
+export DATABASE_CLOUD_URL='postgresql://postgres:postgres@127.0.0.1:15434/roadwatch'
+export REDIS_CLOUD_URL='redis://127.0.0.1:16380/0'
+
+pnpm tsx tools/verify/cloud-precedence.mts
+```
+
+The probe writes a row and a key, then asks both servers which one received
+it. Expected output is `12/12 checks passed`. It also verifies the reverse
+direction, so a resolver that always preferred "cloud" would fail as well.
+
 ## Local development
 
 `ops/deploy/deploy-kind.sh` runs the whole stack in a kind cluster on **podman**
@@ -92,8 +117,17 @@ CONTAINER_RUNTIME=docker pnpm k8s:up
 
 Outside Kubernetes the fallbacks land on the local defaults
 (`127.0.0.1:16432` for the pgbouncer-fronted Postgres and `127.0.0.1:9095` for
-the events Kafka cluster), which is what the legacy `docker-compose.yml` stack
-provides.
+the events Kafka cluster), which is what `docker-compose.yml` provides:
+
+```bash
+./ops/dev/compose.sh up -d postgres pgbouncer redis kafka-hlf kafka-events
+```
+
+Note that a managed `DATABASE_CLOUD_URL` points at the database directly, so
+**pgbouncer is not in the connection path** and connection count is bounded only
+by each process's own pool (`max: 20`). Check your provider's connection limit
+before scaling out replicas. See
+[MANAGED_SERVICES.md](./MANAGED_SERVICES.md#pgbouncer-is-bypassed-when-you-use-a-managed-database).
 
 ### kind on rootless podman
 
