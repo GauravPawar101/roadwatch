@@ -1,3 +1,4 @@
+import { resolveKafkaEndpoint, resolveRedisEndpoint } from '@roadwatch/core';
 import { z } from 'zod';
 
 const DEV_FALLBACK_SECRET = 'local_development_cryptographic_secret';
@@ -137,17 +138,33 @@ export function assertNoDevSecretsInProduction(env: ResolvedEnv): void {
   }
 }
 
-export function assertRequiredInfrastructure(): void {
-  const env = process.env;
-
-  const redisConfigured = Boolean((env.REDIS_URL ?? env.REDIS_URI ?? env.REDIS_HOST)?.toString().trim());
-  if (!redisConfigured) {
-    throw new Error('Redis is required but not configured. Set REDIS_URL or REDIS_HOST/REDIS_PORT');
+/**
+ * Fails fast when a hard dependency has no reachable endpoint under the shared
+ * precedence chain.
+ *
+ * This used to test only REDIS_URL/REDIS_HOST and KAFKA_BROKERS/KAFKA_BROKER.
+ * That made it cloud-blind: a deployment configured solely with a managed
+ * Redis (REDIS_CLOUD_URL) and managed Kafka (KAFKA_EVENTS_CLOUD_BROKERS) was
+ * declared "not configured" and refused to boot, even though both were fully
+ * specified. Resolution now goes through the same resolvers the connection
+ * code uses, so the check and the dial can no longer disagree.
+ */
+export function assertRequiredInfrastructure(env: NodeJS.ProcessEnv = process.env): void {
+  const redis = resolveRedisEndpoint(env);
+  if (!redis.url) {
+    throw new Error(
+      'Redis is required but not configured. Set REDIS_CLOUD_URL or REDIS_MANAGED_URL for a ' +
+        'managed instance, REDIS_URL for an explicit endpoint, or REDIS_HOST (+ REDIS_PORT) ' +
+        'for a local one.',
+    );
   }
 
-  const localKafkaConfigured = Boolean((env.KAFKA_BROKERS ?? env.KAFKA_BROKER ?? '').trim());
-
-  if (!localKafkaConfigured) {
-    throw new Error('Kafka is required but KAFKA_BROKER or KAFKA_BROKERS is missing');
+  const events = resolveKafkaEndpoint('events', env);
+  if (events.brokers.length === 0) {
+    throw new Error(
+      'Kafka is required but not configured. Set KAFKA_EVENTS_CLOUD_BROKERS for a managed ' +
+        'cluster, KAFKA_EVENTS_BROKERS for an explicit endpoint, or KAFKA_BROKERS / ' +
+        'KAFKA_BROKER for a local one.',
+    );
   }
 }

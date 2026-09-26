@@ -595,9 +595,15 @@ importers:
         specifier: ^2.2.4
         version: 2.2.4
     devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^3.2.4
+        version: 3.2.4(vitest@3.2.4)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(jsdom@25.0.1)
 
   packages/observability:
     devDependencies:
@@ -672,13 +678,22 @@ importers:
 
   packages/redis:
     dependencies:
+      '@roadwatch/core':
+        specifier: workspace:*
+        version: link:../core
       ioredis:
         specifier: ^5.10.1
         version: 5.10.1
     devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^3.2.4
+        version: 3.2.4(vitest@3.2.4)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(jsdom@25.0.1)
 
   packages/test-utils:
     dependencies:

@@ -7,7 +7,7 @@ import { promises as fs } from 'fs';
 import { Kafka as KafkaJS } from 'kafkajs';
 import { Pool } from 'pg';
 
-import { fabricLedgerService, installProcessGuards } from '@roadwatch/core';
+import { fabricLedgerService, installProcessGuards, resolvePostgresEndpoint } from '@roadwatch/core';
 import { getHlfKafkaBrokers, KafkaProducer, KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '@roadwatch/kafka';
 
 type DbClient = Pool;
@@ -281,10 +281,18 @@ async function connectFabric(env: Env = process.env): Promise<{ gateway: Gateway
 }
 
 async function connectPostgres(env: Env = process.env): Promise<DbClient> {
-  const connectionString = env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:16432/roadwatch';
+  // Resolve rather than reading DATABASE_URL: a managed endpoint is selected by
+  // DATABASE_CLOUD_URL while DATABASE_URL still points at the in-cluster
+  // service, so reading DATABASE_URL here would ignore the managed choice.
+  const { connectionString, ssl } = resolvePostgresEndpoint(env);
+  const resolved =
+    connectionString || 'postgresql://postgres:postgres@127.0.0.1:16432/roadwatch';
 
   const pool = new Pool({
-    connectionString,
+    connectionString: resolved,
+    // Managed Postgres requires TLS; its certificate is issued for the
+    // provider's own hostname, so chain verification would fail.
+    ssl: ssl ? { rejectUnauthorized: false } : undefined,
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 2000
