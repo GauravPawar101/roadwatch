@@ -1,3 +1,4 @@
+import { Router } from '@roadwatch/core';
 import archiver from 'archiver';
 import crypto from 'crypto';
 import express from 'express';
@@ -9,7 +10,7 @@ import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempote
 import { calculateRtiDeadlines } from '../legal/rtiDeadlines.js';
 import { pool, sql } from '../postgres.js'; // Imported standard sql tagged template factory
 
-const router = express.Router();
+const router = Router();
 
 const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads', 'rti');
 

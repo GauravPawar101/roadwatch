@@ -1,11 +1,21 @@
 import { config as loadEnv } from 'dotenv';
 import { resolve } from 'node:path';
 import pg from 'pg';
+import { resolvePostgresEndpoint } from '@roadwatch/core';
 
 const workspaceRoot = resolve(new URL(import.meta.url).pathname, '..', '..', '..', '..');
 loadEnv({ path: resolve(workspaceRoot, 'apps/gateway-api/.env'), override: false });
 
-const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@127.0.0.1:16432/roadwatch';
+// Managed/cloud endpoint -> DATABASE_URL -> in-cluster/local parts.
+const database = resolvePostgresEndpoint(process.env, {
+  host: '127.0.0.1',
+  port: '16432',
+  db: 'roadwatch',
+  user: 'postgres',
+  password: 'postgres',
+});
+
+const connectionString = database.connectionString || 'postgres://postgres:postgres@127.0.0.1:16432/roadwatch';
 
 const { Pool } = pg;
 

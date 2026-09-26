@@ -1,3 +1,4 @@
+import { Router } from '@roadwatch/core';
 import express from 'express';
 import { z } from 'zod';
 import { getContractorScorecard, getHotspots } from '../analytics/service.js';
@@ -6,7 +7,7 @@ import { assertDistrictAccess, requireAuth, requireRole } from '../rbac.js';
 import { streamDistrictReportPdf } from '../reports/districtPdf.js';
 import { streamMinistryReportPdf } from '../reports/ministryPdf.js';
 
-const router = express.Router();
+const router = Router();
 
 router.get('/district/:districtId.pdf', requireAuth, async (req, res) => {
   const user = (req as any).user as any;

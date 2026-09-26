@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import morgan from 'morgan';
+import { makeAsyncSafe } from '@roadwatch/core';
 import { getServiceGraph, getSystemHealth } from './health.js';
 import { requireAuth } from './rbac.js';
 import { addSseClient } from './realtime/sse.js';
@@ -20,7 +21,11 @@ import { acquireComplaintWriteAdmission } from './security/write-backpressure.js
 import { getAdmissionMetrics } from './security/admission-metrics.js';
 
 export function createApp() {
-  const app = express();
+  // Patched before any handler is registered so that every route and
+  // middleware below is async-safe. Without this, Express 4 lets a rejected
+  // promise from a handler escape: the client gets no response at all and the
+  // process takes an unhandled rejection.
+  const app = makeAsyncSafe(express());
 
   // Configure CORS: allow origins from environment or sensible defaults
   const allowedOrigins = (process.env.CORS_ORIGIN || process.env.CORS_ORIGINS || '')
@@ -160,6 +165,39 @@ export function createApp() {
       cleanup();
       res.end();
     });
+  });
+
+  // Unmatched routes. Registered before the error handler so a 404 is not
+  // swallowed by it.
+  app.use((_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+
+  // Terminal error handler. This must stay last, and must keep its four
+  // parameters: Express only treats a layer as error middleware when
+  // `fn.length === 4`.
+  //
+  // It also gives the gateway something it previously lacked entirely — before
+  // this, a synchronous throw produced Express's default HTML error page and an
+  // async throw produced no response whatsoever.
+  app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) {
+      // Too late to change the status; hand off so Express can destroy the
+      // socket rather than leave the client hanging.
+      next(err);
+      return;
+    }
+
+    const status = typeof (err as { status?: unknown })?.status === 'number'
+      ? (err as { status: number }).status
+      : 500;
+    const message = err instanceof Error ? err.message : 'Internal server error';
+
+    if (status >= 500) {
+      console.error('[gateway-api] unhandled request error:', err);
+    }
+
+    res.status(status).json({ error: status >= 500 ? 'Internal server error' : message });
   });
 
   return app;

@@ -1,9 +1,9 @@
-import express from 'express';
+import { Router } from '@roadwatch/core';
 import { z } from 'zod';
 import { createAgent } from '../agent/createAgent.js';
 import { verifyAccessToken } from '../auth/jwt.js';
 
-const router = express.Router();
+const router = Router();
 
 const chatSchema = z.object({
   input: z.string().min(1).max(4000),

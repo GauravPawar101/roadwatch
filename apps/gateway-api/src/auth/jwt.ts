@@ -15,16 +15,35 @@ export type JwtClaims = {
 
 const env = getEnv();
 
+// Standard claim values, overridable so a deployment can pin its own.
+// @roadwatch/backend-api enforces these only when JWT_AUDIENCE / JWT_ISSUER are
+// set, so the defaults here keep both sides consistent out of the box.
+const DEFAULT_AUDIENCE = 'roadwatch-api';
+const DEFAULT_ISSUER = 'roadwatch-auth';
+
 export function signAccessToken(claims: any): string {
   const expires = `${env.ACCESS_TOKEN_EXPIRES_MINUTES}m`;
-  const secret = (env.ACCESS_SECRET || env.ACCESS_SECRET || env.JWT_SECRET) as string;
-  return (jwt as any).sign(claims, secret, { expiresIn: expires });
+  return (jwt as any).sign(claims, env.ACCESS_SECRET, {
+    expiresIn: expires,
+    audience: process.env.JWT_AUDIENCE || DEFAULT_AUDIENCE,
+    issuer: process.env.JWT_ISSUER || DEFAULT_ISSUER,
+  });
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export function verifyAccessToken(token: string): JwtClaims {
-  const secret = (env.ACCESS_SECRET || env.ACCESS_SECRET || env.JWT_SECRET) as string;
-  const payload = (jwt as any).verify(token, secret);
-  return payload as JwtClaims;
+  const payload = (jwt as any).verify(token, env.ACCESS_SECRET) as JwtClaims;
+
+  // `sub` is persisted into uuid columns (complaints.user_id, audit rows, ...).
+  // A non-UUID subject used to reach Postgres and abort the surrounding
+  // transaction, which surfaced as an unhandled rejection and killed the
+  // process. Reject it at the edge instead.
+  if (typeof payload?.sub !== 'string' || !UUID_RE.test(payload.sub)) {
+    throw new jwt.JsonWebTokenError('invalid_token: sub must be a UUID');
+  }
+
+  return payload;
 }
 
 export function signRefreshToken(payload: { sub: string }): string {

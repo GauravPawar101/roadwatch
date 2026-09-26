@@ -1,3 +1,4 @@
+import { Router } from '@roadwatch/core';
 import { KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent } from '@roadwatch/kafka';
 import express from 'express';
 import { z } from 'zod';
@@ -24,7 +25,7 @@ import { uuidv7 } from '../uuid.js';
 const MERGE_RADIUS_M = 100;
 const MERGE_SLA_WINDOW_MS = (roadTypeOrId?: string) => slaHoursForRoadType(roadTypeOrId ?? 'URBAN') * 60 * 60 * 1000;
 
-const router = express.Router();
+const router = Router();
 
 function toRad(v: number) {
   return (v * Math.PI) / 180;

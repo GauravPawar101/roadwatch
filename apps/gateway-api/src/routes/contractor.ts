@@ -1,3 +1,4 @@
+import { Router } from '@roadwatch/core';
 import express from 'express';
 import { z } from 'zod';
 import { trackAnalyticsEvent } from '../analytics/service.js';
@@ -7,7 +8,7 @@ import { requireAuth, requireRole, type AuthedRequest } from '../rbac.js';
 import { broadcastComplaintEvent } from '../realtime/sse.js';
 import { uuidv7 } from '../uuid.js';
 
-const router = express.Router();
+const router = Router();
 
 async function loadAssignedComplaint(complaintId: string) {
   const result = await pool.query(

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const DEV_FALLBACK_SECRET = 'local_development_cryptographic_secret';
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).optional().default('development'),
   PORT: z.coerce.number().int().positive().optional().default(3100),
@@ -8,6 +10,10 @@ const envSchema = z.object({
 
   // PostgreSQL (use a PgBouncer-backed pooled endpoint)
   DATABASE_URL: z.string().optional().default('postgresql://postgres:postgres@127.0.0.1:16432/roadwatch'),
+  // Managed database (RDS/CloudSQL/Neon). Takes precedence over DATABASE_URL
+  // when set — see resolvePostgresEndpoint in @roadwatch/core.
+  DATABASE_CLOUD_URL: z.string().optional(),
+  POSTGRES_CLOUD_URL: z.string().optional(),
   POSTGRES_HOST: z.string().optional().default('127.0.0.1'),
   POSTGRES_PORT: z.coerce.number().int().positive().optional().default(5432),
   POSTGRES_DB: z.string().optional().default('roadwatch'),
@@ -16,9 +22,32 @@ const envSchema = z.object({
   POSTGRES_SSL: z.coerce.boolean().optional().default(false),
   POSTGRES_POOL_MAX: z.coerce.number().int().positive().optional().default(10),
 
-  JWT_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
-  ACCESS_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
-  REFRESH_SECRET: z.string().optional().default('local_development_cryptographic_secret'),
+  // Redis: managed (ElastiCache/Memorystore/Upstash) or in-cluster/local.
+  REDIS_URL: z.string().optional(),
+  REDIS_CLOUD_URL: z.string().optional(),
+  REDIS_MANAGED_URL: z.string().optional(),
+  REDIS_HOST: z.string().optional(),
+  REDIS_PORT: z.string().optional(),
+  REDIS_DB: z.string().optional(),
+  REDIS_PASSWORD: z.string().optional(),
+  REDIS_TLS: z.coerce.boolean().optional().default(false),
+
+  // Kafka: managed MSK/Confluent first, then in-cluster, then local.
+  KAFKA_EVENTS_BROKERS: z.string().optional(),
+  KAFKA_EVENTS_CLOUD_BROKERS: z.string().optional(),
+  KAFKA_EVENTS_MANAGED_BROKERS: z.string().optional(),
+  KAFKA_HLF_BROKERS: z.string().optional(),
+  KAFKA_HLF_CLOUD_BROKERS: z.string().optional(),
+  KAFKA_HLF_MANAGED_BROKERS: z.string().optional(),
+  KAFKA_BROKERS: z.string().optional(),
+  KAFKA_BROKER: z.string().optional(),
+
+  JWT_SECRET: z.string().optional().default(DEV_FALLBACK_SECRET),
+  // No literal defaults here on purpose: these fall back to JWT_SECRET in
+  // getEnv() so that setting only JWT_SECRET is sufficient. A hardcoded default
+  // would always be truthy and silently sign tokens with a publicly known secret.
+  ACCESS_SECRET: z.string().optional(),
+  REFRESH_SECRET: z.string().optional(),
   ACCESS_TOKEN_EXPIRES_MINUTES: z.coerce.number().int().positive().optional().default(15),
   REFRESH_TOKEN_EXPIRES_DAYS: z.coerce.number().int().positive().optional().default(7),
   OTP_TTL_SECONDS: z.coerce.number().int().positive().optional().default(300),
@@ -72,12 +101,40 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
-export function getEnv(): Env {
-  // eslint-disable-next-line no-process-env
-  if (process.env.ACCESS_SECRET && !process.env.ACCESS_SECRET) {
-    process.env.ACCESS_SECRET = process.env.ACCESS_SECRET;
+/**
+ * `Env` after getEnv() has resolved the signing secrets. ACCESS_SECRET and
+ * REFRESH_SECRET are always populated (falling back to JWT_SECRET), so callers
+ * can rely on them without re-checking for undefined.
+ */
+export type ResolvedEnv = Env & { ACCESS_SECRET: string; REFRESH_SECRET: string };
+
+export function getEnv(): ResolvedEnv {
+  const parsed = envSchema.parse(process.env);
+  return {
+    ...parsed,
+    // Fall back to JWT_SECRET so a single configured secret is honoured.
+    ACCESS_SECRET: parsed.ACCESS_SECRET || parsed.JWT_SECRET,
+    REFRESH_SECRET: parsed.REFRESH_SECRET || parsed.JWT_SECRET,
+  };
+}
+
+/**
+ * Refuse to boot in production while any signing secret is still the built-in
+ * development fallback. Without this, a deployment that sets only one of
+ * JWT_SECRET/ACCESS_SECRET/REFRESH_SECRET silently signs tokens with a secret
+ * that is published in this repository.
+ */
+export function assertNoDevSecretsInProduction(env: ResolvedEnv): void {
+  if (env.NODE_ENV !== 'production') return;
+  const weak = (['JWT_SECRET', 'ACCESS_SECRET', 'REFRESH_SECRET'] as const).filter(
+    (key) => env[key] === DEV_FALLBACK_SECRET
+  );
+  if (weak.length > 0) {
+    throw new Error(
+      `Refusing to start: ${weak.join(', ')} still use the built-in development secret. ` +
+        'Set strong, unique values before running with NODE_ENV=production.'
+    );
   }
-  return envSchema.parse(process.env);
 }
 
 export function assertRequiredInfrastructure(): void {
