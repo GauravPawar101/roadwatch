@@ -42,7 +42,10 @@ function authHeader() {
   const now = Math.floor(Date.now() / 1000);
   const token = jwtHS256(
     {
-      sub: 'loadtest-user',
+      // Must be a UUID: the gateway persists `sub` into uuid columns
+      // (complaints.user_id). A non-UUID subject aborts the insert and, before
+      // the gateway validated it, took the whole process down.
+      sub: '00000000-0000-4000-8000-0000000000aa',
       phone: '+91******0000',
       phoneHash: 'loadtest',
       role: 'CE',

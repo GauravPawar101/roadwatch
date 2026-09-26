@@ -64,6 +64,7 @@
     "benchmarks:kind-soak": "node ./tools/benchmarks/run-kind-soak.mjs",
 
     "----TYPECHECK----": "",
+    "verify": "turbo run typecheck && turbo run test",
     "typecheck": "turbo run typecheck",
     "typecheck:api": "pnpm --filter @roadwatch/gateway-api typecheck",
     "typecheck:backend": "pnpm --filter @roadwatch/backend-api typecheck",
@@ -84,7 +85,17 @@
     "ios": "pnpm --filter @roadwatch/mobile-host ios",
     "android": "pnpm --filter @roadwatch/mobile-host android",
 
-    "----INFRASTRUCTURE----": "",
+    "----KUBERNETES (primary local stack)----": "",
+    "k8s:up": "bash ./ops/deploy/deploy-kind.sh",
+    "k8s:down": "bash ./ops/deploy/deploy-kind.sh --reset",
+    "k8s:delete": "kind delete cluster --name roadwatch",
+    "k8s:status": "kubectl get pods -n roadwatch -o wide",
+    "k8s:logs": "kubectl logs -n roadwatch -l app=gateway -f --prefix",
+    "k8s:config": "kubectl kustomize k8s/overlays/dev",
+    "k8s:managed": "kubectl kustomize k8s/overlays/managed",
+    "k8s:verify": "bash ./ops/deploy/deploy-kind.sh --no-wait",
+
+    "----INFRASTRUCTURE (legacy compose)----": "",
     "infra:up": "node ./ops/dev/run.mjs compose up -d",
     "infra:down": "node ./ops/dev/run.mjs compose down",
     "infra:reset": "node ./ops/dev/run.mjs compose down --volumes",
@@ -107,13 +118,6 @@
     "deploy:kind:ps1": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./ops/deploy/deploy.ps1 -Target kind",
     "deploy:k8s": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./ops/deploy/deploy.ps1 -Target k8s",
     "deploy:aws": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./ops/deploy/deploy.ps1 -Target aws",
-
-    "----KUBERNETES----": "",
-    "k8s:up": "bash ./ops/deploy/deploy-kind.sh",
-    "k8s:reset": "bash ./ops/deploy/deploy-kind.sh --reset",
-    "k8s:down": "kind delete cluster --name roadwatch",
-    "k8s:logs": "kubectl logs -n roadwatch -l app=gateway -f --prefix",
-    "k8s:status": "kubectl get pods -n roadwatch",
 
     "----SEED----": "",
     "seed:backend": "pnpm --filter @roadwatch/gateway-api seed:backend",

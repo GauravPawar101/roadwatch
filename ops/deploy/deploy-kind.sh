@@ -43,14 +43,103 @@ done
 
 step() { printf '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n  %s\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' "$1"; }
 
+# ── Container runtime (podman by default, docker on request) ────────────────
+# kind's own container runtime is selected with KIND_EXPERIMENTAL_PROVIDER, but
+# image build/load and container inspection use a separate CLI. Both are driven
+# from CONTAINER_RUNTIME so the same script works on either.
+CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-podman}"
+
+runtime_cmd() {
+  case "$CONTAINER_RUNTIME" in
+    podman) podman "$@" ;;
+    docker) docker "$@" ;;
+    *) echo "Unsupported CONTAINER_RUNTIME: $CONTAINER_RUNTIME (use podman or docker)" >&2; exit 1 ;;
+  esac
+}
+
+# Podman speaks the Docker CLI for build/load but `image inspect` and network
+# gateway lookups differ slightly.
+runtime_image_exists() {
+  case "$CONTAINER_RUNTIME" in
+    podman) podman image exists "$1" >/dev/null 2>&1 || podman image inspect "$1" >/dev/null 2>&1 ;;
+    *)      docker image inspect "$1" >/dev/null 2>&1 ;;
+  esac
+}
+
+runtime_container_gateway() {
+  case "$CONTAINER_RUNTIME" in
+    podman)
+      podman inspect "$1" --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' 2>/dev/null | head -1
+      ;;
+    *)
+      docker inspect "$1" --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' 2>/dev/null | head -1
+      ;;
+  esac
+}
+
+# kind needs to be told which runtime to use; podman support is experimental.
+kind_env() {
+  if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
+    echo "KIND_EXPERIMENTAL_PROVIDER=podman"
+  fi
+}
+
+preflight() {
+  local missing=0 t
+  for t in kind kubectl; do
+    if ! command -v "$t" >/dev/null 2>&1; then
+      echo "ERROR: '$t' not found on PATH." >&2
+      missing=1
+    fi
+  done
+  if ! command -v "$CONTAINER_RUNTIME" >/dev/null 2>&1; then
+    echo "ERROR: container runtime '$CONTAINER_RUNTIME' not found on PATH." >&2
+    missing=1
+  fi
+  [[ $missing -eq 0 ]] || exit 1
+
+  # kind's rootless-podman provider needs the user systemd unit to expose
+  # Delegate over D-Bus. Give an actionable message instead of kind's terse
+  # "requires setting systemd property Delegate=yes" when it is missing.
+  if [[ "$CONTAINER_RUNTIME" == "podman" ]] && [[ "$(id -u)" != "0" ]]; then
+    if ! busctl --user get-property org.freedesktop.systemd1 \
+        "/org/freedesktop/systemd1/unit/podman_2eservice" \
+        org.freedesktop.systemd1.Unit Delegate >/dev/null 2>&1; then
+      cat >&2 <<'MSG'
+ERROR: kind's rootless-podman provider cannot read the systemd "Delegate"
+       property for podman.service, so the cluster cannot be created.
+
+  Fix (no root required — this is a user-level drop-in):
+      mkdir -p ~/.config/systemd/user
+      printf '[Service]\nDelegate=yes\n' \
+        > ~/.config/systemd/user/podman.service.d/override.conf 2>/dev/null \
+        || { mkdir -p ~/.config/systemd/user/podman.service.d; \
+             printf '[Service]\nDelegate=yes\n' \
+               > ~/.config/systemd/user/podman.service.d/override.conf; }
+      systemctl --user daemon-reload
+      systemctl --user restart podman.service
+
+  Then re-run and confirm:
+      busctl --user get-property org.freedesktop.systemd1 \
+        /org/freedesktop/systemd1/unit/podman_2eservice \
+        org.freedesktop.systemd1.Unit Delegate
+
+  Workarounds if that is not possible on this host:
+    - CONTAINER_RUNTIME=docker ./ops/deploy/deploy-kind.sh   (needs docker)
+    - run podman as root, where the delegate check is skipped
+MSG
+      exit 1
+    fi
+  fi
+}
+
 resolve_fabric_host_ip() {
   if [[ -n "${FABRIC_HOST_IP:-}" ]]; then
     echo "$FABRIC_HOST_IP"
     return
   fi
   local ip
-  ip="$(docker inspect "${CLUSTER_NAME}-control-plane" \
-    --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' 2>/dev/null | head -1 || true)"
+  ip="$(runtime_container_gateway "${CLUSTER_NAME}-control-plane" || true)"
   if [[ -n "${ip:-}" ]]; then
     echo "$ip"
     return
@@ -91,26 +180,27 @@ wait_label() {
 # ── Cluster ──────────────────────────────────────────────────────────
 if [[ "$RESET" -eq 1 ]]; then
   step "Deleting kind cluster '${CLUSTER_NAME}'..."
-  kind delete cluster --name "$CLUSTER_NAME" || true
+  env $(kind_env) kind delete cluster --name "$CLUSTER_NAME" || true
 fi
 
-step "Creating kind cluster '${CLUSTER_NAME}'..."
+step "Creating kind cluster '${CLUSTER_NAME}' (runtime: ${CONTAINER_RUNTIME})..."
 ensure_kubeconfig() {
-  kind export kubeconfig --name "$CLUSTER_NAME" >/dev/null
+  env $(kind_env) kind export kubeconfig --name "$CLUSTER_NAME" >/dev/null
   kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null
 }
 
-if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
+if env $(kind_env) kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
   echo "  Cluster exists — exporting kubeconfig."
   ensure_kubeconfig
   ready="$(kubectl get nodes -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
   if [[ "$ready" != "True" ]]; then
     echo "  Node is NotReady (CNI/kubeconfig drift) — recreating cluster."
-    kind delete cluster --name "$CLUSTER_NAME" || true
+    env $(kind_env) kind delete cluster --name "$CLUSTER_NAME" || true
   fi
 fi
-if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
-  kind create cluster --name "$CLUSTER_NAME" --config k8s/kind-config.yaml
+if ! env $(kind_env) kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
+  preflight
+  env $(kind_env) kind create cluster --name "$CLUSTER_NAME" --config k8s/kind-config.yaml
 fi
 ensure_kubeconfig
 
@@ -178,15 +268,15 @@ fi
 
 # ── Images ───────────────────────────────────────────────────────────
 if [[ "$SKIP_BUILD" -eq 0 && "$INFRA_ONLY" -eq 0 && "$SKIP_APP_IMAGES" -eq 0 ]]; then
-  step "Building Docker images..."
+  step "Building container images with ${CONTAINER_RUNTIME}..."
   VITE_API_BASE="$(vite_api_base)"
-  docker build -t roadwatch/gateway-api:local -f apps/gateway-api/Dockerfile .
-  docker build -t roadwatch/backend-api:local -f backend-api/Dockerfile .
-  docker build -t roadwatch/frontend:local -f frontend/Dockerfile \
+  runtime_cmd build -t roadwatch/gateway-api:local -f apps/gateway-api/Dockerfile .
+  runtime_cmd build -t roadwatch/backend-api:local -f backend-api/Dockerfile .
+  runtime_cmd build -t roadwatch/frontend:local -f frontend/Dockerfile \
     --build-arg "VITE_API_BASE=${VITE_API_BASE}" .
-  docker build -t roadwatch/scheduler:local -f services/scheduler/Dockerfile .
-  docker build -t roadwatch/webhook-handler:local -f services/webhook-handler/Dockerfile .
-  docker build -t roadwatch/fabric-anchor-consumer:local -f services/fabric-anchor-consumer/Dockerfile .
+  runtime_cmd build -t roadwatch/scheduler:local -f services/scheduler/Dockerfile .
+  runtime_cmd build -t roadwatch/webhook-handler:local -f services/webhook-handler/Dockerfile .
+  runtime_cmd build -t roadwatch/fabric-anchor-consumer:local -f services/fabric-anchor-consumer/Dockerfile .
 fi
 
 if [[ "$INFRA_ONLY" -eq 0 && "$SKIP_APP_IMAGES" -eq 0 ]]; then
@@ -199,8 +289,12 @@ if [[ "$INFRA_ONLY" -eq 0 && "$SKIP_APP_IMAGES" -eq 0 ]]; then
     roadwatch/webhook-handler:local \
     roadwatch/fabric-anchor-consumer:local
   do
-    if docker image inspect "$img" >/dev/null 2>&1; then
-      kind load docker-image "$img" --name "$CLUSTER_NAME"
+    if runtime_image_exists "$img"; then
+      # podman's image store is OCI-compatible, so `kind load docker-image` works
+      # for both runtimes as long as KIND_EXPERIMENTAL_PROVIDER is set.
+      env $(kind_env) kind load docker-image "$img" --name "$CLUSTER_NAME"
+    else
+      echo "  WARNING: image $img not found in ${CONTAINER_RUNTIME}; skipping."
     fi
   done
 fi

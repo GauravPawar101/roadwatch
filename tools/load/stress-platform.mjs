@@ -18,6 +18,9 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
+// Secret/endpoint resolution is shared with tools/load/run-k6.mjs so the two
+// harnesses cannot drift into disagreeing about which secret the gateway uses.
+import { resolveAccessSecret } from './resolve-target.mjs';
 const scriptPath = path.join(repoRoot, 'tests/load/k6/platform-stress.js');
 const logsDir = path.join(repoRoot, 'logs/stress');
 
@@ -47,25 +50,9 @@ function parseArgs(argv) {
 }
 
 function loadJwtSecret(cliSecret) {
-  if (cliSecret) return cliSecret;
-  // Gateway jwt.ts uses (ACCESS_SECRET || JWT_SECRET). Zod always supplies an ACCESS_SECRET
-  // default, so a lone JWT_SECRET in .env / process.env does NOT affect access-token verify.
-  if (process.env.ACCESS_SECRET) return process.env.ACCESS_SECRET;
-  const envPath = path.join(repoRoot, 'apps/gateway-api/.env');
-  if (existsSync(envPath)) {
-    const text = readFileSync(envPath, 'utf8');
-    const access = text.match(/^ACCESS_SECRET=(.+)$/m);
-    if (access) return access[1].trim().replace(/^["']|["']$/g, '');
-  }
-  const kube = spawnSync(
-    'kubectl',
-    ['get', 'secret', 'app-secrets', '-n', 'roadwatch', '-o', 'jsonpath={.data.ACCESS_SECRET}'],
-    { encoding: 'utf8' }
-  );
-  if (kube.status === 0 && kube.stdout?.trim()) {
-    return Buffer.from(kube.stdout.trim(), 'base64').toString('utf8');
-  }
-  return 'roadwatch-local-dev-jwt-secret-replace-in-production';
+  // Gateway jwt.ts verifies with ACCESS_SECRET (falling back to JWT_SECRET).
+  // Shared resolution keeps this harness and run-k6.mjs in agreement.
+  return resolveAccessSecret(cliSecret);
 }
 
 function sh(cmd, args, opts = {}) {
