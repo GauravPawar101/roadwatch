@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import ComplaintHeatmap from '../components/ComplaintHeatmap'
 import { useComplaints, type ComplaintFilters } from '../hooks/useComplaints'
 import { getActiveRole, getRoleLabel } from '../lib/session'
-import { DELHI_CENTER, resolveMapCenter } from '../lib/mapLocation'
+import { DELHI_CENTER, resolveMapCenter, type MapCenter } from '../lib/mapLocation'
 
 const roads = [
   { id: 'r1', name: 'NH-48: Delhi–Jaipur Corridor', km: '120 km', lat: 28.6139, lng: 77.209 },
@@ -18,7 +18,7 @@ export default function MapView() {
   const [layers, setLayers] = useState({ structural: true, lighting: false, drainage: true, resolved: true })
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedRoad, setSelectedRoad] = useState<string | null>(null)
-  const [mapCenter, setMapCenter] = useState(DELHI_CENTER)
+  const [mapCenter, setMapCenter] = useState<MapCenter>(DELHI_CENTER)
 
   useEffect(() => {
     let cancelled = false

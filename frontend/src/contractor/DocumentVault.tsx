@@ -309,7 +309,7 @@ export default function DocumentVault() {
                   </div>
                 </div>
 
-                <Badge tone="success" className="text-[9px] px-2 py-0.5">
+                <Badge variant="success" className="text-[9px] px-2 py-0.5">
                   Verified
                 </Badge>
               </div>

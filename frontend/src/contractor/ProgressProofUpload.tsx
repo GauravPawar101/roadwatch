@@ -295,7 +295,7 @@ export default function ProgressProofUpload() {
                   Secure Camera Stream
                 </h3>
                 {cameraActive && (
-                  <Badge tone="success" className="text-[9px] px-2 py-0.5 flex items-center gap-1">
+                  <Badge variant="success" className="text-[9px] px-2 py-0.5 flex items-center gap-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
                     LIVE VIEW
                   </Badge>
@@ -426,7 +426,7 @@ export default function ProgressProofUpload() {
                         </div>
                       </div>
 
-                      <Badge tone={proof.status === 'Verified' ? 'success' : 'warning'} className="text-[9px] px-1.5 py-0.2">
+                      <Badge variant={proof.status === 'Verified' ? 'success' : 'warning'} className="text-[9px] px-1.5 py-0.2">
                         {proof.status}
                       </Badge>
                     </div>
@@ -463,7 +463,7 @@ export default function ProgressProofUpload() {
               <div className="flex items-center gap-2 mt-3 pt-2 border-t border-white/5">
                 <span className="text-xs text-slate-400">Decentralized CID:</span>
                 {uploadCid ? (
-                  <Badge tone="success" className="font-mono text-[9px] select-all px-2 py-0.5 text-[#06B6D4] bg-[#06B6D4]/10 border border-[#06B6D4]/20">
+                  <Badge variant="success" className="font-mono text-[9px] select-all px-2 py-0.5 text-[#06B6D4] bg-[#06B6D4]/10 border border-[#06B6D4]/20">
                     {uploadCid}
                   </Badge>
                 ) : (

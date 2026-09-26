@@ -12,7 +12,7 @@ import RoadProfileAdmin from './authority/RoadProfileAdmin'
 import FloatingAssistant from './components/FloatingAssistant'
 import HeaderClean from './components/HeaderClean'
 import OfflineBanner from './components/OfflineBanner'
-import { AuthorityGuard, CitizenGuard, ContractorGuard, GuestOnly } from './components/ProtectedRoute'
+import { AuthorityGuard, CitizenGuard, ContractorGuard, GuestOnly, SuperAdminGuard } from './components/ProtectedRoute'
 import AgentChatContractor from './contractor/AgentChatContractor'
 import ContractorComplaintDetail from './contractor/ComplaintDetail'
 import ComplaintsOnMyRoads from './contractor/ComplaintsOnMyRoads'
@@ -130,9 +130,9 @@ function AppChrome() {
           <Route path="/contractor/vault" element={<ContractorGuard><DocumentVault /></ContractorGuard>} />
 
           {/* Super Admin */}
-          <Route path="/upload" element={<MediaUpload />} />
-          <Route path="/dashboard/super-admin" element={<SuperAdminDashboard />} />
-          <Route path="/super-admin" element={<Navigate to="/dashboard/super-admin" replace />} />
+          <Route path="/upload" element={<SuperAdminGuard><MediaUpload /></SuperAdminGuard>} />
+          <Route path="/dashboard/super-admin" element={<SuperAdminGuard><SuperAdminDashboard /></SuperAdminGuard>} />
+          <Route path="/super-admin" element={<SuperAdminGuard><Navigate to="/dashboard/super-admin" replace /></SuperAdminGuard>} />
 
           {/* Catch all */}
           <Route path="*" element={<NotFound />} />

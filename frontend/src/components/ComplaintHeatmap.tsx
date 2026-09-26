@@ -3,17 +3,7 @@ import { computeDensityZones, createDensityZoneLayers, expandHeatmapAggregates, 
 import { DELHI_CENTER, invalidateMapSoon } from '../lib/mapLocation';
 import { getSeverityColor, getSeverityLabel } from '../lib/mapSeverity';
 import MapLegend, { type LegendItem } from './MapLegend';
-
-type ComplaintData = {
-  id: string;
-  lat: number;
-  lng: number;
-  severity: number;
-  status: 'Open' | 'InProgress' | 'Resolved' | 'Dismissed';
-  damageType: string;
-  createdAt: string;
-  title: string;
-};
+import type { ComplaintData } from '../hooks/useComplaints';
 
 type HeatmapAggregate = {
   lat: number;

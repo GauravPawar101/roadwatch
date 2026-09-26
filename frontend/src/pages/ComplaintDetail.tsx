@@ -50,6 +50,18 @@ export default function ComplaintDetail() {
 
   const displayStatus = normalizeStatusDisplay(currentComplaint.status)
 
+  // Blockchain anchoring metadata comes from the first stored attachment.
+  // The API stores the CID as an `ipfs://` URI in `file_path`.
+  const primaryAttachment = complaint.attachments?.[0]
+  const upload = primaryAttachment
+    ? {
+        ipfs: primaryAttachment.file_path?.startsWith('ipfs://')
+          ? primaryAttachment.file_path.slice('ipfs://'.length)
+          : primaryAttachment.file_path || null,
+        sha: primaryAttachment.file_sha256 || null,
+      }
+    : null
+
   const timelineEvents = [
     {
       title: 'Contractor Arrived & Site Survey',

@@ -37,6 +37,7 @@ function mapAssignmentStatus(status: string | null, complaintStatus: string): Co
 
 export default function ComplaintsOnMyRoads() {
   const navigate = useNavigate()
+  const contractorId = localStorage.getItem('roadwatch_contractor_id') || 'SuperBuild Infra'
   const { complaints: apiComplaints, loading, error, refetch } = useContractorComplaints()
   const [filter, setFilter] = useState<'All' | 'Pending' | 'In Progress' | 'Resolved'>('All')
 
@@ -143,6 +144,22 @@ export default function ComplaintsOnMyRoads() {
           </div>
         </div>
 
+        {error && (
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-red-500/30 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+            <span className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+              {error}
+            </span>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="text-xs font-bold uppercase tracking-wider underline hover:no-underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Complaints Layout Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main List */}
@@ -189,7 +206,7 @@ export default function ComplaintsOnMyRoads() {
                     {/* Status Badge */}
                     <div className="text-center sm:text-right mb-1">
                       <Badge
-                        tone={
+                        variant={
                           item.status === 'Resolved'
                             ? 'success'
                             : item.status === 'In Progress'

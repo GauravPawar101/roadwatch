@@ -16,8 +16,16 @@ type DashboardState = {
 
 const storedRole = localStorage.getItem('roadwatch_role')
 const storedJurisdiction = localStorage.getItem('roadwatch_dashboard_jurisdiction') || 'All districts'
-const storedAuthorityLevel = localStorage.getItem('roadwatch_authority_level') as AuthorityLevel | null
 const storedDarkMode = localStorage.getItem('roadwatch_dark_mode') === 'true'
+
+// Validate the persisted level rather than casting it: an unknown value (older
+// build, hand-edited storage) used to flow straight into jurisdiction scoping,
+// which silently widened or emptied the complaint queue.
+const AUTHORITY_LEVELS: AuthorityLevel[] = ['junior-engineer', 'district-officer', 'chief-engineer']
+const storedAuthorityLevelRaw = localStorage.getItem('roadwatch_authority_level')
+const storedAuthorityLevel = AUTHORITY_LEVELS.includes(storedAuthorityLevelRaw as AuthorityLevel)
+  ? (storedAuthorityLevelRaw as AuthorityLevel)
+  : null
 
 export const useDashboardStore = create<DashboardState>((set) => ({
   role:
