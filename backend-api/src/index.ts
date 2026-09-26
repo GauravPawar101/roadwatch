@@ -5,7 +5,7 @@ import type { Request, Response } from 'express-serve-static-core';
 import morgan from 'morgan';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pool } from '@roadwatch/core';
+import { makeAsyncSafe, pool, installProcessGuards } from '@roadwatch/core';
 import { auditAccess } from './middleware/rbac.js';
 import { permissiveSidecarAuth } from './middleware/sidecarFallback.js';
 import analyticsRouter from './routes/analytics.js';
@@ -17,9 +17,15 @@ import webhookRouter from './services/webhook.js';
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 loadEnv({ path: resolve(workspaceRoot, 'apps/gateway-api/.env'), override: true });
 
-const app = express();
+// Patched before any handler is registered: Express 4 does not catch
+// rejections from async handlers, so a rejected route would otherwise hang the
+// client and surface as an unhandled rejection.
+const app = makeAsyncSafe(express());
 const port = Number(process.env.BACKEND_PORT ?? process.env.PORT ?? 4001);
 const host = process.env.HOST ?? '0.0.0.0';
+
+// One failed request must not take the whole API down.
+installProcessGuards({ serviceName: 'backend-api' });
 
 
 const allowedOrigins = (process.env.CORS_ORIGIN || process.env.CORS_ORIGINS || '')

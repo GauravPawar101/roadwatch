@@ -1,3 +1,4 @@
+import { Router } from '@roadwatch/core';
 import type { Request, Response } from 'express-serve-static-core';
 import express from 'express';
 import * as crypto from 'node:crypto';
@@ -33,7 +34,7 @@ import { requireAuthority } from '../middleware/rbac.js';
 import { permissiveSidecarAuth } from '../middleware/sidecarFallback.js';
 import { requireUserContext, type AuthenticatedRequest } from '../middleware/userContext.js';
 
-const router = express.Router();
+const router = Router();
 
 // Configuration (should be environment variables)
 const VERIFICATION_CONFIG: VerificationConfig = {

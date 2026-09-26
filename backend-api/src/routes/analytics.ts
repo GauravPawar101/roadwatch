@@ -1,9 +1,10 @@
+import { Router } from '@roadwatch/core';
 import express from 'express';
 import type { Request, Response } from 'express-serve-static-core';
 import { z } from 'zod';
 import { requireInternalServiceToken } from '../middleware/jwt.js';
 
-const router = express.Router();
+const router = Router();
 
 const payloadSchema = z.object({
   event: z.string().min(1),
