@@ -1,4 +1,5 @@
 export * from './interfaces/IEventBus.js';
+export * from './config/endpoints.js';
 export * from './domain/Notifications.js';
 export * from './escalation/index.js';
 export * from './prompts/index.js';

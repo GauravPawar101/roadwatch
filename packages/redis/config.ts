@@ -12,13 +12,22 @@ export type RedisConfig = {
 let cached: RedisConfig | null = null;
 
 export function isRedisConfigured(env: RedisEnv = process.env): boolean {
-  return Boolean(env.REDIS_URL?.trim() || env.REDIS_URI?.trim() || env.REDIS_HOST?.trim());
+  return Boolean(
+    env.REDIS_CLOUD_URL?.trim() ||
+      env.REDIS_MANAGED_URL?.trim() ||
+      env.REDIS_URL?.trim() ||
+      env.REDIS_URI?.trim() ||
+      env.REDIS_HOST?.trim()
+  );
 }
 
 export function getRedisConfig(env: RedisEnv = process.env): RedisConfig {
   if (cached) return cached;
 
-  const url = env.REDIS_URL?.trim() || env.REDIS_URI?.trim();
+  // Managed/cloud URL first, so it takes effect even when the in-cluster
+  // REDIS_URL is also present (which is always the case in Kubernetes).
+  const url =
+    env.REDIS_CLOUD_URL?.trim() || env.REDIS_MANAGED_URL?.trim() || env.REDIS_URL?.trim() || env.REDIS_URI?.trim();
   if (url) {
     cached = { url };
     return cached;

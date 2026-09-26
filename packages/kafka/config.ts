@@ -1,3 +1,5 @@
+import { resolveKafkaEndpoint, type KafkaClusterName } from '@roadwatch/core';
+
 export type KafkaEnv = NodeJS.ProcessEnv;
 
 function parseBrokers(raw: string | undefined): string[] | null {
@@ -6,6 +8,20 @@ function parseBrokers(raw: string | undefined): string[] | null {
     .split(',')
     .map(s => s.trim())
     .filter(Boolean);
+  return brokers.length > 0 ? brokers : null;
+}
+
+function brokersFor(cluster: KafkaClusterName, env: KafkaEnv): string[] | null {
+  // Managed/cloud brokers are consulted first so a *_CLOUD_BROKERS value can
+  // take effect even when the in-cluster KAFKA_*_BROKERS is also present.
+  const cloud = parseBrokers(
+    cluster === 'hlf'
+      ? env.KAFKA_HLF_CLOUD_BROKERS ?? env.KAFKA_HLF_MANAGED_BROKERS
+      : env.KAFKA_EVENTS_CLOUD_BROKERS ?? env.KAFKA_EVENTS_MANAGED_BROKERS
+  );
+  if (cloud) return cloud;
+
+  const { brokers } = resolveKafkaEndpoint(cluster, env);
   return brokers.length > 0 ? brokers : null;
 }
 
@@ -21,12 +37,12 @@ export function getKafkaConnectionMode(env: KafkaEnv = process.env): 'local' {
 
 /** HLF backpressure cluster — fabric-anchor ingestion only. */
 export function getHlfKafkaBrokers(env: KafkaEnv = process.env): string[] | null {
-  return parseBrokers(env.KAFKA_HLF_BROKERS) ?? parseBrokers(env.KAFKA_BROKERS ?? env.KAFKA_BROKER);
+  return brokersFor('hlf', env) ?? parseBrokers(env.KAFKA_BROKERS ?? env.KAFKA_BROKER);
 }
 
 /** Operational events cluster — SLA, notifications, triggers, webhook fan-out. */
 export function getEventsKafkaBrokers(env: KafkaEnv = process.env): string[] | null {
-  return parseBrokers(env.KAFKA_EVENTS_BROKERS) ?? parseBrokers(env.KAFKA_BROKERS ?? env.KAFKA_BROKER);
+  return brokersFor('events', env) ?? parseBrokers(env.KAFKA_BROKERS ?? env.KAFKA_BROKER);
 }
 
 /** @deprecated Prefer getHlfKafkaBrokers / getEventsKafkaBrokers. Defaults to events cluster. */
