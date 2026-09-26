@@ -25,12 +25,22 @@ const LAT_MIN = 18.0;
 const LAT_STEP = 0.002;
 const LNG_MIN = 73.0;
 const LNG_STEP = 0.002;
-const LAT_SPAN = 500;
-const LNG_SPAN = 750;
+const LAT_SPAN = 2000; // 18.0 .. 22.0
+const LNG_SPAN = 2000; // 73.0 .. 77.0 => 4,000,000 distinct cells
+const TOTAL_CELLS = LAT_SPAN * LNG_SPAN;
 
-// Unique per run so deriveIdempotencyKey cannot replay a previous run's
-// response and make the row reconciliation look correct when nothing was
-// actually written.
+// Unique per run AND per iteration.
+//
+// The first version of this profile used a module-level `let counter`, which
+// looks global but is per-VU: every VU in k6 has its own JS runtime, so each
+// started at 1 and produced byte-identical payloads. Idempotency then correctly
+// replayed them, and a 30-minute run of 36,001 requests wrote only 601 rows. The
+// data flow was flawless (601 rows, 601 outbox events, 601 SLA rows, 0 orphaned
+// claims, 0 double-counted reports) but the test was not exercising what it
+// claimed to.
+//
+// (__VU, __ITER) is unique across a k6 run, so the request body — and therefore
+// the derived idempotency key — differs on every iteration.
 const RUN_ID = __ENV.RUN_ID || `soak-${Date.now()}`;
 
 export const options = {
@@ -77,18 +87,16 @@ function jwtFor(sub) {
 
 const AUTH = { Authorization: `Bearer ${jwtFor('00000000-0000-4000-8000-0000000000bb')}` };
 
-let counter = 0;
-const TOTAL_CELLS = LAT_SPAN * LNG_SPAN;
-
 export default function () {
   const health = http.get(`${BASE_URL}/health`);
   check(health, { 'health 200': r => r.status === 200 });
 
-  // Each iteration gets a distinct cell. The arrival-rate executor hands
-  // iterations to whichever VU is free, so __VU/__ITER alone would collide;
-  // a monotonic counter keeps cells unique across the whole run.
-  counter += 1;
-  const n = counter % TOTAL_CELLS;
+  // Wide grid so two iterations do not land on the same cell: at 200 m pitch a
+  // collision would be merged by the proximity dedupe and inflate
+  // report_count, which is exactly the corruption the soak must not introduce.
+  // VU_STRIDE exceeds the iterations any single VU performs in this profile.
+  const VU_STRIDE = 2000;
+  const n = (__VU * VU_STRIDE + __ITER) % TOTAL_CELLS;
   const lat = Number((LAT_MIN + Math.floor(n / LNG_SPAN) * LAT_STEP).toFixed(5));
   const lng = Number((LNG_MIN + (n % LNG_SPAN) * LNG_STEP).toFixed(5));
 
@@ -97,16 +105,20 @@ export default function () {
     JSON.stringify({
       district: 'PUN',
       zone: 'Z1',
-      description: `soak ${RUN_ID}-${counter}`,
+      description: `soak ${RUN_ID}-${__VU}-${__ITER}`,
       lat,
       lng,
     }),
     { headers: { 'Content-Type': 'application/json', ...AUTH } },
   );
 
+  // 200 and 429 are reported separately. The first version of this check
+  // accepted either as "2xx", which made a run that was 98% rejected look like
+  // a healthy one.
   check(res, {
-    'create 2xx': r => r.status === 200 || r.status === 429,
+    'create accepted': r => r.status === 200,
     'accepted not merged': r => r.status !== 200 || r.json('merged') === false,
+    'rate limited': r => r.status === 200 || r.status === 429,
   });
 
   sleep(0.2);

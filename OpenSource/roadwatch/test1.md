@@ -387,7 +387,7 @@ despite `COMPLAINT_WRITE_MAX_PER_MINUTE=60000`.
 sustained load this ratchets to the configured floor and the configured maximum
 becomes unreachable. This is why raising the limit during testing appeared to
 do nothing. It was **documented but deliberately not changed** — the back-off may
-be intentional, and the fix is a production-intent decision (§10).
+be intentional, and the fix is a production-intent decision (§11).
 
 ---
 
@@ -540,7 +540,175 @@ a real soak test — neither is done here.
 
 ---
 
-## 9. What the numbers do *not* show
+## 9. Data-flow audit and soak test
+
+### 9.1 What was audited
+
+The complaint create path end to end, because it is the only write that fans
+out to every subsystem:
+
+```
+POST /authority/complaints
+  -> admission control (Redis: 2 permits)
+  -> idempotency claim          (Postgres, own statement)
+  -> TRANSACTION
+       proximity dedupe SELECT ... FOR UPDATE
+       INSERT/UPDATE complaints
+       enqueueKafkaEvent -> kafka_event_outbox
+       ensureSlaTracking -> sla_tracking
+       createAndFanoutNotification -> notifications, notification_inbox,
+                                       notification_deliveries
+  -> COMMIT
+  -> release claim / store result
+  -> audit, analytics, karma    (outside the transaction)
+  -> relay drains kafka_event_outbox -> Kafka -> consumers
+       fabric-anchor-consumer: dedupe by idempotencyKey, DLQ after 3 attempts,
+                               commit offsets only once every message in the
+                               batch is handled
+```
+
+Checked: transaction boundaries, idempotency claim lifecycle, outbox
+transactional-ness, consumer ack ordering, at-least-once dedupe, and every
+place a failure is swallowed.
+
+### 9.2 Four defects found
+
+Each was reproduced against a real database before being fixed.
+
+**Complaint creation was not atomic, and the gap corrupted data.** The
+complaint, merge counter, SLA row and outbox event committed together, but the
+notification ran on its own transaction *afterwards*. Reproduced by making the
+`notifications` table unavailable:
+
+| | Before | After |
+|---|---|---|
+| Request 1 outcome | 500 | 500 |
+| Complaint committed | **yes** | no |
+| Outbox event | **yes** | no |
+| SLA row | **yes** | no |
+| Request 2 (the retry) | 200, `merged: true`, **report_count 2** | 200, `merged: false`, **report_count 1** |
+
+`report_count` feeds escalation decisions and contractor scoring, so this was
+silent corruption of business data from a single transient failure. The
+notification and SLA writes now enlist in the complaint transaction, and live
+SSE broadcasts are deferred until after the commit so a client cannot be shown
+a notification that is then rolled back. The post-commit writes that remain —
+audit, analytics, karma — are explicitly best-effort and now log on failure:
+they are observability, and throwing would convert a durable write into a 500
+and re-open this exact path.
+
+**An incomplete idempotency claim was unrecoverable.** A claim is written
+before the transaction and completed after it. Anything failing in between left
+`response_code IS NULL`, and nothing ever cleaned those rows up. Reproduced by
+locking `complaints` so the request stalled after claiming, then `SIGKILL`ing
+the gateway:
+
+```
+poisoned key: auto:c2c20d84b9636cd1...  orphaned: true  complaints: 0
+retry 1 -> 409 {"error":"A request with this idempotency key is already being processed"}
+retry 2 -> 409 (identical)
+```
+
+Because auto-derived keys hash the request body, the caller could not work
+around it — altering the payload derives a different key, so the original
+complaint was permanently unwritable. Stale claims are now reclaimed after a
+TTL through a conditional `UPDATE` whose `rowCount` decides ownership, so two
+concurrent retries cannot both proceed; a clean failure releases the claim
+immediately instead of waiting out the TTL. The same poisoned key returned 200
+and created the complaint after the fix.
+
+**Contractor karma could be silently and permanently lost.** The adjustment was
+four independent statements each wrapped in `.catch(() => null)`, permitting
+three distinct corruptions: the score moving with no ledger record; the ledger
+recording a delta the score never applied; and a failed score read defaulting
+to `0`, so `getWorkBandFromScore(0)` overwrote a real `work_band` with the
+lowest one. User karma self-heals on an hourly recalculation built from source
+data; **contractor karma has no such path**, so a dropped adjustment was
+permanent and invisible. The three writes are now one transaction, the band is
+derived from the value just written rather than a second read, and failures are
+logged.
+
+**The scheduler dropped escalation events permanently.** `enqueueStatusChangedOutbox`
+swallowed failures with `.catch(() => null)` and the caller then set
+`breach_notified = true` — the only thing preventing a retry. A transient
+failure therefore discarded the event while the database recorded the
+escalation as notified. Failures now propagate, so the row stays eligible and
+the next cron run retries; a missing outbox table warns rather than returning
+silently.
+
+### 9.3 Soak test
+
+`tests/load/k6/soak.js`, 30 minutes at a constant 40 req/s, 1000-VU ceiling
+unused. Constant arrival rate rather than constant VUs, so offered load does not
+drift as latency changes.
+
+| Metric | Result |
+|---|---|
+| Duration / offered rate | 30 min @ 40 req/s |
+| Requests | 72,002 |
+| Failures | 204 (0.28%) |
+| Latency p50 / p95 / max | 2.6 ms / **9.5 ms** / 294 ms |
+| Checks passed | 99.81% |
+
+**Memory: no leak.** RSS climbed 193 → 239 MB in the first minute and then held
+flat for the remaining 29:
+
+```
+t+0min  193      t+9min  240      t+17min 241
+t+1min  239      t+10min 240      t+29min 241
+t+3min  239      t+12min 240
+t+4min  242      t+13min 240
+t+6min  239      t+15min 240
+t+7min  240      t+16min 241
+```
+
+First-third average 236 MB, last-third average 241 MB — a 5 MB drift across
+~11 minutes, against a 49 MB step in the first 60 seconds. The growth flagged as
+a possible leak in §7 was **warm-up**, and the concern is discharged.
+
+**Backlog: none.** `outbox_pending` never exceeded 1 across the whole run, and
+the relay drained continuously.
+
+### 9.4 A discrepancy the soak itself caused
+
+The first soak reported 35,797 accepted creates, but the database held **601
+rows**. The cause was in the test, not the system: k6 gives every VU its own JS
+runtime, so a module-level `let counter = 0` was per-VU. Each VU counted from 1
+and produced byte-identical payloads, so 35,400 of the 36,001 requests were
+duplicates that idempotency correctly replayed.
+
+That accident turned out to be the strongest validation in this section:
+
+| | |
+|---|---|
+| Requests | 36,001 |
+| Unique payloads | 601 |
+| Complaints written | **601** |
+| Outbox events sent | **601** |
+| SLA tracking rows | **601** |
+| Idempotency claims | **601** |
+| Orphaned claims | **0** |
+| Complaints with `report_count > 1` | **0** |
+
+35,400 duplicate requests produced zero duplicate rows, zero orphaned claims and
+zero double-counted reports. That is the idempotency and atomicity work holding
+under a realistic retry storm — and it is precisely the property whose absence
+caused the `report_count 2` corruption in §9.2.
+
+The profile is fixed to derive uniqueness from `(__VU, __ITER)` and to report
+200 and 429 separately; the earlier check accepted either as "2xx", so a run that
+was 98% rejected presented as healthy.
+
+Worth recording as a process failure: the fix was initially broken
+(`TOTAL_CELLS` referenced but no longer declared) and `node --check` passed it,
+because that validates syntax and not references. The soak container reported
+`ReferenceError: TOTAL_CELLS is not defined` on every iteration and wrote nothing
+— caught only by checking the database, not the exit status. A load script must
+be smoke-tested against real writes before its result is believed.
+
+---
+
+## 10. What the numbers do *not* show
 
 Stated explicitly, because each is a real limit on the conclusions above:
 
@@ -561,7 +729,7 @@ Stated explicitly, because each is a real limit on the conclusions above:
 
 ---
 
-## 10. Tradeoffs
+## 11. Tradeoffs
 
 | Decision | Chosen | Alternative | Why |
 |---|---|---|---|
@@ -581,7 +749,7 @@ Stated explicitly, because each is a real limit on the conclusions above:
 - **Rootless-podman Kubernetes remains unverified.** The manifests are correct
   as far as rendering and review can establish, and no stronger claim is made.
 - **~8.7 Redis commands per write** remain, because each write takes two
-  admission permits. Collapsing to one permit is the obvious next win (§10).
+  admission permits. Collapsing to one permit is the obvious next win (§11).
 - **Kafka costs ~962 MB** for two clusters in development, more than both
   Postgres instances combined. One cluster suffices for development.
 - **Managed Postgres bypasses pgbouncer**, so connection count is bounded only
@@ -590,7 +758,7 @@ Stated explicitly, because each is a real limit on the conclusions above:
 
 ---
 
-## 11. Going forward — optimisation plan
+## 12. Going forward — optimisation plan
 
 Ordered by expected value. Items 1 and 2 are prerequisites for measuring
 anything else honestly.
@@ -613,7 +781,18 @@ floor and decay so it can recover. For stable capacity testing, pin
 *Why:* a non-deterministic ceiling makes every capacity measurement unstable,
 and the configured maximum is currently unreachable under sustained load.
 
-### 3. Collapse the two admission permits to one
+### 3. Add a reconciliation for contractor karma — NEW
+
+Contractor karma moves only by individual deltas and, unlike user karma, has no
+recalculation from source. The writes are now atomic and logged, but a
+reconciliation that rebuilds the score from `karma_ledger` would bound the blast
+radius of any future gap.
+
+*Why:* the ledger is the durable record; nothing currently verifies the
+denormalised score against it. Cheap to add, and it closes the class rather
+than the instance.
+
+### 3b. Collapse the two admission permits to one
 
 Each write takes a route-scoped and a global permit; each permit costs
 INCR/INCR/DECR. The global permit appears to exist as a cluster-wide ceiling,
@@ -624,14 +803,14 @@ multiplier on command-metered plans — at that rate Upstash's 500,000
 commands/month free tier allows roughly 51,000 writes/month, and halving the
 permits roughly doubles it.
 
-### 4. Investigate gateway memory growth
+### 4. Longer soak — PARTIALLY ANSWERED
 
-Run a multi-hour soak at a fixed, sub-limiter rate with periodic RSS sampling.
-RSS reached 448 MB in the final run, up from 384 MB in the first.
+A 30-minute soak at 40 req/s found no leak: RSS steps up in the first minute
+and is then flat (see §9.3). What a 30-minute run cannot exclude is a leak with a
+multi-hour time constant.
 
-*Why:* growth without plateauing is either warm-up or a leak, and the
-difference matters for a long-lived deployment. Cheap to test, expensive to
-discover in production.
+*Why:* still worth an overnight run before trusting the process in a long-lived
+deployment, but the evidence so far points to warm-up rather than a defect.
 
 ### 5. Bound the Postgres write path
 
@@ -662,7 +841,7 @@ before this would be optimising an unmeasured workload.
 
 ---
 
-## 12. Reproducing this work
+## 13. Reproducing this work
 
 ```bash
 # Gate: 17 typecheck + 17 test + builds
@@ -696,7 +875,7 @@ Further reading: [`docs/MANAGED_SERVICES.md`](../../docs/MANAGED_SERVICES.md),
 
 ---
 
-## 13. Commit history
+## 14. Commit history
 
 | Commit | Subject |
 |---|---|
