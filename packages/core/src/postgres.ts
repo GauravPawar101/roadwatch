@@ -38,10 +38,18 @@ export function createPool(
     // chain verification against the connection host would fail. `sslmode`
     // in the URL is honoured by `pg` and takes precedence over this flag.
     ssl: endpoint.ssl ? { rejectUnauthorized: false } : undefined,
-    max: tuning.max ?? 20,
+    // PGPOOL_MAX for consistency with the adapter pool. Keep this in step with
+    // any admission-control inflight cap: a cap above the pool size turns
+    // rejections into connection-acquire timeouts.
+    max: tuning.max ?? positiveInt(env.PGPOOL_MAX, 20),
     idleTimeoutMillis: tuning.idleTimeoutMillis ?? 30_000,
     connectionTimeoutMillis: tuning.connectionTimeoutMillis ?? 5_000,
   });
+}
+
+function positiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 export const pool = createPool();

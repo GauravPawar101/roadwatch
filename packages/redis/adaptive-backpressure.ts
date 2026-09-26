@@ -138,12 +138,27 @@ async function computeAdaptiveLimits(bounds: AdaptiveLimitBounds): Promise<Resol
   const redis = getRedisClient();
   const signals = await readLoadSignals();
 
-  // Pressure score: outbox backlog + rejection/error spikes shrink capacity.
+  // Pressure score: genuine load signals shrink capacity.
+  //
+  // recent429Count is deliberately NOT an input. A rejection is an *output* of
+  // this limiter, so feeding it back into the score that decides the ceiling
+  // closes a control loop around its own output: rejections raise pressure,
+  // pressure lowers the ceiling, the lower ceiling causes more rejections.
+  // Under sustained load that ratchets to the floor and never recovers, which
+  // makes the configured maximum structurally unreachable.
+  //
+  // Measured before this change: a 1000-VU run stayed pinned at pressure 4
+  // (the maximum) for the entire run, collapsing the effective window to
+  // minRequestsPerWindow and the inflight cap to minInflight — 15,000/min and
+  // 100 concurrent against a configured 60,000/min and 400.
+  //
+  // The remaining inputs are independent of the limiter's own decisions:
+  // outbox depth is a real downstream backlog and 5xx count is a real upstream
+  // failure. Both are transient, so capacity recovers once the backlog drains.
+  // The 429 count is still tracked and exported for observability.
   let pressure = 0;
   if (signals.outboxDepth > 500) pressure += 2;
   else if (signals.outboxDepth > 100) pressure += 1;
-  if (signals.recent429Count > 50) pressure += 2;
-  else if (signals.recent429Count > 10) pressure += 1;
   if (signals.recent5xxCount > 20) pressure += 2;
   else if (signals.recent5xxCount > 5) pressure += 1;
 

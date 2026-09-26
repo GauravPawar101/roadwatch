@@ -387,11 +387,160 @@ despite `COMPLAINT_WRITE_MAX_PER_MINUTE=60000`.
 sustained load this ratchets to the configured floor and the configured maximum
 becomes unreachable. This is why raising the limit during testing appeared to
 do nothing. It was **documented but deliberately not changed** — the back-off may
-be intentional, and the fix is a production-intent decision (§9).
+be intentional, and the fix is a production-intent decision (§10).
 
 ---
 
-## 8. What the numbers do *not* show
+## 8. Optimisation pass
+
+Run after the report above was first written, to reduce latency and increase
+throughput. Four changes, in the order the evidence pointed at them.
+
+### 8.0 First: a profile that could measure inserts
+
+As §7.4(a) showed, the checked-in profile merged every request into one
+complaint. `tests/load/k6/complaints-insert.js` spreads coordinates across a
+grid with ~200 m spacing (grid pitch must exceed the 100 m merge radius) and
+asserts `merged === false`, so a run that silently collapses back onto the
+merge path fails its own thresholds.
+
+Two bugs in writing it, both of which produced *flattering* output:
+
+- `encoding.b64encode` rejects a `charCodeAt` array. Every iteration threw
+  after the health check, and k6 reported the run as **100% successful** —
+  878,521 "iterations", 0 failures, while inserting nothing. Iteration time of
+  88 ms against a `sleep(1)` was the only tell.
+- The grid index used `__VU * 100000 + __ITER`, which wraps modulo the grid
+  size, so different VUs collided onto the same cell.
+
+A third issue was not in the script but in how runs were repeated: the payload
+was byte-identical between runs, so `deriveIdempotencyKey` returned the same
+key and the gateway correctly replied with a **replay** instead of inserting.
+One run reported 12,388 "created" responses against 8,975 rows. That is the
+idempotency contract working correctly — the profile was not run-independent.
+Fixed with a per-run `RUN_ID`.
+
+After these, every run reconciles exactly: **responses = rows = events sent.**
+
+### 8.1 The proximity-dedupe query was a sequential scan
+
+The create route checks for a nearby existing complaint on every insert. With
+no supporting index, `EXPLAIN ANALYZE` at 9,329 rows:
+
+```
+Seq Scan on complaints  (actual time=0.033..7.117 rows=9329)
+  Sort Key: created_at DESC
+  Sort Method: quicksort  Memory: 1405kB
+Execution Time: 11.906 ms
+```
+
+Full table scan plus a sort, per insert, growing linearly with the table. Added
+a partial index on `(district, zone, created_at DESC) WHERE lat IS NOT NULL AND
+lng IS NOT NULL` — the query only considers located complaints:
+
+```
+Index Scan using complaints_open_dedupe_idx  (actual time=0.048..0.090 rows=25)
+Execution Time: 0.152 ms
+```
+
+**11.906 ms → 0.152 ms, 78×**, and now O(rows examined) rather than O(table).
+238 buffers → 71.
+
+### 8.2 The admission limiter could never leave its floor
+
+§7.4(b) flagged this; it turned out to be worse than "non-deterministic". Under
+sustained load the 429 counter drove pressure to its maximum of 4, forcing
+`shrink = 1`, so the effective window collapsed to `minRequestsPerWindow` and
+inflight to `minInflight`. Because those floors are *derived* as `max / 4`,
+raising `COMPLAINT_WRITE_MAX_PER_MINUTE` raised the floor by the same factor
+and changed nothing.
+
+The defect is structural: a rejection is the limiter's own **output**, and it
+was an input to the score that sets the ceiling. Fixed by removing
+`recent429Count` from the pressure calculation. The remaining inputs — outbox
+depth and 5xx count — are independent of the limiter's decisions, and both are
+transient, so capacity recovers once the backlog drains. The 429 count is still
+recorded and exported for observability.
+
+### 8.3 The inflight cap must not exceed the connection pool
+
+Each admitted write holds a connection for its transaction. With inflight 250
+against a pool of 20, roughly 230 requests queued per connection and the
+2-second acquire timeout produced 31 × HTTP 500 (`timeout exceeded when trying
+to connect`).
+
+The shipped defaults — 24 inflight against a pool of 20 — are actually
+well matched. The mismatch was created by the test configuration. Two changes:
+
+- `PGPOOL_MAX` now sizes both the gateway pool and the `@roadwatch/core` pool,
+  matching the convention `postgres-adapter.ts` already used.
+- The constraint is documented at the pool definition, because the two numbers
+  live in different services and drift apart silently.
+
+### 8.4 The outbox relay was capped at 25 events/second
+
+This was the actual end-to-end bottleneck, and it was throttling the primary
+write path.
+
+`startKafkaEventRelay` drained a fixed **25 rows once per second**. The write
+path produced ~54 events/second under load, so the backlog grew without bound:
+**18,463 PENDING against 34,052 SENT** after one 3-minute run. That backlog is
+read as a pressure signal, so the growing outbox permanently held the limiter
+at a reduced ceiling — the async side starving the sync side.
+
+The relay now drains until a batch comes back short, bounded per tick so a large
+backlog cannot monopolise the event loop. The loop stops on a partial batch, so
+a poison row causes back-off to the next tick rather than a hot spin. Batch
+size, interval and batch cap are all environment-configurable.
+
+### 8.5 Results
+
+Insert path, 1000 VUs, 3 minutes, `PGPOOL_MAX=60`, inflight 60:
+
+| Metric | Before | After |
+|---|---|---|
+| Dedupe query | 11.906 ms | **0.152 ms** (78×) |
+| Outbox PENDING after run | 18,463 | **0** |
+| Outbox gauge | 19,188 | **0** |
+| Accepted inserts | 9,784 | **12,198** (+25%) |
+| p95 latency | 567 ms | 628 ms |
+| p90 latency | — | 385 ms |
+| Max latency | 5.43 s | **2.11 s** |
+| HTTP 500s | 31 (connect timeout) | **0** |
+| Rows vs responses | did not reconcile | **exact** |
+
+Latency against the original as-found configuration, which admitted 250
+concurrent writes against a 20-connection pool:
+
+| Metric | As found | Final |
+|---|---|---|
+| p95 | 3.06 s | **628 ms** (−80%) |
+| Max | 7.25 s | **2.11 s** (−71%) |
+| HTTP 500s | 31 | **0** |
+
+Resource cost after optimisation:
+
+| Component | Peak CPU | Peak memory |
+|---|---|---|
+| Gateway | 2.47 ms CPU per request | 397 MB median / 448 MB peak |
+| Postgres (managed) | 32.2% | 340 MB |
+| Kafka — events | 12.6% | 542 MB |
+| Kafka — hlf | 12.5% | 579 MB |
+| Redis | 4.3% | 17 MB |
+| pgbouncer | 0.7% | 6 MB |
+
+p95 rose slightly (567 → 628 ms) between the last two runs. That is the
+expected cost of admitting 25% more work: the queue is doing its job. Max
+latency and 500s both improved substantially, which is the trade that matters.
+
+**Still open.** RSS reached 448 MB (up from 384 MB) and the 429 count still
+reaches ~14,700, so the limiter is still the ceiling on accepted writes. The
+remaining lever is the pool size against Postgres `max_connections = 100`, and
+a real soak test — neither is done here.
+
+---
+
+## 9. What the numbers do *not* show
 
 Stated explicitly, because each is a real limit on the conclusions above:
 
@@ -412,7 +561,7 @@ Stated explicitly, because each is a real limit on the conclusions above:
 
 ---
 
-## 9. Tradeoffs
+## 10. Tradeoffs
 
 | Decision | Chosen | Alternative | Why |
 |---|---|---|---|
@@ -441,12 +590,12 @@ Stated explicitly, because each is a real limit on the conclusions above:
 
 ---
 
-## 10. Going forward — optimisation plan
+## 11. Going forward — optimisation plan
 
 Ordered by expected value. Items 1 and 2 are prerequisites for measuring
 anything else honestly.
 
-### 1. Measure insert throughput (blocking)
+### 1. Measure insert throughput — DONE, see §8.0
 
 Add a k6 scenario that varies coordinates (or omits them) so proximity dedupe
 does not collapse every write into one complaint. Until this exists, the insert
@@ -455,7 +604,7 @@ path has no performance number and no regression guard.
 *Why first:* §7.4a. Every optimisation below targets the insert path, and it is
 currently unmeasured.
 
-### 2. Fix the limiter's 429 feedback loop
+### 2. Fix the 429 feedback loop — DONE, see §8.2
 
 Either exclude the 429 signal from the pressure score, or give the shrink a
 floor and decay so it can recover. For stable capacity testing, pin
@@ -470,17 +619,18 @@ Each write takes a route-scoped and a global permit; each permit costs
 INCR/INCR/DECR. The global permit appears to exist as a cluster-wide ceiling,
 which the route-scoped one may already provide.
 
-*Why:* the single largest remaining Redis cost, and a direct multiplier on
-command-metered plans. At 8.7 commands/write, Upstash's 500,000 commands/month
-free tier allows only ~57,000 writes/month; halving the permits roughly doubles
-that.
+*Why:* the largest remaining Redis cost, at 9.7 commands per write. A direct
+multiplier on command-metered plans — at that rate Upstash's 500,000
+commands/month free tier allows roughly 51,000 writes/month, and halving the
+permits roughly doubles it.
 
 ### 4. Investigate gateway memory growth
 
 Run a multi-hour soak at a fixed, sub-limiter rate with periodic RSS sampling.
+RSS reached 448 MB in the final run, up from 384 MB in the first.
 
-*Why:* +62% RSS in 3 minutes without plateauing is either warm-up or a leak, and
-the difference matters for a long-lived deployment. Cheap to test, expensive to
+*Why:* growth without plateauing is either warm-up or a leak, and the
+difference matters for a long-lived deployment. Cheap to test, expensive to
 discover in production.
 
 ### 5. Bound the Postgres write path
@@ -512,7 +662,7 @@ before this would be optimising an unmeasured workload.
 
 ---
 
-## 11. Reproducing this work
+## 12. Reproducing this work
 
 ```bash
 # Gate: 17 typecheck + 17 test + builds
@@ -546,7 +696,7 @@ Further reading: [`docs/MANAGED_SERVICES.md`](../../docs/MANAGED_SERVICES.md),
 
 ---
 
-## 12. Commit history
+## 13. Commit history
 
 | Commit | Subject |
 |---|---|

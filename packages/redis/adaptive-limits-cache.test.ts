@@ -109,9 +109,38 @@ describe('pressure signals', () => {
     expect(limits.maxRequestsPerWindow).toBe(550);
   });
 
-  it('shrinks the window when rejections are already happening', async () => {
+  it('does NOT shrink because rejections are already happening', async () => {
+    // A 429 is this limiter's own output. Treating it as a load signal closes
+    // a loop around the output and ratchets capacity to the floor, where it
+    // cannot recover while load continues.
     redisMock.get.mockImplementation(async (key: string) => {
       if (key.includes(':429')) return '80';
+      return '0';
+    });
+
+    const limits = await resolveAdaptiveLimits({ ...BOUNDS, limitsCacheMs: 0 });
+    expect(limits.maxRequestsPerWindow).toBe(BOUNDS.maxRequestsPerWindow);
+    expect(limits.maxInflight).toBe(BOUNDS.maxInflight);
+  });
+
+  it('stays at full capacity no matter how many rejections accumulate', async () => {
+    // Regression guard for the measured failure: pressure pinned at 4 for an
+    // entire 1000-VU run, collapsing the window to 15,000/min against a
+    // configured 60,000/min.
+    redisMock.get.mockImplementation(async (key: string) => {
+      if (key.includes(':429')) return '100000';
+      return '0';
+    });
+
+    const limits = await resolveAdaptiveLimits({ ...BOUNDS, limitsCacheMs: 0 });
+    expect(limits.maxRequestsPerWindow).toBe(BOUNDS.maxRequestsPerWindow);
+  });
+
+  it('still shrinks on genuine upstream failures', async () => {
+    // 5xx is an independent signal — the limiter did not cause it — so it must
+    // remain an input, otherwise back-off on real errors is lost.
+    redisMock.get.mockImplementation(async (key: string) => {
+      if (key.includes(':5xx')) return '80';
       return '0';
     });
 
@@ -120,6 +149,7 @@ describe('pressure signals', () => {
   });
 
   it('never drops below the configured floor under maximum pressure', async () => {
+    // Outbox and 5xx both maxed: 2 + 2 = pressure 4, the maximum.
     redisMock.get.mockResolvedValue('10000');
     const limits = await resolveAdaptiveLimits({ ...BOUNDS, limitsCacheMs: 0 });
 

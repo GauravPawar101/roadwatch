@@ -117,6 +117,23 @@ ALTER TABLE IF EXISTS complaints
   ADD COLUMN IF NOT EXISTS user_id uuid;
 CREATE INDEX IF NOT EXISTS complaints_user_id_idx        ON complaints (user_id);
 
+-- Supports the proximity-dedupe lookup performed on every complaint create
+-- (routes/authority.ts): the same district+zone, located rows, open statuses,
+-- newest first, LIMIT 25 FOR UPDATE.
+--
+-- Without this the planner chose a Seq Scan plus a quicksort over the whole
+-- table on every insert: measured at 11.9 ms and growing linearly with row
+-- count, at 9.3k rows. The index makes the lookup O(rows examined) instead of
+-- O(table), so it stays flat as complaints accumulate.
+--
+-- lat/lng are in the partial predicate because the dedupe only applies to
+-- located complaints. The status filter remains a heap check: the query wraps
+-- the column in UPPER(), so it cannot be served from the index, and FOR UPDATE
+-- requires a heap tuple regardless.
+CREATE INDEX IF NOT EXISTS complaints_open_dedupe_idx
+  ON complaints (district, zone, created_at DESC)
+  WHERE lat IS NOT NULL AND lng IS NOT NULL;
+
 -- =============================================================
 --  Complaint attachments
 -- =============================================================

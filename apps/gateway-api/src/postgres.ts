@@ -19,9 +19,31 @@ const connectionString = database.connectionString || 'postgres://postgres:postg
 
 const { Pool } = pg;
 
+/**
+ * Pool sizing.
+ *
+ * PGPOOL_MAX matches the convention already used by the adapter pool in
+ * @roadwatch/core, so one variable tunes both.
+ *
+ * This value and COMPLAINT_WRITE_MAX_INFLIGHT must be kept in step. Each
+ * admitted complaint write holds a connection for the length of its
+ * transaction, so an inflight cap above the pool size converts cheap 429
+ * rejections into multi-second waits on connection acquire, ending in a 500
+ * ("timeout exceeded when trying to connect"). Measured with inflight 400
+ * against a pool of 20: p95 3.06 s and 31 failed requests; with inflight
+ * matched to the pool: p95 423 ms and none.
+ *
+ * Postgres defaults to max_connections = 100, so the ceiling across all
+ * application pools on one database is that number, not this one.
+ */
+const poolMax = (() => {
+  const parsed = Number.parseInt(process.env.PGPOOL_MAX ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 20;
+})();
+
 const realPool = new Pool({
   connectionString,
-  max: 20,
+  max: poolMax,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
 });
