@@ -1,5 +1,7 @@
 export * from './interfaces/IEventBus.js';
 export * from './config/endpoints.js';
+export * from './process-guard.js';
+export * from './http/async-router.js';
 export * from './domain/Notifications.js';
 export * from './escalation/index.js';
 export * from './prompts/index.js';
