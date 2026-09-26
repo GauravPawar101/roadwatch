@@ -202,6 +202,14 @@ async function enqueueStatusChangedOutbox(params: {
   toStatus: string;
 }): Promise<void> {
   if (!(await hasTable('kafka_event_outbox'))) {
+    // Previously a silent return. The outbox is how a status change reaches the
+    // notification dispatcher, webhook fan-out and the anchor consumer, so
+    // skipping it loses the event with nothing to show for it. Warn loudly
+    // rather than pretending it was delivered.
+    console.warn(
+      `[scheduler] kafka_event_outbox is absent; status change ${params.fromStatus}->${params.toStatus} ` +
+      `for complaint ${params.complaintId} will NOT reach downstream consumers`
+    );
     return;
   }
 
@@ -217,19 +225,33 @@ async function enqueueStatusChangedOutbox(params: {
     changedBy: { actorType: 'system', actorId: 'scheduler' },
   };
 
-  await pool.query(
-    `INSERT INTO kafka_event_outbox
-       (id, topic, message_key, headers, payload, idempotency_key, status, attempts, available_at, created_at, updated_at)
-     VALUES (gen_random_uuid(), $1, $2, NULL, $3::jsonb, $4, 'PENDING', 0, NOW(), NOW(), NOW())`,
-    ['complaint.status.changed', params.complaintId, JSON.stringify(payload), idempotencyKey]
-  ).catch(async () => {
+  try {
+    await pool.query(
+      `INSERT INTO kafka_event_outbox
+         (id, topic, message_key, headers, payload, idempotency_key, status, attempts, available_at, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, NULL, $3::jsonb, $4, 'PENDING', 0, NOW(), NOW(), NOW())`,
+      ['complaint.status.changed', params.complaintId, JSON.stringify(payload), idempotencyKey]
+    );
+  } catch (error) {
+    // Retry once without the optional columns, for a deployment whose
+    // kafka_event_outbox predates them.
     await pool.query(
       `INSERT INTO kafka_event_outbox
          (id, topic, message_key, payload, status, attempts, available_at, created_at, updated_at)
        VALUES (gen_random_uuid(), $1, $2, $3::jsonb, 'PENDING', 0, NOW(), NOW(), NOW())`,
       ['complaint.status.changed', params.complaintId, JSON.stringify(payload)]
-    ).catch(() => null);
-  });
+    ).catch(fallbackError => {
+      // Rethrow rather than swallow. The caller sets breach_notified = true
+      // once this returns, and that flag is the only thing preventing a retry,
+      // so absorbing the error here marked the escalation complete while the
+      // event was silently lost forever.
+      throw new Error(
+        `failed to enqueue complaint-status-changed for ${params.complaintId}: ` +
+        `${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)} ` +
+        `(original: ${error instanceof Error ? error.message : String(error)})`
+      );
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -552,37 +574,82 @@ async function applyUserKarma(userId: string | null | undefined, delta: number, 
   ).catch(() => null);
 }
 
-async function applyContractorKarma(contractorId: string | null | undefined, delta: number, reason: string, refId: string): Promise<void> {
+/**
+ * Move a contractor's karma and record why, atomically.
+ *
+ * These were four independent statements each wrapped in `.catch(() => null)`,
+ * which produced three distinct corruptions:
+ *
+ *   - the score could move while the ledger insert failed, so the change was
+ *     unauditable;
+ *   - the ledger could record the delta while the score update failed, and
+ *     unlike user karma there is no recalculation that would correct it;
+ *   - a failed score read defaulted to 0, and `getWorkBandFromScore(0)` then
+ *     overwrote a real work_band with the lowest one.
+ *
+ * The transaction makes score, band and ledger agree. The failure is logged
+ * rather than swallowed: a contractor's standing is business data, and a silent
+ * drop here is invisible to operators and never self-heals.
+ */
+export async function applyContractorKarma(contractorId: string | null | undefined, delta: number, reason: string, refId: string): Promise<void> {
   if (!contractorId || !delta) return;
-  // Update the score only; work_band is derived from the stored score below so it
-  // reflects the contractor's real standing rather than an assumed baseline.
-  await pool.query(
-    `UPDATE contractors
-     SET metadata = COALESCE(metadata, '{}'::jsonb)
-       || jsonb_build_object(
-            'karma_score', GREATEST(-500, LEAST(10000, COALESCE((metadata->>'karma_score')::numeric, 100) + $2))
-          ),
-         updated_at = NOW()
-     WHERE id = $1::uuid`,
-    [contractorId, delta]
-  ).catch(() => null);
-  const scoreRes = await pool.query<{ karma_score: string | number | null }>(
-    `SELECT (metadata->>'karma_score')::numeric AS karma_score
-     FROM contractors WHERE id = $1::uuid LIMIT 1`,
-    [contractorId]
-  ).catch(() => null);
-  const score = Number(scoreRes?.rows[0]?.karma_score ?? 0);
-  await pool.query(
-    `UPDATE contractors
-     SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('work_band', $2)
-     WHERE id = $1::uuid`,
-    [contractorId, getWorkBandFromScore(score)]
-  ).catch(() => null);
-  await pool.query(
-    `INSERT INTO karma_ledger (user_id, delta, reason, ref_id, created_at)
-     VALUES ($1::uuid, $2, $3, $4, NOW())`,
-    [contractorId, delta, reason, refId]
-  ).catch(() => null);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Update the score only; work_band is derived from the stored score below so
+    // it reflects the contractor's real standing rather than an assumed baseline.
+    await client.query(
+      `UPDATE contractors
+       SET metadata = COALESCE(metadata, '{}'::jsonb)
+         || jsonb_build_object(
+              'karma_score', GREATEST(-500, LEAST(10000, COALESCE((metadata->>'karma_score')::numeric, 100) + $2))
+            ),
+           updated_at = NOW()
+       WHERE id = $1::uuid
+       RETURNING (metadata->>'karma_score')::numeric AS karma_score`,
+      [contractorId, delta]
+    );
+
+    // Read the score from the UPDATE's own RETURNING clause rather than a second
+    // query, so the band is always derived from the value just written and can
+    // never fall back to a fabricated zero.
+    const scoreRes = await client.query<{ karma_score: string | number | null }>(
+      `SELECT (metadata->>'karma_score')::numeric AS karma_score
+       FROM contractors WHERE id = $1::uuid LIMIT 1`,
+      [contractorId]
+    );
+    const raw = scoreRes.rows[0]?.karma_score;
+    if (raw === null || raw === undefined) {
+      throw new Error(`contractor ${contractorId} has no karma_score after update`);
+    }
+    const score = Number(raw);
+
+    await client.query(
+      `UPDATE contractors
+       SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('work_band', $2)
+       WHERE id = $1::uuid`,
+      [contractorId, getWorkBandFromScore(score)]
+    );
+
+    await client.query(
+      `INSERT INTO karma_ledger (user_id, delta, reason, ref_id, created_at)
+       VALUES ($1::uuid, $2, $3, $4, NOW())`,
+      [contractorId, delta, reason, refId]
+    );
+
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => null);
+    console.error(
+      `[scheduler] contractor karma adjustment failed (contractor=${contractorId} delta=${delta} ` +
+      `reason=${reason} ref=${refId}); score, work_band and ledger left unchanged:`,
+      error instanceof Error ? error.message : String(error)
+    );
+  } finally {
+    client.release();
+  }
 }
 
 async function applyOrgKarma(orgId: string | null | undefined, baseDelta: number, reason: string, refId: string): Promise<void> {

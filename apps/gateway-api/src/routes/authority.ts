@@ -3,7 +3,7 @@ import { KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedE
 import express from 'express';
 import { z } from 'zod';
 import { getContractorScorecard, trackAnalyticsEvent } from '../analytics/service.js';
-import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
+import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, releaseIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
 import { enqueueKafkaEvent } from '../kafka/outbox.js';
 import { createAndFanoutNotification } from '../notifications/service.js';
 import { sql as pool } from '../postgres.js'; // Use `sql` tagged-template executor exported from postgres.ts
@@ -134,12 +134,20 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     return res.status(claimed.statusCode).json(claimed.body as any);
   }
 
+  // From here on the claim is held. Anything that throws before
+  // storeIdempotencyResult would otherwise leave it incomplete, and an
+  // incomplete claim is not reclaimable by the caller — auto-derived keys hash
+  // the body, so a retry with any changed field derives a different key and the
+  // original complaint becomes permanently unwritable. Release on the way out.
+  try {
   let id = body.id ?? uuidv7();
   let merged = false;
   let escalated = false;
   let reportCount = 1;
   let mergeReason: string | null = null;
   let status = 'FILED';
+  // Live SSE pushes, flushed only once the transaction has committed.
+  const deferredBroadcasts: Array<() => void> = [];
 
   await pool.begin(async (tx: any) => {
     if (body.lat != null && body.lng != null) {
@@ -235,19 +243,54 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
         idempotencyKey: event.idempotencyKey,
       });
     }
+
+    // SLA tracking drives breach detection, so a complaint without it is never
+    // escalated. It belongs in the same transaction as the complaint, and reads
+    // the complaint row through the transaction's own snapshot.
+    if (!merged) {
+      await ensureSlaTracking(id, { severity: body.severity }, tx);
+    } else if (escalated) {
+      // Shorten remaining SLA on escalation (half window)
+      await ensureSlaTracking(id, {
+        severity: body.severity,
+        deadline: new Date(Date.now() + (MERGE_SLA_WINDOW_MS() / 2)),
+      }, tx);
+    }
+
+    // The notification is business data, not a side effect: a citizen filing a
+    // complaint and the resulting notification either both exist or neither
+    // does. It previously ran on its own transaction *after* this one
+    // committed, so a failure there produced a 500 for a complaint that was
+    // already durable — and the caller's retry merged into it, taking one
+    // report to report_count 2.
+    await createAndFanoutNotification({
+      message: {
+        type: escalated ? 'status_change' : 'new_complaint',
+        title: escalated
+          ? `Complaint ${id} escalated`
+          : merged
+            ? `Complaint merged into ${id}`
+            : `New complaint ${id}`,
+        body: escalated
+          ? `SLA-based escalation for ${body.district} / ${body.zone}.`
+          : merged
+            ? `Nearby report merged (count=${reportCount}).`
+            : `New complaint filed in ${body.district} / ${body.zone}.`,
+        data: { complaintId: id, district: body.district, zone: body.zone, merged, escalated, reportCount },
+        audience: { kind: 'jurisdiction', district: body.district, zone: body.zone },
+        critical: escalated,
+      },
+      tx,
+      deferBroadcasts: deferredBroadcasts,
+    });
   });
 
-  if (!merged) {
-    await ensureSlaTracking(id, { severity: body.severity });
-  } else if (escalated) {
-    // Shorten remaining SLA on escalation (half window)
-    await ensureSlaTracking(id, {
-      severity: body.severity,
-      deadline: new Date(Date.now() + (MERGE_SLA_WINDOW_MS() / 2)),
-    });
-  }
-
-  await awardValidSubmissionKarma(user.sub, id).catch(() => null);
+  // Best-effort from here: these are observability and scoring, not the record
+  // of the complaint. Throwing would return a 500 for an already-committed
+  // write, and the caller's retry would merge into the complaint it just made.
+  await awardValidSubmissionKarma(user.sub, id).catch(error => {
+    console.error('[authority] karma award failed for complaint', id, error);
+  });
 
   await writeAudit(
     user.sub,
@@ -257,8 +300,15 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     'complaint',
     id,
     { district: body.district, zone: body.zone, merged, escalated, reportCount, mergeReason }
-  );
+  ).catch(error => {
+    console.error('[authority] audit write failed for complaint', id, error);
+  });
 
+  // Analytics and audit are observability, not business data. They run after
+  // the transaction has committed and are explicitly best-effort: if they threw,
+  // the caller would see a 500 for a complaint that already exists, and the
+  // retry would merge into it and double-count the report. Losing an analytics
+  // row is recoverable; corrupting report_count is not.
   await trackAnalyticsEvent({
     type: escalated ? 'COMPLAINT_ESCALATED' : 'COMPLAINT_CREATED',
     actorUserId: user.sub,
@@ -268,26 +318,18 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     lat: body.lat ?? null,
     lng: body.lng ?? null,
     properties: { status, merged, escalated, reportCount, mergeReason },
+  }).catch(error => {
+    console.error('[authority] analytics event failed for complaint', id, error);
   });
 
-  await createAndFanoutNotification({
-    message: {
-      type: escalated ? 'status_change' : 'new_complaint',
-      title: escalated
-        ? `Complaint ${id} escalated`
-        : merged
-          ? `Complaint merged into ${id}`
-          : `New complaint ${id}`,
-      body: escalated
-        ? `SLA-based escalation for ${body.district} / ${body.zone}.`
-        : merged
-          ? `Nearby report merged (count=${reportCount}).`
-          : `New complaint filed in ${body.district} / ${body.zone}.`,
-      data: { complaintId: id, district: body.district, zone: body.zone, merged, escalated, reportCount },
-      audience: { kind: 'jurisdiction', district: body.district, zone: body.zone },
-      critical: escalated,
-    },
-  });
+  // Flush live notification pushes now that the transaction has committed.
+  for (const flush of deferredBroadcasts) {
+    try {
+      flush();
+    } catch (error) {
+      console.error('[authority] notification broadcast failed for complaint', id, error);
+    }
+  }
 
   const responseBody = {
     ok: true,
@@ -319,6 +361,18 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     reportCount
   });
   res.json(responseBody);
+  } catch (error) {
+    // The claim is dropped so the caller can retry immediately.
+    //
+    // Everything that makes up the complaint record — the complaint row, the
+    // merge counter, SLA tracking, the notification and the Kafka outbox event
+    // — is written inside one transaction, so reaching here means none of it
+    // committed and the retry starts clean. Only the post-commit observability
+    // writes (audit, analytics, karma) sit outside, and those are explicitly
+    // best-effort so they cannot turn a durable write into a 500.
+    await releaseIdempotencyKey(claimed);
+    throw error;
+  }
 });
 
 // ---------------------------------------------------------------------------

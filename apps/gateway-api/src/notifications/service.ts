@@ -213,18 +213,50 @@ export function topicsForUser(params: { userId: string; districts: string[]; zon
   return { userTopic, jurisdictionTopics: [...topics] };
 }
 
+/**
+ * Minimal query surface needed to enlist the notification writes in a caller's
+ * transaction. Matches both `pg.PoolClient` and the tagged-template executor
+ * used by routes/authority.ts (which exposes `.query`).
+ */
+export type NotificationQueryExecutor = {
+  query: (text: string, values?: unknown[]) => Promise<unknown>;
+};
+
 export async function createAndFanoutNotification(params: {
   message: NotificationMessage;
+  /**
+   * Run the writes inside the caller's transaction instead of opening a new
+   * one.
+   *
+   * This exists because the two were not atomic, and the gap corrupted data.
+   * The complaint committed, the notification then failed on its own
+   * transaction, the caller received a 500 and retried, and the retry merged
+   * into the complaint it had just created — taking one citizen report to
+   * report_count 2. With the writes in one transaction, a failure rolls back
+   * everything and the retry starts clean.
+   */
+  tx?: NotificationQueryExecutor;
+  /**
+   * Collects the live SSE broadcasts instead of emitting them. A broadcast must
+   * not escape before the surrounding transaction commits, or a client can be
+   * shown a notification that is subsequently rolled back. The caller flushes
+   * these after its transaction resolves.
+   */
+  deferBroadcasts?: Array<() => void>;
 }): Promise<{ notificationId: string; userIds: string[] }> {
   const m = params.message;
   const notificationId = uuidv7();
   const userIds = await resolveAudienceUsers(m.audience);
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(
-      `INSERT INTO notifications (id, type, title, body, data, district, zone, road_id, critical, created_at) 
+  const emit = (fn: () => void) => {
+    if (params.deferBroadcasts) params.deferBroadcasts.push(fn);
+    else fn();
+  };
+
+  // Shared body, executed either inside the caller's transaction or a new one.
+  const write = async (q: NotificationQueryExecutor) => {
+    await q.query(
+      `INSERT INTO notifications (id, type, title, body, data, district, zone, road_id, critical, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
       [
         notificationId,
@@ -241,47 +273,61 @@ export async function createAndFanoutNotification(params: {
 
     for (const uid of userIds) {
       const inboxId = uuidv7();
-      await client.query(
-        `INSERT INTO notification_inbox (id, user_id, notification_id, created_at) 
+      await q.query(
+        `INSERT INTO notification_inbox (id, user_id, notification_id, created_at)
          VALUES ($1, $2, $3, NOW())`,
         [inboxId, uid, notificationId]
       );
 
-      const prefs = await getOrCreatePreferencesWithClient(client, uid);
+      const prefs = await getOrCreatePreferencesWithClient(q, uid);
 
       for (const ch of prefs.enabledChannels) {
         if (ch === 'IN_APP') continue;
         const scheduledFor = computeSchedule({ now: new Date(), channel: ch, critical: Boolean(m.critical), prefs, role: null });
-        
-        await client.query(
-          `INSERT INTO notification_deliveries (id, user_id, notification_id, channel, scheduled_for, batch_key, created_at) 
+
+        await q.query(
+          `INSERT INTO notification_deliveries (id, user_id, notification_id, channel, scheduled_for, batch_key, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
           [uuidv7(), uid, notificationId, ch, scheduledFor, batchKey({ prefs, channel: ch, audience: m.audience })]
         );
       }
 
-      broadcastNotificationEvent({
-        userId: uid,
-        district: m.audience.kind === 'jurisdiction' ? m.audience.district : null,
-        zone: m.audience.kind === 'jurisdiction' ? (m.audience.zone ?? null) : null,
-        event: {
-          type: 'notification_created',
-          notification: {
-            inboxId,
-            id: notificationId,
-            notifType: m.type,
-            title: m.title,
-            body: m.body,
-            district: m.audience.kind === 'jurisdiction' ? m.audience.district : null,
-            zone: m.audience.kind === 'jurisdiction' ? (m.audience.zone ?? null) : null,
-            roadId: m.audience.kind === 'road' ? m.audience.roadId : null,
-            critical: Boolean(m.critical),
-            createdAt: new Date().toISOString(),
-            readAt: null
+      emit(() =>
+        broadcastNotificationEvent({
+          userId: uid,
+          district: m.audience.kind === 'jurisdiction' ? m.audience.district : null,
+          zone: m.audience.kind === 'jurisdiction' ? (m.audience.zone ?? null) : null,
+          event: {
+            type: 'notification_created',
+            notification: {
+              inboxId,
+              id: notificationId,
+              notifType: m.type,
+              title: m.title,
+              body: m.body,
+              district: m.audience.kind === 'jurisdiction' ? m.audience.district : null,
+              zone: m.audience.kind === 'jurisdiction' ? (m.audience.zone ?? null) : null,
+              roadId: m.audience.kind === 'road' ? m.audience.roadId : null,
+              critical: Boolean(m.critical),
+              createdAt: new Date().toISOString(),
+              readAt: null
+            }
           }
-        }
-      });
+        }),
+      );
     }
+  };
+
+  if (params.tx) {
+    // Caller owns the transaction boundary; do not begin, commit or roll back.
+    await write(params.tx);
+    return { notificationId, userIds };
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await write(client);
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');

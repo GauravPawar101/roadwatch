@@ -56,6 +56,11 @@ export function slaDeadlineFromNow(
   return new Date(Date.now() + hours * 60 * 60 * 1000);
 }
 
+/** Query surface shared by pg.PoolClient and the route transaction executor. */
+type QueryExecutor = {
+  query: (text: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>;
+};
+
 export async function ensureSlaTracking(
   complaintId: string,
   opts: {
@@ -63,11 +68,22 @@ export async function ensureSlaTracking(
     severity?: number;
     deadline?: Date;
     roadType?: string | null;
-  } = {}
+  } = {},
+  /**
+   * Run inside the caller's transaction.
+   *
+   * The SLA row drives breach detection, so a complaint that exists without one
+   * is never escalated. Writing it on a separate connection after the complaint
+   * committed meant a failure left that gap — and returned a 500 for a durable
+   * write, which the caller would then retry and merge.
+   */
+  tx?: QueryExecutor
 ): Promise<void> {
+  const q = (tx ?? pool) as unknown as QueryExecutor;
+
   let roadType = opts.roadType ?? null;
   if (!roadType) {
-    const roadRes = await pool.query<{ road_type: string | null; road_id: string | null }>(
+    const roadRes = await q.query(
       `SELECT c.road_id, rc.road_type
        FROM complaints c
        LEFT JOIN roads_catalog rc ON rc.id = c.road_id
@@ -75,11 +91,13 @@ export async function ensureSlaTracking(
        LIMIT 1`,
       [complaintId]
     ).catch(() => null);
-    roadType = roadRes?.rows[0]?.road_type ?? roadRes?.rows[0]?.road_id ?? null;
+    roadType = (roadRes?.rows[0]?.road_type as string | null)
+      ?? (roadRes?.rows[0]?.road_id as string | null)
+      ?? null;
   }
 
   const deadline = opts.deadline ?? slaDeadlineFromNow(opts.severity ?? 3, roadType);
-  await pool.query(
+  await q.query(
     `INSERT INTO sla_tracking (complaint_id, contractor_id, breached, breach_notified, sla_deadline, updated_at)
      VALUES ($1, $2, false, false, $3, NOW())
      ON CONFLICT (complaint_id) DO UPDATE SET

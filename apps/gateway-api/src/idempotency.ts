@@ -61,6 +61,30 @@ export function deriveIdempotencyKey(req: express.Request, scope: string): strin
   return `auto:${crypto.createHash('sha256').update(fingerprint).digest('hex')}`;
 }
 
+/**
+ * How long a claim may sit incomplete before another request may take it over.
+ *
+ * A claim is written before the business transaction and completed after it.
+ * If the process dies, is killed, or the transaction throws in between, the row
+ * survives with `response_code IS NULL` — and nothing ever cleaned those up. The
+ * request was never written, yet every retry then returned 409 "already being
+ * processed" forever. Because auto-derived keys hash the request body, the
+ * caller could not even work around it by resending: any change to the payload
+ * produces a different key, so the original complaint was permanently
+ * unwritable.
+ *
+ * Reproduced end to end: with the complaints table locked so the request stalled
+ * after claiming, the gateway was SIGKILLed; both subsequent retries of the
+ * identical payload returned 409 and no complaint was ever created.
+ *
+ * 60s is far longer than a create takes (single-digit milliseconds when healthy)
+ * while bounding how long a genuine failure blocks the caller.
+ */
+const CLAIM_TTL_SECONDS = (() => {
+  const parsed = Number.parseInt(process.env.IDEMPOTENCY_CLAIM_TTL_SECONDS ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 60;
+})();
+
 export async function claimIdempotency(
   scope: string,
   idempotencyKey: string,
@@ -74,6 +98,11 @@ export async function claimIdempotency(
      ON CONFLICT (scope, idempotency_key) DO NOTHING`,
     [scope, idempotencyKey, requestHash]
   );
+
+  // Fresh claim: we own it outright.
+  if (insertResult.rowCount === 1) {
+    return { scope, key: idempotencyKey, requestHash };
+  }
 
   const existing = await pool.query<StoredResult>(
     `SELECT request_hash, response_code, response_body, updated_at
@@ -104,15 +133,50 @@ export async function claimIdempotency(
     };
   }
 
-  if (insertResult.rowCount === 0) {
-    return {
-      replay: true,
-      statusCode: 409,
-      body: { error: 'A request with this idempotency key is already being processed' }
-    };
+  // The row exists but was never completed, so a previous attempt died between
+  // claiming and storing. Reclaim it, but only if it is genuinely stale.
+  //
+  // The reclaim is a conditional UPDATE and ownership is decided by rowCount,
+  // so two concurrent retries cannot both proceed: exactly one sees 1.
+  const reclaimed = await pool.query(
+    `UPDATE api_idempotency_keys
+     SET updated_at = NOW()
+     WHERE scope = $1
+       AND idempotency_key = $2
+       AND response_code IS NULL
+       AND updated_at < NOW() - ($3 || ' seconds')::interval`,
+    [scope, idempotencyKey, String(CLAIM_TTL_SECONDS)]
+  );
+
+  if (reclaimed.rowCount === 1) {
+    return { scope, key: idempotencyKey, requestHash };
   }
 
-  return { scope, key: idempotencyKey, requestHash };
+  return {
+    replay: true,
+    statusCode: 409,
+    body: {
+      error: 'A request with this idempotency key is already being processed',
+      retryAfterSeconds: CLAIM_TTL_SECONDS
+    }
+  };
+}
+
+/**
+ * Drop an incomplete claim so a caller that failed cleanly can retry at once
+ * instead of waiting out the TTL. A no-op once the result has been stored.
+ */
+export async function releaseIdempotencyKey(claim: IdempotencyClaim): Promise<void> {
+  try {
+    await pool.query(
+      `DELETE FROM api_idempotency_keys
+       WHERE scope = $1 AND idempotency_key = $2 AND response_code IS NULL`,
+      [claim.scope, claim.key]
+    );
+  } catch {
+    // Best effort. The stale-claim TTL is the backstop; a failure here only
+    // means the caller waits a little longer.
+  }
 }
 
 export async function storeIdempotencyResult(
