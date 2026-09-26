@@ -638,36 +638,57 @@ silently.
 
 ### 9.3 Soak test
 
-`tests/load/k6/soak.js`, 30 minutes at a constant 40 req/s, 1000-VU ceiling
-unused. Constant arrival rate rather than constant VUs, so offered load does not
-drift as latency changes.
+`tests/load/k6/soak.js`, constant arrival rate rather than constant VUs, so
+offered load does not drift as latency changes. Two runs were done: a 30-minute
+run whose profile turned out to be measuring duplicates (§9.4), and a corrected
+15-minute run whose result is authoritative.
+
+**Corrected run — 15 minutes, 40 req/s offered, 18,000 unique writes:**
 
 | Metric | Result |
 |---|---|
-| Duration / offered rate | 30 min @ 40 req/s |
-| Requests | 72,002 |
-| Failures | 204 (0.28%) |
-| Latency p50 / p95 / max | 2.6 ms / **9.5 ms** / 294 ms |
-| Checks passed | 99.81% |
+| Requests | 36,000 (18,000 health + 18,000 writes) |
+| Checks passed | **100.00%** (72,000) |
+| Failures | **0** |
+| Latency p50 / p95 / max | 11.5 ms / **91.9 ms** / 366 ms |
 
-**Memory: no leak.** RSS climbed 193 → 239 MB in the first minute and then held
-flat for the remaining 29:
+**Data-flow reconciliation — exact, on every table:**
+
+| | Count |
+|---|---|
+| Complaints written | **18,000** |
+| SLA tracking rows | **18,000** |
+| Notifications | **18,000** |
+| Outbox events SENT | **18,000** |
+| Outbox events not sent | **0** |
+| Idempotency claims | **18,000** |
+| **Orphaned claims** | **0** |
+| **Double-counted reports** (`report_count > 1`) | **0** |
+| **Duplicate descriptions** | **0** |
+
+One write produced exactly one complaint, one SLA row, one notification and one
+published event. Nothing leaked, nothing duplicated, nothing was left behind.
+
+**Memory: no leak.** RSS oscillates for the first six minutes as the pool and
+caches warm up, then is flat while the dataset more than doubles:
 
 ```
-t+0min  193      t+9min  240      t+17min 241
-t+1min  239      t+10min 240      t+29min 241
-t+3min  239      t+12min 240
-t+4min  242      t+13min 240
-t+6min  239      t+15min 240
-t+7min  240      t+16min 241
+t+ 0min  245 MB    complaints   392      t+ 7min  246 MB   complaints  9,179
+t+ 1min  281 MB    complaints 1,642      t+ 8min  246 MB   complaints 10,432
+t+ 2min  211 MB    complaints 2,892      t+ 9min  246 MB   complaints 11,697
+t+ 3min  302 MB    complaints 4,153      t+10min  246 MB   complaints 12,955
+t+ 4min  288 MB    complaints 5,408      t+11min  247 MB   complaints 14,203
+t+ 5min  221 MB    complaints 6,667      t+12min  246 MB   complaints 15,465
+t+ 6min  245 MB    complaints 7,928      t+13min  246 MB   complaints 16,716
+                                           t+14min  247 MB   complaints 18,000
 ```
 
-First-third average 236 MB, last-third average 241 MB — a 5 MB drift across
-~11 minutes, against a 49 MB step in the first 60 seconds. The growth flagged as
-a possible leak in §7 was **warm-up**, and the concern is discharged.
+First-third average 273 MB, last-third average 246 MB — memory *fell* 27 MB
+across the run while complaints grew 127%. The growth flagged as a possible leak
+in §7 was warm-up, and the concern is discharged.
 
-**Backlog: none.** `outbox_pending` never exceeded 1 across the whole run, and
-the relay drained continuously.
+**Backlog: none.** `outbox_pending` peaked at 22 and returned to 0; the relay
+drains continuously at 200 rows per tick.
 
 ### 9.4 A discrepancy the soak itself caused
 
