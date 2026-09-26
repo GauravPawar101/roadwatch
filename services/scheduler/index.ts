@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 import cron from 'node-cron';
 import { Pool } from 'pg';
-import { EscalationEngine, isRegionalHoliday, applySlaBreachContractorPenalty, applySlaBreachEngineerPenalty, applyInspectionOverduePenalty, scaleOrgKarmaDelta, getWorkBandFromScore } from '@roadwatch/core';
+import { EscalationEngine, isRegionalHoliday, applySlaBreachContractorPenalty, applySlaBreachEngineerPenalty, applyInspectionOverduePenalty, scaleOrgKarmaDelta, getWorkBandFromScore, getDatePartsInTimeZone, describeEndpoints, resolvePostgresEndpoint, installProcessGuards } from '@roadwatch/core';
 import { hierarchyForRoadType } from './hierarchy.js';
 
 interface SchedulerConfig {
@@ -43,8 +43,19 @@ function getConfig(): SchedulerConfig {
 
 const config = getConfig();
 
+// Managed/cloud endpoint -> DATABASE_URL -> in-cluster/local parts.
+// The previous hardcoded 127.0.0.1:16432 default made the scheduler silently
+// point at itself whenever POSTGRES_* was not exported into the pod.
+const database = resolvePostgresEndpoint(process.env, {
+  host: '127.0.0.1',
+  port: '16432',
+  db: 'roadwatch',
+  user: 'postgres',
+  password: 'postgres',
+});
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:16432/roadwatch',
+  connectionString: database.connectionString || undefined,
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000
@@ -222,30 +233,36 @@ async function enqueueStatusChangedOutbox(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Sync pending offline queue items
+// Offline queue
+//
+// NOTE: the server-side `offline_queue` table is not a delivery queue. Nothing
+// in the request path writes to it (only scripts/seed-demo-data.ts does), and
+// the real offline replay path lives in the browser (frontend/src/lib/offlineStore.ts,
+// which uploads media and POSTs to /citizen/complaints with the citizen's own JWT).
+//
+// This job therefore does NOT mark rows as synced: there is no server-side
+// delivery step to perform, and flipping the flag would silently discard queued
+// work while logging a success that never happened.
 // ---------------------------------------------------------------------------
 async function syncOfflineQueue(): Promise<void> {
   try {
     if (!(await hasOfflineQueueTable())) {
-      console.warn('[scheduler] offline_queue table is missing; skipping offline queue sync');
+      console.warn('[scheduler] offline_queue table is missing; nothing to do');
       return;
     }
 
-    const now = new Date();
-
     const result = await pool.query(
-      `UPDATE offline_queue 
-       SET synced = true, synced_at = $1 
-       WHERE synced = false AND retry_count < 3
-       RETURNING id`,
-      [now]
+      `SELECT COUNT(*)::int AS pending FROM offline_queue WHERE synced = false AND retry_count < 3`
     );
+    const pending = Number(result.rows[0]?.pending ?? 0);
+    if (pending === 0) return;
 
-    if (result.rowCount === 0) return;
-
-    console.log(`[scheduler] Synced ${result.rowCount} offline queue items`);
+    console.warn(
+      `[scheduler] ${pending} unsynced offline_queue row(s) left untouched: this table has no ` +
+        'server-side delivery path. Browser clients replay their own queue via /citizen/complaints.'
+    );
   } catch (error) {
-    console.error('[scheduler] Error syncing offline queue:', error);
+    console.error('[scheduler] Error inspecting offline queue:', error);
   }
 }
 
@@ -537,16 +554,29 @@ async function applyUserKarma(userId: string | null | undefined, delta: number, 
 
 async function applyContractorKarma(contractorId: string | null | undefined, delta: number, reason: string, refId: string): Promise<void> {
   if (!contractorId || !delta) return;
+  // Update the score only; work_band is derived from the stored score below so it
+  // reflects the contractor's real standing rather than an assumed baseline.
   await pool.query(
     `UPDATE contractors
      SET metadata = COALESCE(metadata, '{}'::jsonb)
        || jsonb_build_object(
-            'karma_score', GREATEST(-500, LEAST(10000, COALESCE((metadata->>'karma_score')::numeric, 100) + $2)),
-            'work_band', $3
+            'karma_score', GREATEST(-500, LEAST(10000, COALESCE((metadata->>'karma_score')::numeric, 100) + $2))
           ),
          updated_at = NOW()
      WHERE id = $1::uuid`,
-    [contractorId, delta, getWorkBandFromScore(100 + delta)]
+    [contractorId, delta]
+  ).catch(() => null);
+  const scoreRes = await pool.query<{ karma_score: string | number | null }>(
+    `SELECT (metadata->>'karma_score')::numeric AS karma_score
+     FROM contractors WHERE id = $1::uuid LIMIT 1`,
+    [contractorId]
+  ).catch(() => null);
+  const score = Number(scoreRes?.rows[0]?.karma_score ?? 0);
+  await pool.query(
+    `UPDATE contractors
+     SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('work_band', $2)
+     WHERE id = $1::uuid`,
+    [contractorId, getWorkBandFromScore(score)]
   ).catch(() => null);
   await pool.query(
     `INSERT INTO karma_ledger (user_id, delta, reason, ref_id, created_at)
@@ -720,7 +750,10 @@ async function generateReports(): Promise<void> {
     yesterday.setHours(0, 0, 0, 0);
     const dayStart = yesterday;
     const dayEnd   = new Date(yesterday.getTime() + 24 * 60 * 60 * 1000);
-    const dateStr  = yesterday.toISOString().split('T')[0];
+    // Label the report by the service-timezone calendar date. toISOString()
+    // would convert local midnight to UTC and shift the label back a day for
+    // any timezone east of UTC (e.g. Asia/Kolkata).
+    const dateStr  = getDatePartsInTimeZone(yesterday, config.timezone).ymd;
 
     const result = await pool.query(
       `WITH daily_stats AS (
@@ -779,6 +812,7 @@ async function healthCheck(): Promise<void> {
 async function initializeScheduler(): Promise<void> {
   console.log(`[${config.serviceName}] Starting scheduler service...`);
   console.log(`[${config.serviceName}] Timezone: ${config.timezone}; skip holidays: ${config.skipHolidays}`);
+  console.log(`[${config.serviceName}] Endpoints: ${describeEndpoints()}`);
 
   try {
     const result = await pool.query('SELECT version()');
@@ -826,6 +860,9 @@ async function initializeScheduler(): Promise<void> {
 
 const isMain = process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test';
 if (isMain) {
+  // A cron tick that rejects (DB blip, gateway timeout) must not kill the
+  // scheduler — it would silently stop every downstream job until a restart.
+  installProcessGuards({ serviceName: 'scheduler' });
   initializeScheduler().catch((error: unknown) => {
     console.error('[scheduler] Failed to initialize:', error);
     process.exit(1);

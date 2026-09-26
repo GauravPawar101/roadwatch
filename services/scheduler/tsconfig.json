@@ -1,9 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./",
     "baseUrl": ".",
+    "noEmit": true,
     "module": "esnext",
     "paths": {
       "@roadwatch/core": ["../../packages/core/src/index.ts"],
@@ -12,5 +11,5 @@
     }
   },
   "include": ["./**/*.ts"],
-  "exclude": ["node_modules", ".turbo"]
+  "exclude": ["node_modules", ".turbo", "dist"]
 }

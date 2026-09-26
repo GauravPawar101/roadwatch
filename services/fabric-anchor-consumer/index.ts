@@ -7,7 +7,7 @@ import { promises as fs } from 'fs';
 import { Kafka as KafkaJS } from 'kafkajs';
 import { Pool } from 'pg';
 
-import { fabricLedgerService } from '@roadwatch/core';
+import { fabricLedgerService, installProcessGuards } from '@roadwatch/core';
 import { getHlfKafkaBrokers, KafkaProducer, KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '@roadwatch/kafka';
 
 type DbClient = Pool;
@@ -177,7 +177,7 @@ function requireEnv(value: string | undefined, name: string): string {
   return value;
 }
 
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
@@ -188,11 +188,11 @@ function stableStringify(value: unknown): string {
   return `{${body}}`;
 }
 
-function sha256Hex(input: string): string {
+export function sha256Hex(input: string): string {
   return crypto.createHash('sha256').update(input, 'utf8').digest('hex');
 }
 
-function toFabricRegionCode(input: string | null | undefined): string {
+export function toFabricRegionCode(input: string | null | undefined): string {
   const compact = String(input ?? '')
     .trim()
     .replace(/\s+/g, '-')
@@ -205,7 +205,7 @@ function toFabricRegionCode(input: string | null | undefined): string {
   return compact.length <= 10 ? compact : compact.slice(0, 10);
 }
 
-function merkleRoot(leaves: string[]): { root: string; proofs: ProofStep[][] } {
+export function merkleRoot(leaves: string[]): { root: string; proofs: ProofStep[][] } {
   if (leaves.length === 0) {
     return { root: sha256Hex(''), proofs: [] };
   }
@@ -688,7 +688,19 @@ async function main(): Promise<void> {
   await db.end();
 }
 
-main().catch(err => {
-  console.error('[fabric-anchor-consumer] fatal:', err);
-  process.exitCode = 1;
-});
+// Only run the consumer loop when this module is the service entrypoint, so the
+// pure helpers above can be imported by tests without connecting to Fabric/Kafka.
+const isServiceEntryPoint =
+  process.env.VITEST !== 'true' &&
+  process.env.NODE_ENV !== 'test' &&
+  process.env.FABRIC_ANCHOR_NO_AUTOSTART !== 'true';
+
+if (isServiceEntryPoint) {
+  // Fabric/Kafka handlers that reject must not kill the consumer, or anchors
+  // would stop being written while the events still look acknowledged.
+  installProcessGuards({ serviceName: 'fabric-anchor-consumer' });
+  main().catch(err => {
+    console.error('[fabric-anchor-consumer] fatal:', err);
+    process.exitCode = 1;
+  });
+}
