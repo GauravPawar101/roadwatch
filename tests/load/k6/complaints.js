@@ -3,7 +3,10 @@ import crypto from 'k6/crypto';
 import encoding from 'k6/encoding';
 import http from 'k6/http';
 
-const BASE_URL = __ENV.TARGET_URL || 'http://localhost:3000';
+// Defaults to the gateway API, not the frontend. The previous default pointed
+// at :3000, so an unconfigured run measured the wrong service and reported a
+// wall of failures that looked like a capacity problem.
+const BASE_URL = __ENV.TARGET_URL || 'http://localhost:3100';
 const JWT_SECRET = __ENV.JWT_SECRET || 'local_development_cryptographic_secret';
 
 export const options = {

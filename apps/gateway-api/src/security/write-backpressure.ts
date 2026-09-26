@@ -18,7 +18,10 @@ function boundsFromEnv(): AdaptiveLimitBounds {
     minInflight: readPositiveInt(process.env.COMPLAINT_WRITE_MIN_INFLIGHT, Math.max(4, Math.floor(maxInflight / 4))),
     maxInflight,
     windowSeconds: readPositiveInt(process.env.COMPLAINT_WRITE_WINDOW_SECONDS, 60),
-    inflightTtlSeconds: readPositiveInt(process.env.COMPLAINT_WRITE_INFLIGHT_TTL_SECONDS, 120)
+    inflightTtlSeconds: readPositiveInt(process.env.COMPLAINT_WRITE_INFLIGHT_TTL_SECONDS, 120),
+    // Resolving the limits costs several Redis round-trips, so they are
+    // memoized briefly instead of on every write. Set to 0 to always re-read.
+    limitsCacheMs: Number.parseInt(process.env.COMPLAINT_WRITE_LIMITS_CACHE_MS ?? '2000', 10) || 0
   };
 }
 

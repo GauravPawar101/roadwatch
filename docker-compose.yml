@@ -1,4 +1,54 @@
 services:
+  # ── Managed-standin profile ────────────────────────────────────────────────
+  # Second, independent Postgres and Redis that stand in for a cloud/managed
+  # offering (RDS, Neon, Upstash, ...). They exist so the cloud-first
+  # precedence in @roadwatch/core can be verified against a *real* second
+  # server rather than only asserted in a unit test: with both tiers
+  # configured, the write must land here and not on the in-cluster instance.
+  #
+  #   ./ops/dev/compose.sh --profile cloud-sim up -d managed-postgres managed-redis
+  #   export DATABASE_CLOUD_URL='postgresql://postgres:postgres@127.0.0.1:15434/roadwatch'
+  #   export REDIS_CLOUD_URL='redis://127.0.0.1:16380/0'
+  #   tsx packages/core/src/cloud-precedence.probe.ts
+  #
+  # Never used in a real deployment; the point is to be a believable "other
+  # server" that the resolver must prefer.
+  managed-postgres:
+    profiles: ["cloud-sim"]
+    image: postgres:15-alpine
+    container_name: roadwatch_managed_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: roadwatch
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "${MANAGED_POSTGRES_HOST_PORT:-15434}:5432"
+    volumes:
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d roadwatch"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - roadwatch
+
+  managed-redis:
+    profiles: ["cloud-sim"]
+    image: redis:7-alpine
+    container_name: roadwatch_managed_redis
+    restart: unless-stopped
+    ports:
+      - "${MANAGED_REDIS_HOST_PORT:-16380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - roadwatch
+
   # Postgres - Production Database
   postgres:
     image: postgres:15-alpine

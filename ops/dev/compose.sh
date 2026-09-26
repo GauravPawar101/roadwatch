@@ -24,4 +24,8 @@ if [[ "$CONTAINER_RUNTIME" == "docker" ]]; then
   ensure_docker_group "$@"
 fi
 
-exec rt_compose "$@"
+# Call, do not `exec`: rt_compose is a shell function, and `exec` can only
+# replace the current process with an external binary. `exec rt_compose "$@"`
+# therefore failed with "rt_compose: not found" on every invocation, so
+# `pnpm infra:up` never started anything.
+rt_compose "$@"

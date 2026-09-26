@@ -9,9 +9,9 @@
  * Usage: tsx packages/core/src/cloud-precedence.probe.ts
  */
 import net from 'node:net';
-import { createPool } from './postgres.js';
-import { resolveRedisEndpoint } from './config/endpoints.js';
-import { getRedisConfig } from '../../redis/config.js';
+import { createPool } from '../../packages/core/src/postgres.js';
+import { resolveRedisEndpoint } from '../../packages/core/src/config/endpoints.js';
+import { getRedisConfig } from '../../packages/redis/config.js';
 
 /**
  * Minimal RESP client. Deliberately hand-rolled rather than using ioredis:
@@ -75,8 +75,9 @@ const env = {
   REDIS_CLOUD_URL: MANAGED_REDIS,
 } as NodeJS.ProcessEnv;
 
-const results: Array<{ check: string; expected: string; actual: string; pass: boolean }> = [];
-function record(check: string, expected: string, actual: string) {
+type Outcome = string | boolean;
+const results: Array<{ check: string; expected: Outcome; actual: Outcome; pass: boolean }> = [];
+function record(check: string, expected: Outcome, actual: Outcome) {
   results.push({ check, expected, actual, pass: expected === actual });
 }
 
@@ -133,7 +134,7 @@ record('in-cluster redis did NOT receive the write', false, await redisHasKey(16
 // A resolver that always preferred "cloud" would pass every check above while
 // making the local stack unusable, so the fallback direction is verified too.
 const localOnlyEnv = { DATABASE_URL: LOCAL_PG, REDIS_URL: LOCAL_REDIS } as NodeJS.ProcessEnv;
-record('without a managed value, postgres falls back in-cluster', LOCAL_PG, createPool(localOnlyEnv).options.connectionString as string);
+record('without a managed value, postgres falls back in-cluster', LOCAL_PG, String(createPool(localOnlyEnv).options.connectionString));
 record('without a managed value, redis falls back in-cluster', LOCAL_REDIS, resolveRedisEndpoint(localOnlyEnv).url);
 record('resolver labels the fallback as explicit', 'explicit', resolveRedisEndpoint(localOnlyEnv).source);
 

@@ -13,7 +13,36 @@ export type AdaptiveLimitBounds = {
   maxInflight: number;
   windowSeconds: number;
   inflightTtlSeconds: number;
+  /**
+   * How long a resolved limit may be reused in-process before the load signals
+   * are read again. Defaults to 2000ms.
+   *
+   * The limits move on the scale of seconds (outbox depth, error counters),
+   * so re-reading them on every request spends several Redis round-trips per
+   * request to obtain a value that has barely changed. Under load that
+   * overhead was measured at ~37 Redis commands per complaint write, the
+   * majority of them admission-control bookkeeping rather than application
+   * work. Set to 0 to always re-read.
+   */
+  limitsCacheMs?: number;
 };
+
+const DEFAULT_LIMITS_CACHE_MS = 2000;
+
+type ResolvedLimits = {
+  maxRequestsPerWindow: number;
+  maxInflight: number;
+  windowSeconds: number;
+  inflightTtlSeconds: number;
+};
+
+/** Cached per distinct bounds so two services with different limits do not collide. */
+const limitsCache = new Map<string, { at: number; limits: ResolvedLimits }>();
+
+/** Test hook: drops memoized limits so a test starts from a known state. */
+export function resetAdaptiveLimitsCache(): void {
+  limitsCache.clear();
+}
 
 export type AdaptiveLoadSignals = {
   outboxDepth: number;
@@ -70,12 +99,30 @@ export async function readLoadSignals(): Promise<AdaptiveLoadSignals> {
 /**
  * Compute effective admission limits from load signals, shared across gateway replicas via Redis.
  */
-export async function resolveAdaptiveLimits(bounds: AdaptiveLimitBounds): Promise<{
-  maxRequestsPerWindow: number;
-  maxInflight: number;
-  windowSeconds: number;
-  inflightTtlSeconds: number;
-}> {
+export async function resolveAdaptiveLimits(bounds: AdaptiveLimitBounds): Promise<ResolvedLimits> {
+  const cacheMs = bounds.limitsCacheMs ?? DEFAULT_LIMITS_CACHE_MS;
+  const cacheKey = JSON.stringify([
+    bounds.minRequestsPerWindow,
+    bounds.maxRequestsPerWindow,
+    bounds.minInflight,
+    bounds.maxInflight,
+    bounds.windowSeconds,
+    bounds.inflightTtlSeconds,
+    cacheMs
+  ]);
+
+  const now = Date.now();
+  const memo = limitsCache.get(cacheKey);
+  if (memo && now - memo.at < cacheMs) {
+    return memo.limits;
+  }
+
+  const limits = await computeAdaptiveLimits(bounds);
+  limitsCache.set(cacheKey, { at: now, limits });
+  return limits;
+}
+
+async function computeAdaptiveLimits(bounds: AdaptiveLimitBounds): Promise<ResolvedLimits> {
   const midRequests = Math.round((bounds.minRequestsPerWindow + bounds.maxRequestsPerWindow) / 2);
   const midInflight = Math.round((bounds.minInflight + bounds.maxInflight) / 2);
 
