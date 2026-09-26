@@ -1,0 +1,31 @@
+# Provider-agnostic managed-endpoints overlay.
+#
+# Use this for any managed provider (GCP Cloud SQL / Memorystore / Confluent,
+# Azure Database / Azure Cache / Event Hubs, Aiven, Upstash, Neon, ...).
+#
+# Endpoint values are deliberately NOT stored in this repo. Create the Secret
+# once per environment, then apply this overlay:
+#
+#   kubectl -n roadwatch create secret generic managed-endpoints \
+#     --from-literal=DATABASE_CLOUD_URL='postgresql://user:pass@host:5432/roadwatch?sslmode=require' \
+#     --from-literal=REDIS_CLOUD_URL='rediss://host:6379/0' \
+#     --from-literal=KAFKA_EVENTS_CLOUD_BROKERS='b-1:9094,b-2:9094' \
+#     --from-literal=KAFKA_HLF_CLOUD_BROKERS='b-1:9094,b-2:9094'
+#
+# Every key is optional. Each deployment references this Secret with
+# `optional: true`, so an absent Secret is fine and the service simply keeps
+# using its in-cluster endpoint. Keys present with a value take precedence,
+# because *_CLOUD_* is consulted before the generic in-cluster variables.
+#
+# Run `kubectl -n roadwatch logs deploy/gateway` after applying: startup logs a
+# line like "Endpoints: postgres[cloud] redis[cloud] kafka.events[cloud] ..."
+# which confirms which tier each service resolved.
+#
+# See managed-endpoints.example.yaml for every supported key.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# No global `namespace:` — see the note in overlays/prod/kustomization.yaml.
+
+resources:
+  - ../../base

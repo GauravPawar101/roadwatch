@@ -7,6 +7,27 @@ metadata:
     app.kubernetes.io/part-of: roadwatch
     layer: platform
 data:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Managed (cloud) endpoint overrides.
+  #
+  # Leave these EMPTY to use the in-cluster endpoints below. A *_CLOUD_* value
+  # is a deliberate deployment-target choice and takes precedence over the
+  # generic in-cluster variables, so setting one is all that is required to
+  # point the platform at RDS/ElastiCache/MSK/etc. Empty values are treated as
+  # unset, so the fallbacks apply.
+  #
+  # Precedence (see @roadwatch/core resolve*Endpoint):
+  #   cloud -> explicit URL -> in-cluster parts -> built-in local default
+  # ─────────────────────────────────────────────────────────────────────────
+  DATABASE_CLOUD_URL: ""            # postgresql://user:pass@host:5432/roadwatch?sslmode=require
+  POSTGRES_CLOUD_URL: ""            # alias for DATABASE_CLOUD_URL
+  REDIS_CLOUD_URL:    ""            # rediss://default.x.use1.cache.amazonaws.com:6379/0
+  REDIS_MANAGED_URL:  ""            # alias for REDIS_CLOUD_URL
+  KAFKA_EVENTS_CLOUD_BROKERS: ""    # b-1.msk:9094,b-2.msk:9094
+  KAFKA_EVENTS_MANAGED_BROKERS: ""  # alias
+  KAFKA_HLF_CLOUD_BROKERS:    ""    # b-1.msk:9094,b-2.msk:9094
+  KAFKA_HLF_MANAGED_BROKERS:  ""    # alias
+
   # ── Postgres (HA: primary + streaming replica) ─────────────────
   POSTGRES_HOST: "postgres-primary-0.postgres-primary.roadwatch.svc.cluster.local"
   POSTGRES_HOST_RO: "postgres-replica-0.postgres-replica.roadwatch.svc.cluster.local"

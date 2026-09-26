@@ -35,6 +35,12 @@ spec:
                 name: app-config
             - secretRef:
                 name: app-secrets
+            # Optional managed (cloud) endpoint overrides. Referenced with
+            # optional:true so a cluster without the Secret still starts and
+            # falls back to the in-cluster endpoints in infra-config.
+            - secretRef:
+                name: managed-endpoints
+                optional: true
           env:
             - name: SERVICE_NAME
               value: "webhook"
@@ -112,6 +118,12 @@ spec:
                 name: fabric-config
             - secretRef:
                 name: app-secrets
+            # Optional managed (cloud) endpoint overrides. Referenced with
+            # optional:true so a cluster without the Secret still starts and
+            # falls back to the in-cluster endpoints in infra-config.
+            - secretRef:
+                name: managed-endpoints
+                optional: true
           env:
             - name: SERVICE_NAME
               value: "fabric-anchor"

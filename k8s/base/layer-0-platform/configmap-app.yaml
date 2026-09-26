@@ -40,4 +40,11 @@ data:
   KAFKA_CONSUMER_TIMEOUT:   "3000"
 
   # ── Background workers ─────────────────────────────────────────
-  NOTIFICATION_DISPATCH_INTERVAL_MS: "10000"
+  # NOTE: the gateway reads NOTIFICATIONS_DISPATCHER_* (plural "notifications",
+  # and "dispatcher"). A previous NOTIFICATION_DISPATCH_INTERVAL_MS key here
+  # never matched anything, so the interval silently stayed at its 60s default.
+  NOTIFICATIONS_DISPATCHER_ENABLED: "false"
+  NOTIFICATIONS_DISPATCHER_INTERVAL_MS: "10000"
+
+  # Kafka topic override (used by the backend-api test tooling).
+  KAFKA_TOPIC_COMPLAINTS: "complaint-submitted"
