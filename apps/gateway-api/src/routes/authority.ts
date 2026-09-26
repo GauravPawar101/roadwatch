@@ -6,7 +6,7 @@ import { getContractorScorecard, trackAnalyticsEvent } from '../analytics/servic
 import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, releaseIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
 import { enqueueKafkaEvent } from '../kafka/outbox.js';
 import { createAndFanoutNotification } from '../notifications/service.js';
-import { sql as pool } from '../postgres.js'; // Use `sql` tagged-template executor exported from postgres.ts
+import { sql as pool, sqlFragment } from '../postgres.js'; // `sql` executes; `sqlFragment` composes
 import { assertDistrictAccess, assertZoneAccess, requireAuth, requireRole } from '../rbac.js';
 import { broadcastComplaintEvent } from '../realtime/sse.js';
 import { fabricLedgerService } from '../services/fabric-ledger.js';
@@ -659,23 +659,23 @@ router.get('/complaints', requireAuth, async (req, res) => {
     .object({ district: z.string().optional(), zone: z.string().optional(), status: z.string().optional() })
     .parse(req.query);
 
-  let districtCondition = pool``;
+  let districtCondition = sqlFragment``;
   if (query.district) {
     if (!assertDistrictAccess(user as any, query.district)) return res.status(403).json({ error: 'Forbidden' });
-    districtCondition = pool`AND district = ${query.district}`;
+    districtCondition = sqlFragment`AND district = ${query.district}`;
   } else if (user.role !== 'CE' && !user.districts.includes('ALL') && user.districts.length) {
-    districtCondition = pool`AND district = ANY(${user.districts})`;
+    districtCondition = sqlFragment`AND district = ANY(${user.districts})`;
   }
 
-  let zoneCondition = pool``;
+  let zoneCondition = sqlFragment``;
   if (query.zone) {
     if (!assertZoneAccess(user as any, query.zone)) return res.status(403).json({ error: 'Forbidden' });
-    zoneCondition = pool`AND zone = ${query.zone}`;
+    zoneCondition = sqlFragment`AND zone = ${query.zone}`;
   } else if (user.role !== 'CE' && !user.zones.includes('ALL') && user.zones.length) {
-    zoneCondition = pool`AND zone = ANY(${user.zones})`;
+    zoneCondition = sqlFragment`AND zone = ANY(${user.zones})`;
   }
 
-  const statusCondition = query.status ? pool`AND status = ${query.status}` : pool``;
+  const statusCondition = query.status ? sqlFragment`AND status = ${query.status}` : sqlFragment``;
 
   // Use dynamic pool tagging components seamlessly
   const list = await pool`

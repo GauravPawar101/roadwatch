@@ -145,6 +145,26 @@ function createSqlExecutor(executor: (text: string, values: any[]) => Promise<an
   return tag;
 }
 
+/**
+ * Build a composable SQL fragment without executing it.
+ *
+ * The `pool` tag executes and returns rows, so it can never be used to build a
+ * partial statement. The list endpoints built their WHERE clauses as
+ * `let cond = pool``; if (x) cond = pool`AND col = ${x}``, which produced a
+ * *Promise* in the variable. Interpolating that Promise into the outer template
+ * failed the isSqlFragment check, so the condition was never spliced into the
+ * SQL and the parameter list was shifted past a placeholder that no longer
+ * existed — Postgres rejected it with `syntax error at or near "$1"` and the
+ * endpoint returned 500 for every request. Two read endpoints were affected.
+ *
+ * This returns the fragment shape the executor actually understands, so
+ * placeholders are renumbered correctly when spliced.
+ */
+export function sqlFragment(strings: TemplateStringsArray, ...values: unknown[]): SqlFragment {
+  const built = buildSql(strings, values);
+  return { __isSqlFragment: true, text: built.text, values: built.values };
+}
+
 // Simple query wrapper using the shared PgBouncer-backed pg pool
 export const query = <T extends pg.QueryResultRow = pg.QueryResultRow>(text: string, params?: any[]): Promise<pg.QueryResult<T>> =>
   realPool.query<T>(text, params);

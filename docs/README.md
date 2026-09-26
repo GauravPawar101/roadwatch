@@ -13,6 +13,7 @@ RoadWatch is a blockchain-enabled citizen complaint management platform for road
 | Use managed / free-tier infrastructure | [Managed Services](./MANAGED_SERVICES.md) |
 | Configure Postgres, Redis and Kafka endpoints | [Infrastructure Config](./INFRA_CONFIG.md) |
 | Load-test and measure efficiency | [Load Testing](./LOAD_TESTING.md) |
+| Know the throughput ceiling before scaling | [Capacity](./CAPACITY.md) |
 | Find demo login credentials | [Test Credentials](./reference/test-credentials.md) |
 | Look up ports and URLs | [Ports Reference](./reference/ports.md) |
 
@@ -71,6 +72,7 @@ RoadWatch is a blockchain-enabled citizen complaint management platform for road
 - [Infrastructure endpoint configuration](./INFRA_CONFIG.md)
 - [Managed and free-tier services](./MANAGED_SERVICES.md)
 - [Load and efficiency testing](./LOAD_TESTING.md)
+- [Capacity and scaling limits](./CAPACITY.md)
 - [Seeding and onboarding](./operations/seeding-and-onboarding.md)
 - [Monitoring](./operations/monitoring.md)
 - [Troubleshooting](./operations/troubleshooting.md)
