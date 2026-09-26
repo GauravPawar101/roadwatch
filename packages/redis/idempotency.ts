@@ -23,3 +23,16 @@ export async function claimIdempotencyKey(
   const result = await redis.set(key, '1', 'EX', ttlSeconds, 'NX');
   return { ok: true, claimed: result === 'OK' };
 }
+
+/**
+ * Releases a previously claimed key so the work can be retried.
+ *
+ * Call this when processing a claimed item fails: a claim is only meant to
+ * suppress a *repeat* of work that already succeeded. Without releasing on
+ * failure, a redelivery is rejected as a duplicate and the item is lost.
+ */
+export async function releaseIdempotencyKey(key: string): Promise<void> {
+  if (!isRedisConfigured()) return;
+  const redis = getRedisClient();
+  await redis.del(key);
+}

@@ -1,4 +1,4 @@
-import { Complaint, ComplaintStatus } from '@roadwatch/core/src/domain/Complaint';
+import { Complaint } from '@roadwatch/core/src/domain/Complaint';
 import { GeoCoordinate } from '@roadwatch/core/src/domain/GeoCoordinate';
 import type { IStorageProvider } from '@roadwatch/core/src/interfaces/IStorageProvider';
 
@@ -295,7 +295,7 @@ export class SqliteStorageProvider implements IStorageProvider {
       JSON.parse(row.image_hashes)
     );
     
-    return baseComplaint.updateStatus(row.status as ComplaintStatus);
+    return baseComplaint.updateStatus(row.status);
   }
 
   async updateComplaint(complaint: Complaint): Promise<void> {
@@ -329,7 +329,7 @@ export class SqliteStorageProvider implements IStorageProvider {
         row.description,
         GeoCoordinate.create(row.lat, row.lng), 
         JSON.parse(row.image_hashes)
-      ).updateStatus(row.status as ComplaintStatus)
+      ).updateStatus(row.status)
     );
   }
 }

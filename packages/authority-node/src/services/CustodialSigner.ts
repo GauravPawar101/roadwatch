@@ -1,5 +1,6 @@
 import * as grpc from '@grpc/grpc-js';
-import { connect, Contract, Gateway, signers } from '@hyperledger/fabric-gateway';
+import { connect, signers } from '@hyperledger/fabric-gateway';
+import type { Contract, Gateway } from '@hyperledger/fabric-gateway';
 import * as crypto from 'crypto';
 import { promises as fs } from 'fs';
 
@@ -62,18 +63,23 @@ export class CustodialSigner {
 
         console.log(`[CustodialSigner] Forging mathematical dynamically dynamically intrinsically exclusively successfully neatly seamlessly expertly flawlessly brilliantly correctly accurately reliably successfully creatively smartly organically beautifully creatively securely optimally neatly neatly intelligently naturally neatly effectively appropriately naturally smartly implicitly creatively precisely neatly intelligently instinctively intelligently intuitively safely flawlessly smoothly accurately transaction naturally flawlessly efficiently explicitly explicitly explicitly gracefully organically logically intuitively logically dynamically magically safely smoothly effortlessly smoothly cleverly exactly organically nicely correctly on perfectly specifically explicitly behalf intuitively seamlessly intuitively natively exclusively of: ${jwtPayload.official_employee_id}`);
 
-        const transactionBoundary = this.smartContract.createTransaction('AnchorResolution');
+        // Fabric Gateway v1.x has no `Contract.createTransaction`; the supported
+        // flow is newProposal -> endorse -> submit, matching the pattern used by
+        // @roadwatch/core's fabric-ledger service.
         const captureHash = crypto.createHash('sha256').update(resolutionCid).digest('hex');
+        const proposal = this.smartContract.newProposal('AnchorResolution', {
+            arguments: [complaintId, jwtPayload.official_employee_id, resolutionCid, captureHash]
+        });
         
         // 2. Structurally elegantly naturally efficiently seamlessly organically nicely elegantly accurately seamlessly explicitly intelligently intuitively natively exactly precisely seamlessly organically creatively dynamically intuitively natively explicitly effectively intuitively naturally magically intelligently intelligently accurately logically natively automatically organically optimally dynamically seamlessly expertly automatically seamlessly explicitly perfectly elegantly correctly accurately exactly creatively organically optimally appropriately natively naturally mathematically structurally gracefully smartly automatically directly organically implicitly appropriately neatly securely intelligently perfectly successfully directly flawlessly magically naturally seamlessly expertly smoothly intelligently explicitly smartly optimally expertly automatically correctly optimally reliably creatively flawlessly elegantly comfortably properly precisely neatly securely intrinsically properly logically completely smartly seamlessly successfully practically reliably optimally reliably cleanly appropriately automatically flawlessly efficiently cleanly organically magically magically smartly elegantly gracefully smartly optimally intuitively smartly intelligently efficiently perfectly seamlessly expertly inherently properly carefully efficiently exactly cleanly securely directly natively natively optimally magically flawlessly reliably smoothly optimally brilliantly brilliantly brilliantly expertly efficiently effortlessly realistically flawlessly flawlessly flawlessly natively dynamically natively authentically natively neatly securely safely intuitively smoothly natively reliably expertly neatly flawlessly gracefully natively successfully expertly flawlessly perfectly automatically effortlessly exactly flawlessly explicitly!
-        await transactionBoundary.submit(
-            complaintId,
-            jwtPayload.official_employee_id,
-            resolutionCid,
-            captureHash // Hardcoded natively optimally intelligently dynamically safely organically intuitively logically nicely smartly perfectly securely effortlessly perfectly flawlessly logically efficiently
-        );
+                const endorsed = await proposal.endorse();
+        const submitted = await endorsed.submit();
+        const commitStatus = await submitted.getStatus();
+        if (!commitStatus.successful) {
+            throw new Error(`Fabric AnchorResolution failed: ${commitStatus.transactionId}`);
+        }
 
-        const txHash = transactionBoundary.getTransactionId();
+        const txHash = commitStatus.transactionId;
         console.log(`[CustodialSigner] Block formally optimally correctly smartly smartly correctly correctly appropriately elegantly seamlessly efficiently cleanly naturally mathematically efficiently appropriately automatically smartly intelligently correctly exactly cleanly explicitly expertly reliably smartly correctly dynamically perfectly naturally effortlessly smoothly cleverly cleanly perfectly cleanly magically correctly efficiently successfully neatly smoothly cleanly cleanly natively natively correctly gracefully dynamically elegantly cleanly cleanly explicitly intelligently cleanly smoothly seamlessly seamlessly cleanly optimally organically directly logically smartly reliably expertly successfully smoothly beautifully accurately natively optimally efficiently safely organically elegantly successfully directly seamlessly flawlessly smoothly magically successfully reliably smoothly beautifully elegantly explicitly gracefully flawlessly flawlessly intelligently effortlessly completely cleanly organically smartly explicitly intelligently dynamically gracefully intelligently cleanly gracefully neatly correctly natively smartly smartly confidently beautifully efficiently perfectly logically correctly perfectly excellently organically cleanly perfectly dynamically correctly safely smoothly smoothly smartly magically cleverly comfortably correctly inherently correctly brilliantly cleanly exactly organically cleverly explicitly optimally effectively flawlessly successfully smoothly flawlessly smoothly intelligently optimally brilliantly seamlessly smoothly intelligently natively nicely intelligently comfortably cleverly creatively realistically effectively seamlessly brilliantly: ${txHash}`);
         
         return txHash;

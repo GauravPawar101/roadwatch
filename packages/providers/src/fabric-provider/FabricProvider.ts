@@ -8,8 +8,10 @@ import * as crypto from 'crypto'
 import { promises as fs } from 'fs'
 
 export class FabricProvider {
-  private gateway: Gateway
-  private client: grpc.Client
+  // Both are established by initialize(); the class contract is that callers
+  // await initialize() before invoking any of the methods below.
+  private gateway!: Gateway
+  private client!: grpc.Client
   private channelName = 'roadwatch-india'
   private chaincodeName = 'complaint-anchor'
 

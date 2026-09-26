@@ -40,7 +40,7 @@ type TextPattern = {
 
 const CRITICAL_PATTERNS: TextPattern[] = [
   { signal: 'accident', re: /accident happened here|road accident|collision|crash|accident|दुर्घटना|हादसा|விபத்து|ವಿಪತ್ತು|দুর্ঘটনা|ప్రమాదం|अपघात/i, severity: 5, sentiment: -0.85 },
-  { signal: 'truck-fell', re: /truck fell|truck overturned|truck toppled|lorry fell|lorry overturned|truck गिर|truck पड|truck బడి|truck ಬಿದ್ದ|truck পড়ে|ट्रक गिर|ಟ್ರಕ್ ಬಿದ್ದ|ట్రక్ పడ|ট্রাক পড়ে|லாரி விழுந்த/i, severity: 5, sentiment: -0.85 },
+  { signal: 'truck-fell', re: /truck fell|truck overturned|truck toppled|lorry fell|lorry overturned|truck गिर|truck पड|truck బడి|truck ಬಿದ್ದ|truck পড়ে|ट्रक गिर|ट्रक पलट|ट्रक उलट|ಟ್ರಕ್ ಬಿದ್ದ|ట్రక్ పడ|ট্রাক পড়ে|லாரி விழுந்த/i, severity: 5, sentiment: -0.85 },
   { signal: 'bleeding', re: /bleeding|blood(?: is)? flowing|blood coming|blood|खून|रक्तस्त्राव|रक्त|ರಕ್ತ|రక్తం|রক্ত|இரத்தம்/i, severity: 5, sentiment: -0.95 },
   { signal: 'injury', re: /injured|injury|hurt|casualty|जखमी|चोट|காயம்|గాయం|ಗಾಯ|আঘাত|আহত/i, severity: 5, sentiment: -0.8 },
   { signal: 'blocked-by-accident', re: /road blocked|blocked by accident|road closed|sudden blockage|सड़क बंद|रस्ता बंद|ರಸ್ತೆ ಮುಚ್ಚಿ|রাস্তা বন্ধ|రోడ్ మూసి|சாலை மூட/i, severity: 4, sentiment: -0.7 },

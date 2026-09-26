@@ -9,6 +9,12 @@
     "noEmit": false,
     "types": ["node"]
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "//": [
+    "This package is an empty placeholder: it has no source files yet and nothing",
+    "in the workspace imports it. `files: []` marks it intentionally empty so the",
+    "repo-wide `pnpm typecheck` does not fail with TS18003 ('no inputs found').",
+    "Populate src/ and switch back to `include` when the module is implemented."
+  ],
+  "files": [],
+  "exclude": ["node_modules", "dist"]
 }
