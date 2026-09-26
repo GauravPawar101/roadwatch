@@ -9,7 +9,7 @@ minutes, ramping to 1000 VUs, on a 16 GB Linux host.
 
 ---
 
-## Three traps that produce fake failures
+## Four traps that produce fake failures
 
 ### 1. The gateway must not be bound to loopback
 
@@ -62,14 +62,69 @@ At the default, a 1000-VU test is capped near 120 writes per minute and every
 other request is rejected with **429**. The k6 summary then reports ~50% failure
 that has nothing to do with capacity — the limiter is doing its job.
 
-For a capacity measurement, raise both:
+### 4. Inflight above the pool size turns 429s into 500s
 
-```bash
-export COMPLAINT_WRITE_MAX_PER_MINUTE=60000
-export COMPLAINT_WRITE_MAX_INFLIGHT=400
+Each admitted write holds a connection for the length of its transaction. If
+the inflight cap exceeds the connection pool, the surplus queues and then fails
+on the acquire timeout. Measured with inflight 250 against a pool of 20:
+
+```
+[gateway-api] unhandled request error: Error: timeout exceeded when trying to connect
+31 x HTTP 500
 ```
 
-Keep the defaults for anything that is meant to behave like production.
+p95 was 3.06 s and max 7.25 s. With inflight matched to the pool, p95 fell to
+628 ms and the 500s disappeared. **Raise `PGPOOL_MAX` and
+`COMPLAINT_WRITE_MAX_INFLIGHT` together**, and remember Postgres defaults to
+`max_connections = 100` across all pools on one database.
+
+For a capacity measurement:
+
+```bash
+export PGPOOL_MAX=60
+export COMPLAINT_WRITE_MAX_PER_MINUTE=60000
+export COMPLAINT_WRITE_MAX_INFLIGHT=60
+```
+
+Keep the shipped defaults for anything meant to behave like production.
+
+---
+
+## Two profiles, and why there are two
+
+| Profile | Path it exercises | Use it for |
+|---|---|---|
+| `complaints.js` | idempotency + proximity **merge** | read/health behaviour, merge throughput |
+| `complaints-insert.js` | the **INSERT** | write-path capacity |
+
+`complaints.js` sends a constant `lat`/`lng`, and the create route merges any
+complaint within `MERGE_RADIUS_M` (100 m) of an existing open one. Every
+request therefore merges into the first, and the insert path is never reached —
+a 3-minute run produced **one** complaint row with `report_count = 38638`.
+
+`complaints-insert.js` spreads coordinates over a ~200 m grid and asserts
+`merged === false`, so a run that silently collapses back onto the merge path
+fails its own thresholds. Use it for any capacity claim about writes.
+
+**Always reconcile the numbers.** `k6` reports successful responses; the
+database reports rows. They must match. If they do not, something is being
+replayed or merged — see the traps below.
+
+### Traps that produce *flattering* results
+
+These are worse than the failing ones, because they look like success.
+
+- **A throwing script reports 100% success.** `encoding.b64encode` in k6
+  accepts a string, `[]byte` or `ArrayBuffer` — not a `charCodeAt` array. If
+  the iteration throws after the first request, k6 counts the health check as
+  the whole iteration. Symptom: a high iteration count, `http_req_failed: 0%`,
+  and an iteration duration far below the profile's `sleep`.
+- **Idempotent replays across runs.** `deriveIdempotencyKey` hashes the body, so
+  a byte-identical payload returns the *previous* run's stored response with
+  `200` and inserts nothing. Always pass a unique `RUN_ID`.
+- **A wrapping grid.** `(__VU * STRIDE + __ITER) % CELLS` collides once
+  `VU * STRIDE` exceeds `CELLS`, putting different VUs on one cell. `STRIDE`
+  must exceed the iterations one VU performs.
 
 ---
 
@@ -82,20 +137,36 @@ Keep the defaults for anything that is meant to behave like production.
 # 2. Gateway, reachable from a container.
 #    Use `tsx src/index.ts`, NOT `pnpm dev` — the dev script is `tsx watch`,
 #    which restarts on any file change and will silently reset your load run.
+#
+#    PGPOOL_MAX and the inflight cap must stay in step. Each admitted write
+#    holds a connection for its transaction, so an inflight cap well above the
+#    pool turns cheap 429s into multi-second waits and then 500s on
+#    connection-acquire timeout.
 HOST=0.0.0.0 \
+PGPOOL_MAX=60 \
 COMPLAINT_WRITE_MAX_PER_MINUTE=60000 \
-COMPLAINT_WRITE_MAX_INFLIGHT=400 \
+COMPLAINT_WRITE_MAX_INFLIGHT=60 \
   pnpm --filter @roadwatch/gateway-api exec tsx src/index.ts &
 
 # 3. Confirm it is up
 curl -s localhost:3100/health
-# 4. Load
+
+# 4. Clear prior state so runs are independent
+podman exec roadwatch_managed_postgres psql -U postgres -d roadwatch \
+  -c "TRUNCATE complaints, api_idempotency_keys, kafka_event_outbox CASCADE;"
+podman exec roadwatch_managed_redis redis-cli FLUSHALL
+# 4. Load — pick the profile, and make the run unique
 SECRET=$(node -e "import('./tools/load/resolve-target.mjs').then(m=>console.log(m.resolveAccessSecret()))")
+RUN_ID="run-$(date +%s)"
 podman run --rm --add-host=host.containers.internal:host-gateway \
   -e TARGET_URL="http://host.containers.internal:3100" \
-  -e JWT_SECRET="$SECRET" -e ACCESS_SECRET="$SECRET" \
+  -e JWT_SECRET="$SECRET" -e ACCESS_SECRET="$SECRET" -e RUN_ID="$RUN_ID" \
   -v "$PWD:/work:ro" -w /work --cpus=4 --memory=2g \
-  docker.io/grafana/k6:latest run --quiet tests/load/k6/complaints.js
+  docker.io/grafana/k6:latest run --quiet tests/load/k6/complaints-insert.js
+
+# 5. Reconcile: responses must equal rows
+podman exec roadwatch_managed_postgres psql -U postgres -d roadwatch \
+  -tAc "SELECT count(*) FROM complaints;"
 ```
 
 `pnpm loadtest` wraps this. The runner warns loudly rather than proceeding if it
@@ -105,72 +176,92 @@ would sign with the development default secret.
 
 ## Measured results
 
-Final run, 1000 VUs, 3 minutes, limiter raised:
+### Insert path (`complaints-insert.js`), after optimisation
+
+1000 VUs, 3 minutes, `PGPOOL_MAX=60`, inflight 60. Responses, rows and
+published events all reconcile exactly:
 
 | Metric | Value |
 |---|---|
-| Throughput | **591 req/s** |
-| Requests | 106,888 |
-| Health checks passed | 100% |
-| Complaint writes accepted | 28,887 (54%) |
-| Rejected (429) | 24,557 (23%) |
-| Latency p50 / p90 / p95 | 23 ms / 576 ms / 2.07 s |
-| Data transferred | 43 MB in, 37 MB out |
+| Accepted inserts | **12,198** |
+| Rejected (429) | 48,610 |
+| Latency p50 / p90 / p95 | 95 ms / 385 ms / **628 ms** |
+| Max latency | **2.11 s** |
+| HTTP 500s | **0** |
+| Outbox PENDING after run | **0** |
+| Gateway CPU per request | 2.47 ms |
+| Gateway RSS | 397 MB median / 448 MB peak |
+
+### What the optimisation pass changed
+
+| Metric | Before | After |
+|---|---|---|
+| Dedupe query | 11.906 ms (seq scan) | **0.152 ms** (index) — 78x |
+| Outbox PENDING after run | 18,463 | **0** |
+| Accepted inserts | 9,784 | **12,198** (+25%) |
+| p95 latency | 3.06 s | **628 ms** (-80%) |
+| Max latency | 7.25 s | **2.11 s** (-71%) |
+| HTTP 500s | 31 (connect timeout) | **0** |
+
+Full analysis, including the three bugs found in the new profile itself, is in
+[`OpenSource/roadwatch/test1.md`](../OpenSource/roadwatch/test1.md) section 8.
 
 ### Resource cost
 
 | Component | Peak CPU | Peak memory |
 |---|---|---|
-| Gateway process | 124.6 CPU-seconds total | 384 MB median (408 MB peak) |
-| Gateway per request | **2.33 ms CPU** | — |
-| Postgres (managed stand-in) | 26.7% | 204 MB |
-| Kafka — events | 12.9% | 481 MB |
-| Kafka — hlf | 12.7% | 481 MB |
-| Redis | 4.7% | 16 MB |
+| Gateway process | 150 CPU-seconds total | 397 MB median (448 MB peak) |
+| Gateway per request | **2.47 ms CPU** | — |
+| Postgres (managed stand-in) | 32.2% | 340 MB |
+| Kafka — events | 12.6% | 542 MB |
+| Kafka — hlf | 12.5% | 579 MB |
+| Redis | 4.3% | 17 MB |
 | pgbouncer | 0.7% | 6 MB |
-| **Data plane total** | **~60%** | — |
+| **Data plane total** | **~63%** | — |
 
-The load generator itself (k6, capped at 4 CPUs) used **100.9% CPU — more than
-the entire data plane combined.** The data plane was not the bottleneck; the
-application and the limiter were.
+The load generator (k6) used more CPU than the entire data plane combined. The
+data plane was never the bottleneck; the application and the limiter were.
 
 ### Reading the results honestly
 
-- **p95 of 2.07 s is poor**, and the tail is the interesting number. The inflight
-  cap converts queueing directly into latency: 400 permits at 2 s of service
-  time is a hard ceiling near 200 writes/s.
-- **54% acceptance is the limiter, not overload.** At 1000 VUs with the cap
-  raised to 60,000/min, the remaining rejections come from the *inflight* cap
-  and from the adaptive shrink (see below).
-- **Gateway RSS grew from 252 MB to 408 MB** across the run, a 62% increase. That
-  may be normal warm-up of connection pools and caches, but it did not plateau.
-  A longer run would confirm whether it is a genuine leak; it is worth checking
-  before running for hours.
+- **p95 of 628 ms is the queue, not the work.** With inflight matched to the
+  pool there is no connection queueing; the tail is the transaction plus the
+  Kafka publish inside it.
+- **Acceptance is still ~20%.** The limiter remains the ceiling on accepted
+  writes, which is the intended behaviour under a 1000-VU stampede.
+- **Gateway RSS reached 448 MB and did not plateau.** Possibly warm-up, possibly
+  a leak. A soak test would distinguish them and has not been run.
 
 ---
 
-## The adaptive limiter, and why raising the limit did not help
+## The adaptive limiter: a control loop around its own output
 
-`resolveAdaptiveLimits` shrinks capacity when it sees pressure: outbox depth,
-recent 429s, recent 5xx. During the first measured run it settled at:
+`resolveAdaptiveLimits` shrinks capacity on genuine pressure — outbox backlog
+and upstream 5xx. It previously also shrank on `recent429Count`, and **a
+rejection is the limiter's own output.** Rejections raised the pressure score,
+which lowered the ceiling, which caused more rejections. Under sustained load
+this ratcheted to the floor and could not recover:
 
 ```json
-{"maxRequestsPerWindow":37500,"maxInflight":250,"pressure":2}
+{"maxRequestsPerWindow":15000,"maxInflight":100,"pressure":4}
 ```
 
-despite `COMPLAINT_WRITE_MAX_PER_MINUTE=60000`.
+`pressure: 4` is the maximum, forcing `shrink = 1`, so the effective limits
+collapsed to the floors. Those floors are *derived* as `max / 4`, so raising
+`COMPLAINT_WRITE_MAX_PER_MINUTE` raised the floor identically — the configured
+maximum was structurally unreachable, which is why raising it appeared to do
+nothing.
 
-**The 429 counter is an input to the limiter that produces 429s.** Once
-rejections start they raise the pressure score, which lowers the ceiling, which
-causes more rejections. Under sustained load this ratchets to the configured
-floor and cannot recover while load continues.
+Fixed: `recent429Count` is no longer a pressure input. Outbox depth and 5xx
+count remain, both independent of the limiter's decisions and both transient, so
+capacity recovers once the backlog drains. 429s are still recorded and exported
+for observability.
 
-That is arguably intended back-off behaviour, but it makes the limiter
-non-deterministic under exactly the conditions you want to measure, and the
-configured maximum becomes unreachable. If you need a stable ceiling for
-capacity testing, either set `COMPLAINT_WRITE_MIN_PER_MINUTE` equal to
-`COMPLAINT_WRITE_MAX_PER_MINUTE` (pinning the floor to the ceiling, so there is
-no span to shrink) or exclude the 429 signal from the pressure score.
+Inspect the live decision at any time:
+
+```bash
+podman exec <redis> redis-cli GET roadwatch:backpressure:adaptive:effective
+```
 
 ---
 
@@ -227,7 +318,14 @@ podman exec <redis-container> redis-cli GET roadwatch:backpressure:adaptive:effe
 - The Fabric anchoring consumer is not in this profile. It needs a Fabric
   Gateway and CA, which have no free hosted tier.
 - `media-ingest` is not in this profile.
-- No soak test was run. Given the RSS growth noted above, a multi-hour run
-  should be done before trusting the process in a long-lived deployment.
-- Results are from a single host with the load generator co-resident. A
-  distributed generator would give cleaner latency numbers.
+- No soak test was run. Gateway RSS reached 448 MB without plateauing; a
+  multi-hour run should be done before trusting the process in a long-lived
+  deployment.
+- Results are from a single host with the load generator co-resident, which
+  was itself using more CPU than the entire data plane. A distributed
+  generator would give cleaner latency numbers.
+- The pool was raised to 60 against Postgres `max_connections = 100`. The
+  remaining throughput ceiling is the pool/connection budget, which has not
+  been swept.
+- Read-path queries are unmeasured. `GET /health` touches neither Postgres nor
+  Redis, so a read-dominated profile would flatter the system.
