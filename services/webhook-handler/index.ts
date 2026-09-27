@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { Kafka } from 'kafkajs';
 import pg from 'pg';
 import { claimIdempotencyKey, releaseIdempotencyKey } from '@roadwatch/redis';
-import { describeEndpoints, resolveKafkaEndpoint, resolvePostgresEndpoint, installProcessGuards } from '@roadwatch/core';
+import { reportInfrastructure, resolveKafkaEndpoint, resolvePostgresEndpoint, installProcessGuards } from '@roadwatch/core';
 
 type NotificationSendEvent = {
   idempotencyKey: string;
@@ -591,7 +591,7 @@ export async function handleWithDedupe(
  */
 async function initializeWebhookHandler(): Promise<void> {
   console.log(`[${config.serviceName}] Starting webhook handler...`);
-  console.log(`[${config.serviceName}] Endpoints: ${describeEndpoints()}`);
+  reportInfrastructure(config.serviceName);
 
   try {
     // Test PostgreSQL connection

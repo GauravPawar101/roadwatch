@@ -24,6 +24,7 @@
     "setup:skip-install": "node ./ops/dev/run.mjs setup --skip-install",
     "bootstrap": "node ./ops/dev/run.mjs setup",
     "verify:bootstrap": "node ./ops/dev/run.mjs verify-bootstrap",
+    "verify:no-shadowing-build": "bash ./ops/verify/no-shadowing-build-output.sh",
 
     "----DEV (all services in parallel)----": "",
     "start:all": "node ./ops/dev/run.mjs start-all",
@@ -48,6 +49,7 @@
     "build:chaincode": "pnpm --filter roadwatch-chaincode build",
 
     "----TEST----": "",
+    "pretest": "bash ./ops/verify/no-shadowing-build-output.sh",
     "test": "turbo run test",
     "test:unit": "turbo run test --filter=@roadwatch/core",
     "test:api": "pnpm --filter @roadwatch/gateway-api test",

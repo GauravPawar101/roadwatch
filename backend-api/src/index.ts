@@ -5,7 +5,7 @@ import type { Request, Response } from 'express-serve-static-core';
 import morgan from 'morgan';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { makeAsyncSafe, pool, installProcessGuards } from '@roadwatch/core';
+import { makeAsyncSafe, pool, installProcessGuards, reportInfrastructure } from '@roadwatch/core';
 import { auditAccess } from './middleware/rbac.js';
 import { permissiveSidecarAuth } from './middleware/sidecarFallback.js';
 import analyticsRouter from './routes/analytics.js';
@@ -26,6 +26,10 @@ const host = process.env.HOST ?? '0.0.0.0';
 
 // One failed request must not take the whole API down.
 installProcessGuards({ serviceName: 'backend-api' });
+
+// Managed tier first, then report what it fell back to, then serve. Throws here
+// when INFRA_REQUIRE_MANAGED is set and a managed endpoint is misconfigured.
+reportInfrastructure('backend-api');
 
 
 const allowedOrigins = (process.env.CORS_ORIGIN || process.env.CORS_ORIGINS || '')

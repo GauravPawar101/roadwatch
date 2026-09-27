@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 import cron from 'node-cron';
 import { Pool } from 'pg';
-import { EscalationEngine, isRegionalHoliday, applySlaBreachContractorPenalty, applySlaBreachEngineerPenalty, applyInspectionOverduePenalty, scaleOrgKarmaDelta, getWorkBandFromScore, getDatePartsInTimeZone, describeEndpoints, resolvePostgresEndpoint, installProcessGuards } from '@roadwatch/core';
+import { EscalationEngine, isRegionalHoliday, applySlaBreachContractorPenalty, applySlaBreachEngineerPenalty, applyInspectionOverduePenalty, scaleOrgKarmaDelta, getWorkBandFromScore, getDatePartsInTimeZone, resolvePostgresEndpoint, installProcessGuards, reportInfrastructure } from '@roadwatch/core';
 import { hierarchyForRoadType } from './hierarchy.js';
 
 interface SchedulerConfig {
@@ -879,7 +879,7 @@ async function healthCheck(): Promise<void> {
 async function initializeScheduler(): Promise<void> {
   console.log(`[${config.serviceName}] Starting scheduler service...`);
   console.log(`[${config.serviceName}] Timezone: ${config.timezone}; skip holidays: ${config.skipHolidays}`);
-  console.log(`[${config.serviceName}] Endpoints: ${describeEndpoints()}`);
+  reportInfrastructure(config.serviceName);
 
   try {
     const result = await pool.query('SELECT version()');

@@ -7,7 +7,7 @@ import { promises as fs } from 'fs';
 import { Kafka as KafkaJS } from 'kafkajs';
 import { Pool } from 'pg';
 
-import { fabricLedgerService, installProcessGuards, resolvePostgresEndpoint } from '@roadwatch/core';
+import { fabricLedgerService, installProcessGuards, reportInfrastructure, resolvePostgresEndpoint } from '@roadwatch/core';
 import { getHlfKafkaBrokers, KafkaProducer, KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '@roadwatch/kafka';
 
 type DbClient = Pool;
@@ -707,6 +707,9 @@ if (isServiceEntryPoint) {
   // Fabric/Kafka handlers that reject must not kill the consumer, or anchors
   // would stop being written while the events still look acknowledged.
   installProcessGuards({ serviceName: 'fabric-anchor-consumer' });
+  // Report the resolved endpoints before connecting, so a missing managed
+  // endpoint is visible even if the consumer later exits.
+  reportInfrastructure('fabric-anchor-consumer');
   main().catch(err => {
     console.error('[fabric-anchor-consumer] fatal:', err);
     process.exitCode = 1;
