@@ -2,6 +2,7 @@ import cors from 'cors';
 import express from 'express';
 import morgan from 'morgan';
 import { makeAsyncSafe } from '@roadwatch/core';
+import { isDraining } from './graceful-shutdown.js';
 import { getServiceGraph, getSystemHealth } from './health.js';
 import { requireAuth } from './rbac.js';
 import { addSseClient } from './realtime/sse.js';
@@ -19,6 +20,11 @@ import reportsRouter from './routes/reports.js';
 import rtiRouter from './routes/rti.js';
 import { acquireComplaintWriteAdmission } from './security/write-backpressure.js';
 import { getAdmissionMetrics } from './security/admission-metrics.js';
+
+/** Truthy in the same sense the config layer uses, so both agree on what "on" means. */
+function truthyEnv(raw: string | undefined): boolean {
+  return /^(1|true|yes|on)$/i.test((raw ?? '').trim());
+}
 
 export function createApp() {
   // Patched before any handler is registered so that every route and
@@ -45,8 +51,26 @@ export function createApp() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin']
   }));
+  // Body parsing. Before any route: a malformed body has to be rejected here, and
+  // the 404 handler below must not be reached first.
   app.use(express.json({ limit: '2mb' }));
-  app.use(morgan('dev'));
+
+  // Request logging.
+  //
+  // `morgan('dev')` wrote a formatted line to stdout for *every* request. At the
+  // throughput this system is being aimed at that is not observability, it is the
+  // workload: 100,000 log lines per second, each formatted and written on the
+  // event loop, and each one a syscall contending with the socket writes for the
+  // response itself. Measured on the paginated complaint list, morgan was among
+  // the largest single consumers of CPU in the response path.
+  //
+  // It is therefore opt-in. LOG_REQUESTS=1 restores per-request logging for
+  // development; in production the deployment is expected to sample, or to
+  // collect access logs from the load balancer, which already sees every request
+  // and is not on the request's critical path.
+  if (truthyEnv(process.env.LOG_REQUESTS)) {
+    app.use(morgan(process.env.LOG_FORMAT ?? 'dev'));
+  }
 
   app.use(async (req, res, next) => {
     const isWriteRequest = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
@@ -95,8 +119,17 @@ export function createApp() {
     }
   });
 
-  // Basic health check
-  app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+  // Readiness. Reports 503 while draining, which is what makes a rolling deploy
+  // stop sending traffic here before the process stops accepting it. A plain
+  // `200 ok` would leave the load balancer writing to a closing instance for the
+  // whole grace period.
+  app.get('/health', (_req, res) => {
+    if (isDraining()) {
+      res.status(503).json({ status: 'draining' });
+      return;
+    }
+    res.json({ status: 'ok' });
+  });
 
   // Comprehensive health check with service status
   app.get('/health/status', async (_req, res) => {

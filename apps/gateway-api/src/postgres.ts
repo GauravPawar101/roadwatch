@@ -216,6 +216,19 @@ export const pool = new Proxy(realPool, {
   },
 }) as pg.Pool;
 
+/**
+ * Closes the pool, so a graceful shutdown does not exit with connections open.
+ *
+ * Called last in the drain sequence. `realPool.end()` rather than the proxy's,
+ * because the proxy binds methods to the target and would otherwise work by
+ * accident rather than by design.
+ */
+export async function closePool(): Promise<void> {
+  await realPool.end().catch((err: unknown) => {
+    console.error('[postgres] pool.end() failed:', err instanceof Error ? err.message : String(err));
+  });
+}
+
 // Existing connection helpers
 export async function connect(): Promise<void> {
   try {

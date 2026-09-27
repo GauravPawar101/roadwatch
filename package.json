@@ -32,6 +32,11 @@
     "verify:redis-cost": "tsx ./tools/verify/redis-command-cost.mts",
     "verify:admission-race": "tsx ./tools/verify/admission-race.mts",
     "verify:admission-race-old": "tsx ./tools/verify/admission-race-old.mts",
+    "verify:shutdown-drill": "bash ./ops/verify/shutdown-drill.sh",
+    "verify:row-count": "tsx ./tools/verify/row-count.mts",
+    "load:probe": "tsx ./tools/load/probe.mts",
+    "load:seed": "tsx ./tools/load/seed-complaints.mts",
+    "profile:read": "bash ./ops/profile/run.sh",
     "ops:apply-schema": "tsx ./tools/verify/apply-schema.mts",
 
     "----DEV (all services in parallel)----": "",

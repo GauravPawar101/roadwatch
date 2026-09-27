@@ -2,6 +2,7 @@ import { Router } from '@roadwatch/core';
 import { KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent } from '@roadwatch/kafka';
 import express from 'express';
 import { z } from 'zod';
+import { paginationShape } from '../http/pagination.js';
 import { getContractorScorecard, trackAnalyticsEvent } from '../analytics/service.js';
 import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, releaseIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
 import { enqueueKafkaEvent } from '../kafka/outbox.js';
@@ -656,7 +657,15 @@ router.get('/complaints', requireAuth, async (req, res) => {
   const user = (req as any).user as { role: string; districts: string[]; zones: string[] };
 
   const query = z
-    .object({ district: z.string().optional(), zone: z.string().optional(), status: z.string().optional() })
+    .object({
+      district: z.string().optional(),
+      zone: z.string().optional(),
+      status: z.string().optional(),
+      // Previously accepted by clients and ignored: the SQL below carried a
+      // hardcoded LIMIT 200, so a request for 20 rows received 200. See
+      // ./pagination.ts for what that cost.
+      ...paginationShape,
+    })
     .parse(req.query);
 
   let districtCondition = sqlFragment``;
@@ -677,7 +686,8 @@ router.get('/complaints', requireAuth, async (req, res) => {
 
   const statusCondition = query.status ? sqlFragment`AND status = ${query.status}` : sqlFragment``;
 
-  // Use dynamic pool tagging components seamlessly
+  // The LIMIT and OFFSET are parameters, not literals, so a caller cannot inject
+  // either and the planner still gets a bound it can plan against.
   const list = await pool`
     SELECT id, district, zone, status, description, lat, lng, created_at, updated_at, fabric_txid
     FROM complaints
@@ -686,7 +696,7 @@ router.get('/complaints', requireAuth, async (req, res) => {
     ${zoneCondition}
     ${statusCondition}
     ORDER BY created_at DESC
-    LIMIT 200
+    LIMIT ${query.limit} OFFSET ${query.offset}
   `;
 
   // postgres.js returns camelCased fields natively if configured. Mapping manually back to old output contract if necessary.
@@ -703,7 +713,15 @@ router.get('/complaints', requireAuth, async (req, res) => {
     fabric_txid: c.fabricTxid ?? c.fabric_txid
   }));
 
-  res.json({ complaints: mappedList });
+  // Pagination is reported, so a client can tell a short page from the end of
+  // the data. `hasMore` is a hint rather than a count: it costs nothing, and a
+  // COUNT(*) per request would undo the saving this whole change is about.
+  const hasMore = mappedList.length === query.limit;
+
+  res.json({
+    complaints: mappedList,
+    pagination: { limit: query.limit, offset: query.offset, returned: mappedList.length, hasMore }
+  });
 });
 
 // ---------------------------------------------------------------------------
