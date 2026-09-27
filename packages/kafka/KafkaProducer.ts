@@ -1,7 +1,7 @@
 import { Kafka as KafkaJS, Partitioners } from 'kafkajs';
 import type { IEventBus, PublishOptions } from '@roadwatch/core';
 import { type KafkaCluster, getPublishClustersForTopic } from './clusters.js';
-import { getEventsKafkaBrokers, getHlfKafkaBrokers } from './config.js';
+import { getKafkaClientOptions } from './config.js';
 
 type ClusterProducer = {
   producer: ReturnType<KafkaJS['producer']>;
@@ -11,25 +11,15 @@ type ClusterProducer = {
 export class KafkaProducer implements IEventBus {
   private readonly clusterProducers = new Map<KafkaCluster, ClusterProducer>();
 
-  private brokersForCluster(cluster: KafkaCluster): string[] {
-    const brokers = cluster === 'hlf' ? getHlfKafkaBrokers() : getEventsKafkaBrokers();
-    if (!brokers) {
-      throw new Error(
-        cluster === 'hlf'
-          ? 'HLF Kafka is required but KAFKA_HLF_BROKERS is not set'
-          : 'Events Kafka is required but KAFKA_EVENTS_BROKERS is not set'
-      );
-    }
-    return brokers;
-  }
-
   private async ensureClusterConnected(cluster: KafkaCluster): Promise<ClusterProducer> {
     const existing = this.clusterProducers.get(cluster);
     if (existing?.connected) return existing;
 
-    const brokers = this.brokersForCluster(cluster);
+    // Throws with an actionable message when the cluster has no brokers, or has
+    // absent or partial SASL credentials.
+    const options = getKafkaClientOptions(cluster, `roadwatch-${cluster}`);
     const entry = existing ?? {
-      producer: new KafkaJS({ clientId: `roadwatch-${cluster}`, brokers }).producer({
+      producer: new KafkaJS(options).producer({
         createPartitioner: Partitioners.LegacyPartitioner
       }),
       connected: false

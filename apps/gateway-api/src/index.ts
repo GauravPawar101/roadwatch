@@ -3,6 +3,8 @@ import { installProcessGuards } from '@roadwatch/core';
 import { createApp } from './app.js';
 import { initDb } from './db.js';
 import { assertNoDevSecretsInProduction, assertRequiredInfrastructure, getEnv } from './env.js';
+import { describeAllKafkaAuth } from '@roadwatch/kafka';
+import { describeEndpoints } from '@roadwatch/core';
 import { startKafkaEventRelay } from './kafka/outbox.js';
 import { startNotificationDispatcher } from './notifications/dispatcher.js';
 import { startRetentionJobs } from './security/retention.js';
@@ -30,4 +32,9 @@ startKafkaEventRelay().catch(error => {
 
 app.listen(env.PORT, env.HOST, () => {
   console.log(`[gateway-api] listening on http://${env.HOST}:${env.PORT}`);
+  // Secret-free: reports which TLS mode and SASL mechanism each cluster resolved
+  // to, and whether Redis is on TLS. Hosted Kafka refuses plaintext, so this
+  // answers "did the managed endpoints actually take effect" at a glance.
+  console.log(`[gateway-api] kafka: ${describeAllKafkaAuth()}`);
+  console.log(`[gateway-api] infra: ${describeEndpoints()}`);
 });
