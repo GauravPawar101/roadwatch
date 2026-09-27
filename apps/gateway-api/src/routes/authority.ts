@@ -24,6 +24,27 @@ import { maybeSyncAnchorComplaint } from '../services/sync-anchor.js';
 import { uuidv7 } from '../uuid.js';
 
 const MERGE_RADIUS_M = 100;
+
+/**
+ * Statuses a complaint can no longer be merged into.
+ *
+ * Set membership rather than an inline array literal: this is evaluated once per
+ * candidate row inside the dedupe scan, and `Array.includes` on a fresh literal
+ * allocates on every call.
+ */
+const MERGE_CLOSED_STATUSES = new Set(['RESOLVED', 'DISMISSED', 'CLOSED']);
+
+/**
+ * How many times the dedupe rescan will retry when the merge target turns out to
+ * be stale under the lock.
+ *
+ * Re-verification only fails when a concurrent writer resolved or removed the row
+ * between the scan and the lock, so a stale candidate is rare and one retry is
+ * normally enough. Three leaves room for a burst without letting a write spin:
+ * the loop is bounded, and exhaustion returns a retryable 503 rather than
+ * splitting a report that should have been merged.
+ */
+const MERGE_SCAN_ATTEMPTS = 3;
 const MERGE_SLA_WINDOW_MS = (roadTypeOrId?: string) => slaHoursForRoadType(roadTypeOrId ?? 'URBAN') * 60 * 60 * 1000;
 
 const router = Router();
@@ -152,33 +173,82 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
 
   await pool.begin(async (tx: any) => {
     if (body.lat != null && body.lng != null) {
-      const candidates = await tx`
-        SELECT id, status, report_count, created_at, updated_at, lat, lng
-        FROM complaints
-        WHERE district = ${body.district}
-          AND zone = ${body.zone}
-          AND lat IS NOT NULL AND lng IS NOT NULL
-          AND UPPER(status) NOT IN ('RESOLVED', 'DISMISSED', 'CLOSED')
-        ORDER BY created_at DESC
-        LIMIT 25
-        FOR UPDATE
-      `;
+      const target = { lat: Number(body.lat), lng: Number(body.lng) };
+      const withinMergeRadius = (row: any): boolean =>
+        row.lat != null &&
+        row.lng != null &&
+        haversineMeters(target, { lat: Number(row.lat), lng: Number(row.lng) }) <= MERGE_RADIUS_M;
+      const isMergeable = (row: any): boolean => !MERGE_CLOSED_STATUSES.has(String(row.status ?? '').toUpperCase());
 
-      const near = (candidates as any[]).find((row) => {
-        if (row.lat == null || row.lng == null) return false;
-        return haversineMeters(
-          { lat: Number(body.lat), lng: Number(body.lng) },
-          { lat: Number(row.lat), lng: Number(row.lng) }
-        ) <= MERGE_RADIUS_M;
-      });
+      // Two-phase dedupe: find the merge target without locking anything, then
+      // lock only that one row, then re-verify it under the lock.
+      //
+      // The previous query was a single `LIMIT 25 ... FOR UPDATE`, which locks
+      // the 25 newest rows *in the district/zone*. Every concurrent write to the
+      // same district/zone therefore queued on the same 25 rows, which is why
+      // adding gateway instances made this worse rather than better: the lock
+      // lives in Postgres, keyed by district/zone, so a second instance contends
+      // on exactly the same rows. Measured on the hot partition, p50 was 794 ms
+      // against 55.6 ms spread over 200 partitions — 14x — and every waiting
+      // backend was on a row lock rather than on CPU or disk.
+      //
+      // The unlocked scan is a plain MVCC read: no row locks, so writers in the
+      // same partition no longer serialise. Correctness is preserved by locking
+      // the single row actually merged into, and re-checking under that lock,
+      // because a candidate can be resolved or removed between the scan and the
+      // lock.
+      // Tracks whether a candidate was found and then rejected under the lock.
+      // Only that case is a genuine contention failure. "No candidate within the
+      // radius" is the ordinary path to a new row, and must not be mistaken for
+      // contention — an earlier version of this conflated the two and answered
+      // 503 for every write outside the radius in a busy partition.
+      let staleCandidateSeen = false;
 
-      if (near) {
-        const decision = shouldEscalateOnMerge(near, MERGE_SLA_WINDOW_MS());
+      for (let attempt = 0; attempt < MERGE_SCAN_ATTEMPTS; attempt += 1) {
+        const candidates = await tx`
+          SELECT id, status, report_count, created_at, updated_at, lat, lng
+          FROM complaints
+          WHERE district = ${body.district}
+            AND zone = ${body.zone}
+            AND lat IS NOT NULL AND lng IS NOT NULL
+            AND UPPER(status) NOT IN ('RESOLVED', 'DISMISSED', 'CLOSED')
+          ORDER BY created_at DESC
+          LIMIT 25
+        `;
+
+        const near = (candidates as any[]).find(
+          (row) => withinMergeRadius(row) && isMergeable(row),
+        );
+        // Nothing within the radius: no lock is needed at all, and a new row is
+        // the right outcome. Two simultaneous first reports at the same spot
+        // create two rows, which is also what the previous version did — neither
+        // could see the other's uncommitted insert.
+        if (!near) break;
+
+        // Lock exactly one row: the one that will be merged into.
+        const locked = await tx`
+          SELECT id, status, report_count, created_at, updated_at, lat, lng
+          FROM complaints
+          WHERE id = ${near.id}
+          FOR UPDATE
+        `;
+        const row = (locked as any[])[0];
+
+        // Re-verify under the lock. READ COMMITTED gives each statement a fresh
+        // snapshot, so this sees any commit that landed while we were scanning.
+        // A row that was resolved or deleted in the meantime is not a valid
+        // merge target, and merging into it would corrupt report_count.
+        if (!row || !withinMergeRadius(row) || !isMergeable(row)) {
+          staleCandidateSeen = true;
+          continue;
+        }
+
+        const decision = shouldEscalateOnMerge(row, MERGE_SLA_WINDOW_MS());
         merged = true;
-        id = String(near.id);
+        id = String(row.id);
         mergeReason = decision.reason;
         escalated = decision.escalate;
-        status = escalated ? 'ESCALATED' : String(near.status ?? 'FILED');
+        status = escalated ? 'ESCALATED' : String(row.status ?? 'FILED');
 
         const updated = await tx`
           UPDATE complaints
@@ -201,7 +271,7 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
             occurredAt: new Date().toISOString(),
             version: 1,
             complaintId: id,
-            fromStatus: String(near.status ?? 'FILED'),
+            fromStatus: String(row.status ?? 'FILED'),
             toStatus: 'ESCALATED',
             changedBy: { actorType: 'system', actorId: user.sub },
           };
@@ -210,6 +280,19 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
             idempotencyKey: event.idempotencyKey,
           });
         }
+        break;
+      }
+
+      // Only a candidate that went stale under the lock counts as contention.
+      // Inserting after a genuinely contended scan would risk splitting a report
+      // that should have been merged, so the caller is asked to retry. The
+      // idempotency claim is released on the way out, so a retry is an ordinary
+      // request rather than a permanently failed one.
+      if (!merged && staleCandidateSeen) {
+        const error: any = new Error('Complaint merge target changed during this request; please retry');
+        error.statusCode = 503;
+        error.retryAfterSeconds = 1;
+        throw error;
       }
     }
 

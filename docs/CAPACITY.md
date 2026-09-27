@@ -133,22 +133,7 @@ raise every number below.
 
 ---
 
-## 1. The host
-
-| | |
-|---|---|
-| CPU | 12 cores, Intel i5-1334U |
-| RAM | 15 GB |
-| Postgres | `max_connections` 100 (raised to 400 for the test), `shared_buffers` 128 MB, `fsync=on` |
-| Shared with | gateway, Postgres, Redis, 2× Kafka, pgbouncer, **and the load generator** |
-
-The load generator runs on the same 12 cores, and it alone consumed more CPU
-than the entire data plane in the optimisation run. A separate generator
-machine would raise every number below.
-
----
-
-## 2a. Measured ceilings, single gateway instance (26 September, before §1)
+## 2b. Measured ceilings, single gateway instance (26 September, before the §1 fixes)
 
 Kept for comparison. The per-request costs here are the *pre-optimisation*
 figures; §1 is the current measurement and supersedes them.
@@ -176,12 +161,15 @@ Write path, contention removed (200 partitions):
 
 ---
 
-## 3. Wall one, still open: the proximity-dedupe query serialises a district
+## 3. Wall one, now largely removed: the proximity-dedupe query serialised a district
 
-This is the more important finding, because **adding gateway instances makes it
-worse rather than better.**
+**Status: fixed and measured, 27 September 2026.** This was the wall that made
+scaling out actively *harmful*, and it was the precondition for any write-path
+scaling. The original analysis is kept at the end of the section.
 
-`POST /authority/complaints` runs a proximity-dedupe lookup before inserting:
+### The problem
+
+`POST /authority/complaints` ran a proximity-dedupe lookup before inserting:
 
 ```sql
 SELECT id, status, report_count, ... FROM complaints
@@ -192,56 +180,115 @@ ORDER BY created_at DESC
 LIMIT 25 FOR UPDATE
 ```
 
-`FOR UPDATE` locks the 25 newest rows **in that district/zone**. Every concurrent
-write to the same district/zone therefore queues on the same 25 rows. Sampling
-`pg_stat_activity` during a run:
+`FOR UPDATE` locked the 25 newest rows **in the district/zone**. Every concurrent
+write to the same district/zone queued on the same 25 rows. Sampling
+`pg_stat_activity` during a run showed every active backend waiting on a row
+lock, not on CPU or disk.
 
+The lock lived in Postgres, keyed by district/zone, so two gateway instances
+routing to the same district contended on exactly the same rows. Horizontal
+scaling relieved CPU and nothing else.
+
+### The fix
+
+Two phases. Find the merge target with an **unlocked MVCC read** — a plain
+`SELECT` takes no row locks — then lock **only the row actually being merged
+into**, then **re-verify under that lock**:
+
+```ts
+// 1. Unlocked scan: no row locks, so writers in one partition do not serialise.
+const candidates = await tx`SELECT ... ORDER BY created_at DESC LIMIT 25`;  // no FOR UPDATE
+const near = candidates.find(withinMergeRadius);
+
+// 2. Lock exactly one row.
+const locked = await tx`SELECT ... WHERE id = ${near.id} FOR UPDATE`;
+
+// 3. Re-verify: READ COMMITTED gives each statement a fresh snapshot, so this
+//    sees a concurrent resolve or delete that landed during the scan.
+if (!row || !withinMergeRadius(row) || !isMergeable(row)) continue;  // rescan
 ```
-Lock / transactionid :: SELECT id, status, report_count, created_at ... FROM
-Lock / tuple         :: SELECT id, status, report_count, created_at ... FROM
+
+Locked set per write: **25 rows → 1**.
+
+Correctness rests on the re-verification, not on the scan. A candidate can be
+resolved or removed between the scan and the lock, and merging into it would
+corrupt `report_count`. The scan is retried up to three times; exhaustion returns
+a retryable 503 rather than splitting a report that should have been merged, and
+the idempotency claim is released so the retry is an ordinary request.
+
+One subtlety that caused a real bug during the change: "no candidate within the
+radius" is the *ordinary* path to a new row, not contention. An early version
+conflated the two and answered 503 for every write outside the radius in a busy
+partition — 1800 of 4792 requests. The retry path is now gated on a
+candidate-actually-went-stale flag.
+
+### Measured, controlled A/B
+
+Identical hardware, identical settings (concurrency 24, inflight 20, 20s), only
+the dedupe implementation changed. Figures are for **accepted** (2xx) requests
+only: a 429 is answered in under a millisecond, so including rejections makes a
+saturated system look faster than an unloaded one.
+
+| | accepted/s | accepted p50 | accepted p99 |
+|---|---|---|---|
+| **Before**, hot partition | 73.8 | 213.6 ms | 376.2 ms |
+| **Before**, spread over 40 | 282.5 | 56.7 ms | 130.8 ms |
+| **After**, hot partition | **180.3** | **90.6 ms** | **171.0 ms** |
+| **After**, spread over 40 | 264.8 | 59.8 ms | 153.2 ms |
+
+On the hot partition: **2.44x more accepted writes**, p50 -58%, p99 -55%. The
+hot/spread penalty narrowed from **3.77x to 1.52x** on p50. Spread is unchanged
+within noise, so this is specifically the removal of partition serialisation.
+
+At concurrency 24 with the inflight cap mis-set to 200 (above the pool of 20) the
+effect was starker still: p50 **8315 ms -> 102 ms**, and the 500s a mis-set cap
+causes are now a retryable 503 rather than a hard failure.
+
+### What remains
+
+The hot partition is still 1.52x worse than spread, and that residue is
+**inherent**: when many reports are genuinely within 100 m of each other they all
+merge into one row, and a single-row update serialises by definition. Options for
+the remainder, in order of preference:
+
+1. **Stop denormalising `report_count`** — store one row per citizen report and
+   derive the count. Removes the read-modify-write entirely. A schema change.
+2. **Geohash-bucket the dedupe key** so the candidate set is naturally narrow.
+3. **Advisory lock per partition** (`pg_advisory_xact_lock`) — predictable, but
+   still one writer per district at a time, so it caps rather than scales.
+
+### A separate inefficiency in the same query
+
+The predicate is `UPPER(status) NOT IN (...)`, and the wrapping function makes it
+unservable from the index, so it stays a heap check:
+
+```sql
+CREATE INDEX complaints_open_dedupe_idx
+  ON complaints (district, zone, created_at DESC)
+  WHERE lat IS NOT NULL AND lng IS NOT NULL;
 ```
 
-Every active backend was waiting on a row lock, not on CPU or disk.
+A functional index on the same predicate — adding
+`AND UPPER(status) NOT IN (...)` to the partial `WHERE` — would let the lookup be
+index-driven, or better, making status values canonical on write would let
+`UPPER()` be dropped entirely. Not done: it is a schema migration that has to be
+applied to the managed database, and it wants a measurement against
+production-shaped data first.
 
-**Proof by isolation.** Identical hardware, identical request shape, identical
-offered rate — only the number of district/zone partitions differs:
+### The original finding, for reference
+
+Proof by isolation, before the fix, k6:
 
 | | Hot partition (`PUN/Z1`) | Spread over 200 partitions |
 |---|---|---|
-| p50 latency | 794 ms | **55.6 ms** (14× better) |
+| p50 latency | 794 ms | **55.6 ms** (14x better) |
 | p95 latency | 1.07 s | 475 ms |
 | Writes completed | 3,161 | **5,272** (+67%) |
-| CPU per write | 10.1 ms | 7.25 ms (−28%) |
+| CPU per write | 10.1 ms | 7.25 ms (-28%) |
 
-This is not hypothetical contention. A district/zone is the natural partition
-for this system, and a city-wide outage — precisely when a road-maintenance
-complaint platform gets its heaviest traffic — puts every report into one
-partition.
-
-### Why scaling out does not help
-
-The lock is held in Postgres, keyed by district/zone. Two gateway instances
-routing to the same district contend on the same rows. Horizontal scaling
-relieves CPU, not this.
-
-### Options, in order of preference
-
-1. **Lock only the row you will actually merge.** Read the candidates without a
-   lock, find the match, then `SELECT ... WHERE id = $match FOR UPDATE` and
-   re-verify. Reduces the locked set from 25 rows to 1. Smallest change, keeps
-   the correctness property.
-2. **Geohash-bucket the dedupe key** so the candidate set is naturally narrow and
-   different locations never touch the same rows.
-3. **Stop denormalising `report_count`.** Store one row per citizen report and
-   derive the count, removing the read-modify-write entirely. Cleanest, and a
-   schema change.
-4. **Advisory lock per partition** (`pg_advisory_xact_lock`) — predictable, but
-   still one writer per district at a time, so it caps rather than scales.
-
-Option 1 is the one to try first; it is a contained change to a single query.
-
----
-
+This was not hypothetical. A district/zone is the natural partition for this
+system, and a city-wide outage — precisely when a road-maintenance complaint
+platform gets its heaviest traffic — puts every report into one partition.
 ## 4. Wall two: one Node process is about one core
 
 Once contention is removed, writes cost **4.8 ms of CPU each** as measured in §1 and the gateway
@@ -367,20 +414,23 @@ overload becomes latency and a 503 rather than a restart.
 
 ## 7. Recommended next step
 
-1. **Fix the dedupe locking** (§3, option 1) — still the precondition for any
-   write-path scaling, and still not done. It is the one wall that makes scaling
-   out actively *worse* rather than neutral.
-2. **Add read admission control.** The read path still has none, so read overload
+1. **Add read admission control.** The read path still has none, so read overload
    exhausts the pool and kills the process instead of shedding load. This is a
-   correctness issue before it is a throughput one.
-3. **Stop parsing timestamps into `Date` objects** on the read path (§4, item 5).
+   correctness issue before it is a throughput one, and the write path now shows
+   what the right shape is: cheap 429s, a matching pool, and acquire timeouts
+   surfaced as retryable 503s.
+2. **Stop parsing timestamps into `Date` objects** on the read path (§4, item 5).
    Measured at 4.0% of read CPU; needs an audit of `.getTime()` call sites.
+3. **Make the dedupe status filter indexable** (§3) — a functional index on the
+   partial predicate, or canonical status values so `UPPER()` can go. A schema
+   migration, so it wants a production-shaped measurement first.
 4. **Decide the target shape.** 100k reads/s is a horizontal-scaling exercise.
    100k writes/s is a re-architecture: sharded Postgres, an asynchronous write
    path, and a faster runtime on the hot path.
 
 The honest summary: **per-request cost is now 1.5–1.9 ms for a read and 4.8 ms
 for a write, down from 10.7 ms and 9.3 ms.** On this host, one gateway instance
-does roughly 750–1,070 reads/s or 245 writes/s, and both remain CPU-bound on a
-single Node process. Writes are additionally serialised per district by the
-unfixed dedupe lock.
+does roughly 750–1,070 reads/s, and about 170 accepted writes/s on a single hot
+district against 265 spread over 40. Both remain CPU-bound on a single Node
+process. The write path no longer serialises per district beyond what a
+single-row merge genuinely requires.

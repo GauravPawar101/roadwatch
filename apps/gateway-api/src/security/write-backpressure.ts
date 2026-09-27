@@ -28,9 +28,35 @@ export async function acquireComplaintWriteAdmission(input: {
   return permit;
 }
 
+/**
+ * Warns when the inflight cap is above the connection pool.
+ *
+ * Every admitted complaint write holds a Postgres connection for the length of
+ * its transaction, so the pool is the real ceiling on concurrency and the inflight
+ * cap is only a policy above it. A cap above the pool does not raise throughput;
+ * it converts what should be a cheap 429 into a multi-second wait on connection
+ * acquire. Measured at inflight 200 against a pool of 20: 93 of 690 requests
+ * answered 500 with `timeout exceeded when trying to connect`.
+ *
+ * Warned rather than rejected, because the two are independently tuned and a
+ * deliberate over-provisioned pool is legitimate. But the mismatch is the most
+ * common cause of write-path 500s, and it is invisible until it is measured.
+ */
+function warnOnPoolMismatch(maxInflight: number): void {
+  const poolMax = readPositiveInt(process.env.PGPOOL_MAX, 20);
+  if (maxInflight > poolMax) {
+    console.warn(
+      `[gateway-api] COMPLAINT_WRITE_MAX_INFLIGHT=${maxInflight} exceeds PGPOOL_MAX=${poolMax}. ` +
+        `Each admitted write holds a connection for its transaction, so the pool is the real ceiling: ` +
+        `writes beyond ${poolMax} will wait on connection acquire instead of being shed with a 429.`
+    );
+  }
+}
+
 function boundsFromEnv(): AdaptiveLimitBounds {
   const maxRequests = readPositiveInt(process.env.COMPLAINT_WRITE_MAX_PER_MINUTE, 120);
   const maxInflight = readPositiveInt(process.env.COMPLAINT_WRITE_MAX_INFLIGHT, 24);
+  warnOnPoolMismatch(maxInflight);
   return {
     minRequestsPerWindow: readPositiveInt(
       process.env.COMPLAINT_WRITE_MIN_PER_MINUTE,

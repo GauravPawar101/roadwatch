@@ -77,6 +77,16 @@ const AUTH = { Authorization: `Bearer ${token}` };
 
 const statuses = new Map<number, number>();
 const latencies: number[] = [];
+/**
+ * Latency of accepted requests only.
+ *
+ * A 429 is answered in a fraction of a millisecond, so mixing rejections into the
+ * percentiles makes a saturated system look faster than an unloaded one. When
+ * admission control is shedding load — which is what it is for — the only
+ * meaningful figures are the completed work and the latency of the work that was
+ * accepted.
+ */
+const acceptedLatencies: number[] = [];
 let completed = 0;
 let seq = 0;
 
@@ -136,6 +146,7 @@ async function runFor(seconds: number, record: boolean): Promise<void> {
         if (record) {
           completed += 1;
           latencies.push(ms);
+          if (status === 200) acceptedLatencies.push(ms);
           statuses.set(status, (statuses.get(status) ?? 0) + 1);
         }
       }
@@ -161,11 +172,21 @@ const sorted = [...latencies].sort((a, b) => a - b);
 const mix = [...statuses.entries()].sort((a, b) => b[1] - a[1])
   .map(([s, n]) => `${s}:${n}`).join(' ');
 
+const accepted = acceptedLatencies.length;
+const acceptedSorted = [...acceptedLatencies].sort((a, b) => a - b);
+
 console.log(`\nelapsed        : ${elapsed.toFixed(1)}s`);
 console.log(`completed      : ${completed}`);
 console.log(`transport errs : ${statuses.get(0) ?? 0}`);
-console.log(`throughput     : ${(completed / elapsed).toFixed(1)} req/s`);
+console.log(`offered rate   : ${(completed / elapsed).toFixed(1)} req/s`);
 console.log(`status mix     : ${mix}`);
+// The number that matters when a limiter is shedding: work actually finished.
+console.log(`\nACCEPTED (2xx)  : ${accepted}`);
+console.log(`accepted rate  : ${(accepted / elapsed).toFixed(1)} req/s`);
+console.log(`accepted p50   : ${percentile(acceptedSorted, 50).toFixed(2)} ms`);
+console.log(`accepted p90   : ${percentile(acceptedSorted, 90).toFixed(2)} ms`);
+console.log(`accepted p99   : ${percentile(acceptedSorted, 99).toFixed(2)} ms`);
+console.log(`\nALL RESPONSES`);
 console.log(`p50            : ${percentile(sorted, 50).toFixed(2)} ms`);
 console.log(`p90            : ${percentile(sorted, 90).toFixed(2)} ms`);
 console.log(`p99            : ${percentile(sorted, 99).toFixed(2)} ms`);
