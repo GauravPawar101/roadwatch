@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertManagedEndpoints,
+  brokersSuggestTls,
+  describeKafkaTlsProblem,
   describeManagedEndpointGaps,
-  formatManagedEndpointGaps
+  deriveUpstashTcpUrl,
+  formatManagedEndpointGaps,
+  resolveKafkaEndpoint,
+  resolveRedisEndpoint,
 } from './endpoints.js';
 
 /**
@@ -135,6 +140,142 @@ describe('describeManagedEndpointGaps', () => {
 
     expect(gaps.find(g => g.component === 'kafka.events')).toBeUndefined();
     expect(gaps.find(g => g.component === 'kafka.hlf')).toBeDefined();
+  });
+
+  /**
+   * The Upstash console hands out a REST endpoint and a token, not a
+   * `rediss://` URL. ioredis speaks the TCP protocol, so the connection string
+   * has to be derived or the managed tier silently never engages and the
+   * on-device Redis is used instead.
+   */
+  it('treats the Upstash REST credential pair as a managed Redis endpoint', () => {
+    const env = {
+      ...LOCAL_ALL,
+      UPSTASH_REDIS_REST_URL: 'https://quiet-owl-12345.upstash.io',
+      UPSTASH_REDIS_REST_TOKEN: 'tok',
+    } as NodeJS.ProcessEnv;
+
+    expect(resolveRedisEndpoint(env).source).toBe('cloud');
+
+    const gap = describeManagedEndpointGaps(env).find(g => g.component === 'redis');
+    expect(gap).toBeUndefined();
+  });
+
+  it('derives a rediss:// URL from the Upstash host and token', () => {
+    const url = deriveUpstashTcpUrl('https://quiet-owl-12345.upstash.io', 'se cret+/=');
+    expect(url).toBe('rediss://default:se%20cret%2B%2F%3D@quiet-owl-12345.upstash.io:6379');
+  });
+
+  it('prefers an explicit REDIS_CLOUD_URL over the derived Upstash URL', () => {
+    const env = {
+      UPSTASH_REDIS_REST_URL: 'https://derived.upstash.io',
+      UPSTASH_REDIS_REST_TOKEN: 'tok',
+      REDIS_CLOUD_URL: 'rediss://default:explicit@explicit.example.com:6379',
+    } as NodeJS.ProcessEnv;
+
+    expect(resolveRedisEndpoint(env).url).toContain('explicit.example.com');
+  });
+
+  it('ignores an incomplete Upstash pair rather than deriving a broken URL', () => {
+    expect(deriveUpstashTcpUrl('https://x.upstash.io', undefined)).toBeUndefined();
+    expect(deriveUpstashTcpUrl(undefined, 'tok')).toBeUndefined();
+    expect(deriveUpstashTcpUrl('not a url', 'tok')).toBeUndefined();
+  });
+
+  /**
+   * A single KAFKA_SSL flag cannot serve every deployment. These are the two
+   * ways it silently breaks: a TLS handshake against the plaintext on-device
+   * broker, and plaintext against a managed cluster that refuses it. Both
+   * failures are quiet — the client retries for a long time before giving up.
+   */
+  describe('Kafka TLS versus the brokers it will be used against', () => {
+    it('flags TLS forced on against on-device plaintext brokers', () => {
+      const gaps = describeManagedEndpointGaps({
+        ...LOCAL_ALL,
+        KAFKA_SSL: 'true',
+      } as NodeJS.ProcessEnv);
+
+      const gap = gaps.find(g => g.component === 'kafka.events');
+      expect(gap?.problem).toMatch(/KAFKA_SSL=true/);
+      expect(gap?.problem).toMatch(/on-device and plaintext/);
+      expect(formatManagedEndpointGaps([gap!])).toContain('MANAGED ENDPOINT PROBLEM');
+    });
+
+    it('flags TLS forced off against remote brokers', () => {
+      const gaps = describeManagedEndpointGaps({
+        ...CLOUD_ALL,
+        KAFKA_SSL: 'false',
+      } as NodeJS.ProcessEnv);
+
+      expect(gaps.find(g => g.component === 'kafka.events')?.problem).toMatch(/refuse plaintext/);
+    });
+
+    it('accepts a forced setting that matches the brokers', () => {
+      expect(
+        describeManagedEndpointGaps({ ...LOCAL_ALL, KAFKA_SSL: 'false' } as NodeJS.ProcessEnv)
+          .filter(g => g.problem),
+      ).toEqual([]);
+      expect(
+        describeManagedEndpointGaps({ ...CLOUD_ALL, KAFKA_SSL: 'true' } as NodeJS.ProcessEnv)
+          .filter(g => g.problem),
+      ).toEqual([]);
+    });
+
+    it('leaves TLS to be inferred when the variable is unset', () => {
+      expect(describeKafkaTlsProblem('events', CLOUD_ALL)).toBeUndefined();
+      expect(describeKafkaTlsProblem('events', LOCAL_ALL)).toBeUndefined();
+    });
+
+    it('honours a per-cluster override over the shared flag', () => {
+      const env = {
+        ...LOCAL_ALL,
+        KAFKA_SSL: 'true',
+        KAFKA_EVENTS_SSL: 'false',
+      } as NodeJS.ProcessEnv;
+
+      expect(describeKafkaTlsProblem('events', env)).toBeUndefined();
+      expect(describeKafkaTlsProblem('hlf', env)).toMatch(/KAFKA_SSL=true/);
+    });
+
+    /**
+     * A managed cluster is remote regardless of which variable names it — the
+     * "explicit" tier describes precedence, not locality. Keying TLS off the
+     * variable name would misconfigure a perfectly valid remote broker list.
+     */
+    it('treats a remote broker list in the explicit tier as needing TLS', () => {
+      const env = {
+        KAFKA_EVENTS_BROKERS: 'pkc-abc.europe-west1.gcp.confluent.cloud:9094',
+      } as NodeJS.ProcessEnv;
+
+      expect(brokersSuggestTls(resolveKafkaEndpoint('events', env).brokers)).toBe(true);
+      expect(describeKafkaTlsProblem('events', { ...env, KAFKA_SSL: 'false' } as NodeJS.ProcessEnv))
+        .toMatch(/refuse plaintext/);
+    });
+
+    it('treats loopback, private-address and in-cluster hosts as on-device', () => {
+      const onDevice = [
+        '127.0.0.1:9095',
+        'localhost:9094',
+        'kafka.svc.cluster.local:9092',
+        '[::1]:9092',
+        '10.0.0.5:9092',
+        'host.containers.internal:9092',
+      ];
+      const remote = [
+        'a.confluent.cloud:9094',
+        'redpanda.example.com:9094',
+        'pkc-abc.europe-west1.gcp.confluent.cloud:9094',
+      ];
+
+      for (const broker of onDevice) expect(brokersSuggestTls([broker])).toBe(false);
+      for (const broker of remote) expect(brokersSuggestTls([broker])).toBe(true);
+    });
+
+    it('requires every broker to be remote, not just one', () => {
+      // A mixed list cannot succeed either way, so it must not be read as
+      // "remote, TLS applies" and justify a setting that still fails.
+      expect(brokersSuggestTls(['a.confluent.cloud:9094', '127.0.0.1:9095'])).toBe(false);
+    });
   });
 
   it('contains no secret values, only variable names', () => {

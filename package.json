@@ -26,6 +26,11 @@
     "verify:bootstrap": "node ./ops/dev/run.mjs verify-bootstrap",
     "verify:no-shadowing-build": "bash ./ops/verify/no-shadowing-build-output.sh",
 
+    "verify:managed": "tsx ./tools/verify/managed-connectivity.mts",
+    "verify:schema": "tsx ./tools/verify/schema-report.mts",
+    "verify:write-path": "tsx ./tools/verify/write-path-probe.mts",
+    "ops:apply-schema": "tsx ./tools/verify/apply-schema.mts",
+
     "----DEV (all services in parallel)----": "",
     "start:all": "node ./ops/dev/run.mjs start-all",
     "start:all:k8s": "node ./ops/dev/run.mjs start-all --kubernetes",

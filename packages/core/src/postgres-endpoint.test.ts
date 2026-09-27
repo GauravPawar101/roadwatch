@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createAdapterPool } from './postgres-adapter';
 import { createPool } from './postgres';
+import { normaliseSslMode } from './ssl-mode';
 
 /**
  * These assert the property the whole configuration design rests on: a managed
@@ -14,6 +15,17 @@ import { createPool } from './postgres';
 const IN_CLUSTER = 'postgresql://postgres:postgres@postgres.roadwatch.svc.cluster.local:5432/roadwatch';
 const MANAGED = 'postgresql://u:p@db.abc123.us-east-1.aws.rds.amazonaws.com:5432/roadwatch?sslmode=require';
 
+/**
+ * What the pool holds is the managed URL with its mode rewritten, not the URL as
+ * written. Since pg-connection-string 2.7 `sslmode=require` is an alias for
+ * `verify-full`, and a provider's private CA is not in the system trust store,
+ * so the documented URL cannot be used verbatim. The rewrite is deliberate and
+ * covered on its own in ssl-mode.test.ts; these tests pin the precedence, and
+ * state the expectation in terms of the same function rather than repeating the
+ * transformation by hand.
+ */
+const MANAGED_AS_DIALLED = normaliseSslMode(MANAGED, true);
+
 describe('createPool endpoint precedence', () => {
   it('prefers the managed endpoint over the in-cluster one', () => {
     const pool = createPool({
@@ -21,7 +33,7 @@ describe('createPool endpoint precedence', () => {
       DATABASE_CLOUD_URL: MANAGED,
     } as NodeJS.ProcessEnv);
 
-    expect(pool.options.connectionString).toBe(MANAGED);
+    expect(pool.options.connectionString).toBe(MANAGED_AS_DIALLED);
     pool.end();
   });
 
@@ -57,13 +69,13 @@ describe('createAdapterPool endpoint precedence', () => {
       POSTGRES_CLOUD_URL: MANAGED,
     } as NodeJS.ProcessEnv);
 
-    expect(pool.options.connectionString).toBe(MANAGED);
+    expect(pool.options.connectionString).toBe(MANAGED_AS_DIALLED);
     pool.end();
   });
 
   it('honours POSTGRES_CLOUD_URL as an alias', () => {
     const pool = createAdapterPool({ POSTGRES_CLOUD_URL: MANAGED } as NodeJS.ProcessEnv);
-    expect(pool.options.connectionString).toBe(MANAGED);
+    expect(pool.options.connectionString).toBe(MANAGED_AS_DIALLED);
     pool.end();
   });
 

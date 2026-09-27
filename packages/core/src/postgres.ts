@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { resolvePostgresEndpoint } from './config/endpoints.js';
+import { normaliseSslMode } from './ssl-mode.js';
 
 const { Pool } = pg;
 
@@ -32,11 +33,10 @@ export function createPool(
   const connectionString = endpoint.connectionString || LOCAL_FALLBACK;
 
   return new Pool({
-    connectionString,
-    // Managed Postgres (RDS, Neon, Supabase, Cloud SQL) refuses plaintext, and
-    // its certificate is normally issued for the provider's own hostname, so
-    // chain verification against the connection host would fail. `sslmode`
-    // in the URL is honoured by `pg` and takes precedence over this flag.
+    connectionString: normaliseSslMode(connectionString, endpoint.ssl),
+    // Managed Postgres (RDS, Neon, Supabase, Cloud SQL, Aiven) refuses
+    // plaintext, and its certificate is normally issued for the provider's own
+    // hostname, so chain verification against the connection host would fail.
     ssl: endpoint.ssl ? { rejectUnauthorized: false } : undefined,
     // PGPOOL_MAX for consistency with the adapter pool. Keep this in step with
     // any admission-control inflight cap: a cap above the pool size turns

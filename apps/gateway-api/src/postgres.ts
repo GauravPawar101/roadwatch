@@ -1,7 +1,7 @@
 import { config as loadEnv } from 'dotenv';
 import { resolve } from 'node:path';
 import pg from 'pg';
-import { resolvePostgresEndpoint } from '@roadwatch/core';
+import { normaliseSslMode, resolvePostgresEndpoint } from '@roadwatch/core';
 
 const workspaceRoot = resolve(new URL(import.meta.url).pathname, '..', '..', '..', '..');
 loadEnv({ path: resolve(workspaceRoot, 'apps/gateway-api/.env'), override: false });
@@ -42,7 +42,12 @@ const poolMax = (() => {
 })();
 
 const realPool = new Pool({
-  connectionString,
+  // Rewritten so `?sslmode=require` means "encrypt" rather than "verify the
+  // chain", which is what pg-connection-string >= 2.7 otherwise does and which
+  // a managed provider's private-CA certificate cannot satisfy. `ssl` was
+  // previously not passed here at all, so a managed endpoint could not connect.
+  connectionString: normaliseSslMode(connectionString, database.ssl),
+  ssl: database.ssl ? { rejectUnauthorized: false } : undefined,
   max: poolMax,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,

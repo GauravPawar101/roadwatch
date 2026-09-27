@@ -1,5 +1,11 @@
 import { resolveRedisEndpoint } from '@roadwatch/core';
 
+// The Upstash REST -> TCP derivation lives in the shared resolver so that
+// everything asking "which endpoint will we dial?" gets the same answer. It is
+// re-exported here because the Redis package is where callers expect to find
+// it.
+export { deriveUpstashTcpUrl } from '@roadwatch/core';
+
 export type RedisConfig = {
   url: string;
   /** Which tier of the fallback chain supplied the URL. */

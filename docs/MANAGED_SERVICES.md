@@ -1,248 +1,187 @@
-# Managed and free-tier infrastructure
+# Managed services
 
-How to run RoadWatch with as little of your own machine as possible: which
-external services can replace each local component, the exact environment
-variables to set, and the limits that will actually bite you.
+Which managed endpoint each service uses, how to verify it, and what the
+fallback does. Written against the configuration actually in `.env` and
+verified against the live providers.
 
-Two rules make this work without code changes:
+## The order every service follows
 
-1. Every service resolves its endpoints through `@roadwatch/core`
-   (`resolvePostgresEndpoint` / `resolveRedisEndpoint` / `resolveKafkaEndpoint`).
-   Setting a `*_CLOUD_*` variable is all that is required — see
-   [INFRA_CONFIG.md](./INFRA_CONFIG.md) for the precedence rules.
-2. Managed database and cache endpoints require TLS. Put `?sslmode=require` on
-   the Postgres URL and use `rediss://` for Redis, or the connection will be
-   refused.
+`reportInfrastructure(serviceName)` in
+`packages/core/src/infrastructure-report.ts` runs the same sequence in all five
+services (`gateway-api`, `backend-api`, `scheduler`, `webhook-handler`,
+`fabric-anchor-consumer`):
 
-> **Vendor pricing and free-tier limits change constantly.** The figures below
-> were read from vendor pricing pages on **26 September 2026**. Treat them as a
-> starting point and re-check before depending on one. Everything else in this
-> document is measured behaviour of this codebase.
+1. **Try the managed tier.** The resolver in
+   `packages/core/src/config/endpoints.ts` checks the cloud variables first.
+2. **Report what actually resolved.** Names every component running on-device,
+   and flags any managed value that is configured but unusable. `console.error`
+   for a real problem, `console.warn` for an expected local fallback.
+3. **Start on the resolved endpoint**, managed or not.
 
----
+With `INFRA_REQUIRE_MANAGED=true` a configured-but-unusable managed value throws
+before any connection is attempted, so the failure names the variable instead of
+surfacing later as a connection timeout. A component with nothing configured is
+still allowed, so a fully local run keeps working.
 
-## What each component is for
+## Where each service's endpoint comes from
 
-| Component | Local default | Used by | Notes |
+| Component | Managed variable | Falls back to | Verified |
 |---|---|---|---|
-| Postgres | `postgres:15-alpine` via pgbouncer | every service | primary datastore |
-| Redis | `redis:7-alpine` | gateway, all services | idempotency, backpressure, rate limits, cache |
-| Kafka (events) | `apache/kafka:3.8.0` | gateway, scheduler, webhook-handler, backend-api | operational events: SLA, notifications, triggers |
-| Kafka (hlf) | `apache/kafka:3.8.0` | fabric-anchor-consumer | Fabric anchor backpressure only |
+| Postgres | `DATABASE_CLOUD_URL` | `DATABASE_URL`, then `PGHOST`/etc., then `127.0.0.1:16432` | Aiven, TLSv1.3 |
+| Redis | `REDIS_CLOUD_URL`, `REDIS_MANAGED_URL`, or the Upstash REST pair | `REDIS_URL`, then `REDIS_HOST`/`REDIS_PORT` | Upstash, TLS |
+| Kafka events | `KAFKA_EVENTS_CLOUD_BROKERS` | `KAFKA_EVENTS_BROKERS`, then `KAFKA_BROKERS` | on-device |
+| Kafka hlf | `KAFKA_HLF_CLOUD_BROKERS` | `KAFKA_HLF_BROKERS` | on-device |
 
-The two Kafka clusters are genuinely separate topics sets, not aliases. If you
-only want one managed cluster, point both variables at the same brokers — the
-resolver treats them independently.
+Every connection point goes through that one resolver: the core pool
+(`packages/core/src/postgres.ts`), the adapter pool
+(`packages/core/src/postgres-adapter.ts`), the gateway pool
+(`apps/gateway-api/src/postgres.ts`), the Redis client
+(`packages/redis/config.ts`), the Kafka client
+(`packages/kafka/config.ts`), and the gateway's boot assertion.
 
----
+## What is configured now
 
-## Postgres
-
-### Neon (recommended free tier)
-
-- **Free:** 100 CU-hours per project, 0.5 GB storage, 5 GB egress, 100 projects
-- Scales to zero after 5 minutes idle, so a dev database costs nothing overnight
-- Ships `pgvector`, `PostGIS` and `TimescaleDB` extensions, and pooled
-  connections on every plan
-
-```bash
-export DATABASE_CLOUD_URL='postgresql://USER:PASSWORD@ep-xxx.region.aws.neon.tech/neondb?sslmode=require'
-```
-
-Two things to know:
-
-- **0.5 GB is small.** The schema created by `docker/postgres/init.sql` is 53
-  tables; a load test that inserts tens of thousands of complaint rows will fill
-  it. Use a paid project, or a local Postgres, for load testing.
-- **Scale-to-zero** adds a cold-start delay of a second or two on the first
-  query after idling. Harmless for development, surprising in a latency test.
-
-### Supabase
-
-Free tier includes a Postgres database plus auth, storage and edge functions.
-Useful if you want more than a database.
-
-```bash
-export DATABASE_CLOUD_URL='postgresql://postgres.PROJECT:PASSWORD@db.PROJECT.supabase.co:5432/postgres?sslmode=require'
-```
-
-### AWS RDS / Google Cloud SQL / Azure Database for PostgreSQL
-
-No free tier worth planning around, but the `aws` overlay already targets this:
-
-```bash
-kubectl apply -k k8s/overlays/aws
-```
-
-### pgbouncer is bypassed when you use a managed database
-
-The local stack points `DATABASE_URL` at pgbouncer (port 6432). A managed URL
-points at the database itself, so **pgbouncer is not in the path at all** —
-confirmed during testing, where pgbouncer sat at 0.7% CPU while the application
-connected straight to the database.
-
-Consequences:
-
-- Connection count is bounded only by the application pool (`max: 20` per
-  process). Most managed providers cap total connections well below
-  `20 × replicas`; check the provider's limit before scaling out.
-- Prefer a provider-supplied pooler. Neon includes one; on RDS put PgBouncer or
-  the RDS Proxy in front and point `DATABASE_CLOUD_URL` at that instead.
-
----
-
-## Redis
-
-### Upstash
-
-- **Free:** 256 MB, **500,000 commands per month**, 10,000 commands/second,
-  1 database, TLS included
-- Kafka-redis protocol compatible; `rediss://` works with the existing
-  `REDIS_CLOUD_URL` variable
-
-```bash
-export REDIS_CLOUD_URL='rediss://default:TOKEN@apn1-xxx.upstash.io:6379'
-```
-
-**The free tier is command-limited, and this codebase is command-hungry.** A
-complaint write costs roughly **8.7 Redis commands** (measured — see
-[LOAD_TESTING.md](./LOAD_TESTING.md)), so 500,000 commands is about **57,000
-complaint writes per month**. A busy development environment will exhaust that
-quickly.
-
-That number was 36.7 commands per write before the adaptive-limit cache was
-added, which would have allowed only ~13,600 writes per month. If you are on a
-command-metered plan, per-request Redis cost is worth watching:
-
-```bash
-podman exec roadwatch_managed_redis redis-cli INFO commandstats | grep cmdstat
-```
-
-Most of the remaining commands are the two admission permits each write takes
-(one route-scoped, one global) in
-`apps/gateway-api/src/security/write-backpressure.ts`. Collapsing those to a
-single permit is the obvious next optimisation.
-
-### Redis Cloud
-
-Free tier available with a 30 MB database. Same variable:
-
-```bash
-export REDIS_CLOUD_URL='rediss://user:password@host:port'
-```
-
-### AWS ElastiCache / MemoryDB
-
-For the `aws` overlay. Use `redis://` in-cluster or `rediss://` across TLS.
-
----
-
-## Kafka
-
-### Redpanda Cloud Serverless
-
-Kafka-compatible, so it is a drop-in for both clusters — no client change.
-
-- Serverless entry tier, 100 MB/s max write throughput, 99.9% SLA
-- Multi-tenant on AWS and GCP
-- Built-in schema registry and HTTP proxy
-
-```bash
-export KAFKA_EVENTS_CLOUD_BROKERS='b-1.pxcd.redpanda.com:9092,b-2.pxcd.redpanda.com:9092'
-export KAFKA_HLF_CLOUD_BROKERS='b-1.pxcd.redpanda.com:9092,b-2.pxcd.redpanda.com:9092'
-```
-
-Needs TLS and SASL in production; the broker list is the same variable either
-way, and credentials travel through the standard Kafka client config.
-
-### Confluent Cloud
-
-Free tier gives a trial cluster with a limited number of Kafka units. Same
-variables; brokers are in the `pkc-*.gcp.confluent.cloud` form.
-
-### AWS MSK
-
-For the `aws` overlay. Note MSK bills per broker-hour, so a two-broker cluster
-is a real recurring cost — for development, Redpanda Serverless is cheaper.
-
-### Cost note
-
-Kafka was the most memory-hungry component in local testing: **481 MB per
-cluster, ~962 MB for both**, more than the Postgres instances combined. If you
-only need one cluster in development, run one.
-
----
-
-## Everything else the system needs
-
-Beyond the data stores, these are the other things a deployment reaches for.
-None are configured by the endpoint resolver, so each needs its own wiring.
-
-| Need | Free option | What you must do |
-|---|---|---|
-| Object storage (media, proof photos) | Cloudflare R2 (10 GB free), or MinIO self-hosted | `media-ingest` writes here; set its bucket credentials |
-| Maps / geocoding | OpenStreetMap + Nominatim, or MapLibre with self-hosted tiles | frontend tile URL; Nominatim needs a real `User-Agent` and has a strict usage policy |
-| Push / SMS / email notifications | provider-specific | the notification dispatcher needs credentials; it degrades to logging without them |
-| Metrics | Prometheus + Grafana, already in `docker-compose.yml` | none |
-| Secrets in Kubernetes | Sealed Secrets, or SOPS | see `k8s/overlays/managed/managed-endpoints.example.yaml` |
-| Vector search for complaint text | pgvector, already an extension on Neon | nothing extra if you use Neon |
-| Blockchain anchoring | Hyperledger Fabric | the `hlf` Kafka cluster and Fabric gateway config; this is the one component with no credible hosted free tier |
-
-Fabric is worth calling out: the anchoring consumer needs a Fabric Gateway and
-a certificate authority. There is no free managed offering. For development,
-run it locally; for anything else, budget for it or disable the consumer.
-
----
-
-## Verifying a managed endpoint is actually used
-
-Setting the variable is easy to get wrong — a typo silently falls back to the
-in-cluster endpoint. Two ways to check.
-
-**1. Unit and integration tests.** `packages/core/src/postgres-endpoint.test.ts`
-and friends assert precedence directly:
-
-```bash
-npx turbo run test --filter=@roadwatch/core --filter=@roadwatch/redis --filter=@roadwatch/kafka
-```
-
-**2. A live probe against a second real server.** The `cloud-sim` compose
-profile starts a second Postgres and Redis so precedence can be observed rather
-than assumed:
-
-```bash
-./ops/dev/compose.sh up -d postgres pgbouncer redis kafka-hlf kafka-events
-./ops/dev/compose.sh --profile cloud-sim up -d managed-postgres managed-redis
-
-# Point the "cloud" tier at the stand-ins.
-export DATABASE_CLOUD_URL='postgresql://postgres:postgres@127.0.0.1:15434/roadwatch'
-export REDIS_CLOUD_URL='redis://127.0.0.1:16380/0'
-
-pnpm tsx tools/verify/cloud-precedence.mts
-```
-
-Expected:
+Measured with `npm run verify:managed` against the live providers.
 
 ```
-PASS  pool dials the managed database
-PASS  managed database actually received the write
-PASS  in-cluster database did NOT receive the write
-...
-12/12 checks passed
+[PASS] postgres   roadwatch-pg-….b.aivencloud.com  TLSv1.3 encrypted, 53 public tables
+[PASS] redis      maximum-goose-76110.upstash.io:6379  reachable (tls)
+[SKIP] kafka.events  on-device broker 127.0.0.1:9095
+[SKIP] kafka.hlf     on-device broker 127.0.0.1:9094
 ```
 
-The probe writes a row and a key, then asks *both* servers which one received
-it. If precedence were broken the data would appear on the in-cluster instance
-and the run would fail. It also checks the reverse direction, so a resolver that
-always preferred "cloud" would fail too.
+- **Postgres — Aiven.** Reachable, encrypted, schema loaded, write path
+  exercised end to end.
+- **Redis — Upstash.** Reachable over TLS. The managed tier is derived from the
+  Upstash console's `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`; see
+  below.
+- **Kafka — on-device.** No hosted cluster is configured, so both clusters use
+  the local compose brokers on 9095/9094. `KAFKA_SSL` must be `false` for these
+  (see *Kafka TLS* below).
 
-**In-cluster check.** Every service logs its resolved tier at startup with
-credentials redacted:
+## Upstash: REST credentials are enough
 
-```bash
-grep Endpoints <service>.log
-# [scheduler] Endpoints: postgres[cloud] redis[cloud] kafka.events[cloud] kafka.hlf[in-cluster]
+The Upstash console hands out a REST endpoint and a token, not a `rediss://`
+URL, and the client here is ioredis, which speaks the TCP protocol. Passing a
+REST URL to ioredis produces an unhelpful connection error rather than a clear
+"wrong endpoint type".
+
+`deriveUpstashTcpUrl` in `packages/core/src/config/endpoints.ts` builds the TCP
+URL from the pair — same host, same token, `rediss://` — and
+`resolveRedisEndpoint` applies it to the managed tier. So either form works:
+
+```
+REDIS_CLOUD_URL=rediss://default:<token>@<host>:6379
+# or
+UPSTASH_REDIS_REST_URL=https://<host>.upstash.io
+UPSTASH_REDIS_REST_TOKEN=<token>
 ```
 
-If you expected `cloud` and see `in-cluster`, the variable is empty, misspelled,
-or shadowed. See [INFRA_CONFIG.md](./INFRA_CONFIG.md#why-cloud-is-checked-first).
+An explicit `REDIS_CLOUD_URL` still wins. The derivation lives in the shared
+resolver rather than in the Redis client, so the startup report and the client
+cannot report different endpoints.
+
+## Kafka TLS follows the brokers, not a global switch
+
+A single `KAFKA_SSL` flag cannot be correct for every deployment. Managed
+clusters require TLS and refuse plaintext; the on-device stack is plaintext and
+has no certificate to present. Setting the flag once for the managed case
+silently breaks the local one, and leaving it off silently breaks the managed
+one. Both failures are quiet — a TLS handshake against a plaintext broker
+retries for a long time before giving up.
+
+So:
+
+- When `KAFKA_SSL` (or `KAFKA_<CLUSTER>_SSL`) is **absent**, TLS is inferred
+  from the brokers themselves: every broker must be remote, meaning not
+  loopback, not a private address, and not a `.svc.`/`.cluster.local` in-cluster
+  name. A per-cluster value overrides the shared one.
+- When it is **present**, it is honoured as given, and `describeKafkaTlsProblem`
+  reports a contradiction in the startup log — TLS on against plaintext brokers,
+  or off against remote ones.
+
+The signal is the brokers, not the variable that supplied them: a managed cluster
+can legitimately be named in `KAFKA_EVENTS_BROKERS`, and keying TLS off the
+variable name would misconfigure a valid remote broker list.
+
+## Postgres TLS: `sslmode=require` does not mean what it says
+
+Since `pg-connection-string` 2.7, `sslmode=require`, `prefer` and `verify-ca`
+are all treated as aliases for `verify-full`. Every provider documents
+`?sslmode=require`, so a URL written the documented way makes the client verify
+the certificate chain — and managed providers present a certificate that
+verification rejects, because Aiven and RDS use a private CA that is not in the
+system trust store.
+
+Measured against Aiven PostgreSQL 18.6 with `pg` 8.21:
+
+| Connection string | Result |
+|---|---|
+| `?sslmode=require` | fails — `self-signed certificate in certificate chain` |
+| `?sslmode=no-verify` | connects, TLSv1.3, reads normally |
+
+`normaliseSslMode` in `packages/core/src/ssl-mode.ts` rewrites the mode to
+`no-verify` — node-postgres' own spelling of libpq's `require`, meaning encrypt
+without checking who is on the other end — whenever the application is also
+passing `ssl: { rejectUnauthorized: false }`, which it does for every managed
+endpoint. It is applied in all three pool constructors.
+
+An explicit `sslmode=verify-full` is **left alone**: that is a deliberate request
+to check the chain, and downgrading it would remove the protection the operator
+asked for, including the case where a provider CA is installed properly and
+verification should succeed.
+
+## Verifying
+
+Read-only unless stated. None of these print a credential value.
+
+```
+npm run verify:managed       # reach every configured endpoint; report the fallback
+npm run verify:schema        # which of the 53 tables exist
+npm run verify:write-path    # run the real create transaction, then delete the row
+npm run ops:apply-schema     # WRITES: applies docker/postgres/init.sql (re-runnable)
+```
+
+`verify:write-path` is the one that matters most. A schema can load cleanly and
+still be unusable — a managed instance can lack a privilege, a constraint or an
+extension the on-device database has — and the only way to find out is to run
+the write. It inserts one labelled probe row across `complaints`,
+`complaint_event_outbox` and `api_idempotency_keys` in a single transaction,
+reads it back, checks the dedupe partial index exists, and deletes everything in
+a `finally` block.
+
+## Applying the schema to a new database
+
+The Postgres image runs `docker/postgres/init.sql` only on the first start of an
+empty data directory. That is why the on-device stack has a schema and a
+freshly created managed database does not: **nothing else creates these tables.**
+
+```
+psql "$DATABASE_CLOUD_URL" -v ON_ERROR_STOP=1 -f docker/postgres/init.sql
+```
+
+`npm run ops:apply-schema` does the same through the application's own
+connection path, refuses to run if the script contains a destructive statement,
+counts distinct table names, and verifies per table rather than by count. The
+script is 53 `CREATE TABLE IF NOT EXISTS` plus 55 additive
+`ADD COLUMN IF NOT EXISTS` — no `DROP`, no `TRUNCATE`, no role changes — so it is
+re-runnable and destroys nothing.
+
+## Error tracking
+
+Both are configured in `.env`; neither is wired into the code yet.
+
+- **Sentry** — `SENTRY_DSN` for runtime, plus `SENTRY_ORG` / `SENTRY_PROJECT` /
+  `SENTRY_AUTH_TOKEN` for source-map upload in CI.
+- **Honeybadger** — `HONEYBADGER_API_KEY` / `HONEYBADGER_TOKEN`. This was not in
+  the original list of services and is not integrated.
+
+Running two error trackers is legitimate but usually means one is primary and the
+other is a mirror, so it is worth deciding which is which before wiring.
+
+## Profiling
+
+`BLACKFIRE_ID` / `BLACKFIRE_SECRET` are set. The recorded `BLACKFIRE_ID` is 36
+characters where Blackfire client IDs are normally 32 hex characters, so it is
+worth confirming the value is a client ID and not something else before relying
+on it.

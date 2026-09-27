@@ -49,7 +49,16 @@ function clean(value: string | undefined): string | undefined {
 /** Walk a precedence chain and report the first usable value. */
 function resolveChain(
   env: Env,
-  tiers: Array<{ source: EndpointSource; keys: string[] }>,
+  tiers: Array<{
+    source: EndpointSource;
+    keys: string[];
+    /**
+     * Supplies the tier's value when no key matched. Needed because a provider
+     * can hand out credentials in a form the connection string is derived
+     * from, rather than as the connection string itself.
+     */
+    derive?: (env: Env) => string | undefined;
+  }>,
 ): ResolvedEndpoint {
   const consulted = tiers.flatMap((t) => t.keys);
   for (const tier of tiers) {
@@ -59,8 +68,49 @@ function resolveChain(
         return { value, source: tier.source, consulted };
       }
     }
+    // Checked only after every key in the tier missed, so an explicit value
+    // always wins over a derived one.
+    const derived = tier.derive?.(env);
+    if (derived !== undefined) {
+      return { value: derived, source: tier.source, consulted };
+    }
   }
   return { value: undefined, source: 'unset', consulted };
+}
+
+/**
+ * Builds a `rediss://` URL from the Upstash *REST* credentials.
+ *
+ * Upstash hands out two views of the same database: a REST endpoint
+ * (`https://<host>.upstash.io` plus a token) and a TCP/TLS endpoint. The
+ * client here is ioredis, which speaks the TCP protocol, so a REST URL cannot
+ * be used directly — the failure mode is an unhelpful connection error rather
+ * than a clear "wrong endpoint type".
+ *
+ * The two share a host and the same token, so the TCP URL is derivable.
+ * Accepting the REST pair avoids making the operator re-derive a credential
+ * they already hold, which is the step most likely to be done wrong.
+ *
+ * Returns undefined when either value is missing or the URL is unusable.
+ */
+export function deriveUpstashTcpUrl(
+  restUrl: string | undefined,
+  token: string | undefined,
+): string | undefined {
+  const rawUrl = restUrl?.trim();
+  const secret = token?.trim();
+  if (!rawUrl || !secret) return undefined;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return undefined;
+  if (!parsed.hostname) return undefined;
+
+  return `rediss://default:${encodeURIComponent(secret)}@${parsed.hostname}:6379`;
 }
 
 // ── Postgres ────────────────────────────────────────────────────────────────
@@ -130,7 +180,16 @@ export function resolveRedisEndpoint(
   defaults: { host?: string; port?: string; db?: number } = {},
 ): RedisEndpoint {
   const chain = resolveChain(env, [
-    { source: 'cloud', keys: ['REDIS_CLOUD_URL', 'REDIS_MANAGED_URL'] },
+    {
+      source: 'cloud',
+      keys: ['REDIS_CLOUD_URL', 'REDIS_MANAGED_URL'],
+      // The REST credential pair is a second, derived way to name the same
+      // managed database. Resolving it here rather than in the Redis client
+      // keeps this the single answer to "which endpoint will we dial" — a
+      // reporter and a client that computed it separately would eventually
+      // disagree, and the log would name the wrong endpoint.
+      derive: env2 => deriveUpstashTcpUrl(env2.UPSTASH_REDIS_REST_URL, env2.UPSTASH_REDIS_REST_TOKEN),
+    },
     { source: 'explicit', keys: ['REDIS_URL', 'REDIS_URI'] },
   ]);
 
@@ -204,7 +263,7 @@ export function resolveKafkaEndpoint(
 /** Managed-tier variable names, per component, in precedence order. */
 const MANAGED_KEYS = {
   postgres: ['DATABASE_CLOUD_URL', 'POSTGRES_CLOUD_URL'],
-  redis: ['REDIS_CLOUD_URL', 'REDIS_MANAGED_URL'],
+  redis: ['REDIS_CLOUD_URL', 'REDIS_MANAGED_URL', 'UPSTASH_REDIS_REST_URL'],
   'kafka.events': ['KAFKA_EVENTS_CLOUD_BROKERS', 'KAFKA_EVENTS_MANAGED_BROKERS'],
   'kafka.hlf': ['KAFKA_HLF_CLOUD_BROKERS', 'KAFKA_HLF_MANAGED_BROKERS'],
 } as const satisfies Record<string, readonly string[]>;
@@ -235,6 +294,78 @@ export type ManagedEndpointGap = {
    */
   problem?: string;
 };
+
+/**
+ * True when the broker list looks like a managed cluster, which means TLS.
+ *
+ * The signal is the brokers themselves rather than which variable supplied them:
+ * a managed cluster is named by its hostname, and an on-device stack is reached
+ * over loopback. Keying off the variable name instead would be wrong, because a
+ * managed cluster can perfectly well be named in `KAFKA_EVENTS_BROKERS` — the
+ * "explicit" tier describes precedence, not whether the endpoint is remote.
+ */
+export function brokersSuggestTls(brokers: string[]): boolean {
+  if (brokers.length === 0) return false;
+  // Every broker, not any: a list mixing a loopback broker with a remote one is
+  // a configuration error, and "some are remote" would then justify TLS for a
+  // list that cannot succeed either way. Being strict keeps the answer
+  // explainable.
+  return brokers.every(b => {
+    // A bracketed IPv6 literal carries its own colons, so the port cannot be
+    // stripped by looking for a trailing `:\d+` — `[::1]:9092` would otherwise
+    // reduce to `::1]` and match nothing.
+    const host = /^\[(.+)\](?::\d+)?$/.exec(b)?.[1] ?? b.replace(/:\d+$/, '');
+    if (/^(localhost|127\.|0\.0\.0\.0|::1|host\.containers\.internal)$/i.test(host)) return false;
+    // The .svc. and .cluster.local forms are in-cluster names, resolved by the
+    // cluster DNS rather than dialled across the network.
+    if (/\.svc\.|\.cluster\.local$|\.local$/.test(host)) return false;
+    // A bare RFC1918 address is a host on the local network, which is what an
+    // in-cluster or LAN deployment uses; a public name is a managed cluster.
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false;
+    return true;
+  });
+}
+
+/**
+ * Diagnoses a TLS setting that contradicts the brokers it will be used against.
+ *
+ * A single `KAFKA_SSL` flag cannot be correct for every deployment: managed
+ * clusters require TLS and refuse plaintext, while the on-device compose stack
+ * is plaintext and has no certificate to present. Setting the flag once for the
+ * managed case silently breaks the local case, and leaving it off silently
+ * breaks the managed one. Both failures are quiet — a TLS handshake against a
+ * plaintext broker retries until it gives up, long after the misconfiguration.
+ *
+ * Only the contradiction is reported. An explicit setting is never overridden
+ * and never throws here: the operator may know something the broker list cannot
+ * express, such as a sidecar terminating TLS.
+ *
+ * Returns undefined when the setting is absent or consistent.
+ */
+export function describeKafkaTlsProblem(
+  cluster: 'events' | 'hlf',
+  env: Env = process.env,
+): string | undefined {
+  const upper = cluster.toUpperCase();
+  const { brokers } = resolveKafkaEndpoint(cluster, env);
+  const raw = env[`KAFKA_${upper}_SSL`] ?? env.KAFKA_SSL;
+  if (raw === undefined || brokers.length === 0) return undefined;
+
+  const named = env[`KAFKA_${upper}_SSL`] !== undefined ? `KAFKA_${upper}_SSL` : 'KAFKA_SSL';
+  const on = /^(1|true|yes|on)$/i.test(raw.trim());
+  const wantTls = brokersSuggestTls(brokers);
+
+  if (wantTls && !on) {
+    return `${named}=false but the ${cluster} brokers (${brokers.join(', ')}) are remote, and managed clusters refuse plaintext connections`;
+  }
+  if (!wantTls && on) {
+    return (
+      `${named}=true but the ${cluster} brokers (${brokers.join(', ')}) are on-device and plaintext. ` +
+      `A TLS handshake against them will not succeed — either point at a managed cluster or set ${named}=false`
+    );
+  }
+  return undefined;
+}
 
 /** True for a value that clearly names a local machine rather than a provider. */
 function looksLocal(value: string): boolean {
@@ -312,24 +443,72 @@ export function describeManagedEndpointGaps(env: Env = process.env): ManagedEndp
   for (const [component, variables] of Object.entries(MANAGED_KEYS) as Array<
     [ManagedEndpointComponent, readonly string[]]
   >) {
+    // A TLS setting that cannot work against the tier it was applied to is
+    // reported whatever the tier, so it is checked first.
+    const tlsProblem =
+      component === 'kafka.events' || component === 'kafka.hlf'
+        ? describeKafkaTlsProblem(component === 'kafka.events' ? 'events' : 'hlf', env)
+        : undefined;
+    if (tlsProblem) {
+      gaps.push({ component, variables: [...variables], problem: tlsProblem });
+      continue;
+    }
+
     if (resolved[component]) {
-      // The tier resolved, but the value may still be unusable.
-      const configured = variables.map(k => clean(env[k])).find(v => v !== undefined);
-      if (configured) {
-        const problem = managedValueProblem(component, configured);
+      // The tier resolved, but the value actually in force may still be
+      // unusable. Validate the resolved value rather than re-reading the
+      // variables: the value in force can be a *derived* one, and validating
+      // the input instead would report a problem with a URL that is never
+      // dialled.
+      const inForce = resolvedValueFor(component, env);
+      if (inForce !== undefined) {
+        const problem = managedValueProblem(component, inForce);
         if (problem) gaps.push({ component, variables: [...variables], problem });
       }
       continue;
     }
 
-    const configured = variables.map(k => clean(env[k])).find(v => v !== undefined);
+    // Not resolved to the managed tier. A managed variable may still be set —
+    // to a value too broken to be chosen, in which case the tier was rejected
+    // and something else is being dialled.
+    const configured = variables.map((k: string) => clean(env[k])).find(v => v !== undefined);
     if (configured) {
-      gaps.push({ component, variables: [...variables], problem: managedValueProblem(component, configured) ?? 'did not resolve' });
+      gaps.push({
+        component,
+        variables: [...variables],
+        problem: managedValueProblem(component, configured) ?? 'did not resolve',
+      });
       continue;
     }
     gaps.push({ component, variables: [...variables] });
   }
   return gaps;
+}
+
+/**
+ * The value in force for a component, as the resolver returns it — which may be
+ * derived rather than read from a variable.
+ *
+ * Returning the resolver's own answer is what keeps the report honest: the
+ * alternative is re-reading the variables, which reports on a value that may
+ * not be the one dialled, and misses a value that was never named by a variable
+ * at all.
+ */
+function resolvedValueFor(component: ManagedEndpointComponent, env: Env): string | undefined {
+  switch (component) {
+    case 'postgres':
+      return resolvePostgresEndpoint(env).connectionString;
+    case 'redis':
+      return resolveRedisEndpoint(env).url;
+    case 'kafka.events':
+    case 'kafka.hlf': {
+      const { brokers } = resolveKafkaEndpoint(
+        component === 'kafka.events' ? 'events' : 'hlf',
+        env,
+      );
+      return brokers.length > 0 ? brokers.join(',') : undefined;
+    }
+  }
 }
 
 /**

@@ -1,4 +1,9 @@
-import { resolveKafkaEndpoint, type KafkaClusterName } from '@roadwatch/core';
+import {
+  brokersSuggestTls,
+  describeKafkaTlsProblem,
+  resolveKafkaEndpoint,
+  type KafkaClusterName,
+} from '@roadwatch/core';
 import type { SASLOptions } from 'kafkajs';
 
 export type KafkaEnv = NodeJS.ProcessEnv;
@@ -56,8 +61,22 @@ export function getKafkaClientOptions(
   const options: KafkaClientOptions = { clientId, brokers };
 
   // ── TLS ──────────────────────────────────────────────────────────────────
+  // A single KAFKA_SSL flag cannot be correct for every deployment: managed
+  // clusters require TLS and refuse plaintext, while the on-device compose
+  // stack is plaintext and has no certificate to present. Setting the flag once
+  // for the managed case silently breaks the local case, and leaving it off
+  // silently breaks the managed one.
+  //
+  // So when the variable is absent the setting is inferred from the brokers, and
+  // when it is present it is honoured as given. The diagnosis of a contradiction
+  // lives in @roadwatch/core so this enforcement point and the startup report
+  // cannot drift apart.
+  describeKafkaTlsProblem(cluster, env);
+
   const ca = clean(env[`KAFKA_${upper}_SSL_CA`]) ?? clean(env.KAFKA_SSL_CA);
-  const sslOn = truthy(env[`KAFKA_${upper}_SSL`]) || (env[`KAFKA_${upper}_SSL`] === undefined && truthy(env.KAFKA_SSL));
+  const rawSsl = env[`KAFKA_${upper}_SSL`] ?? env.KAFKA_SSL;
+  const sslOn = rawSsl === undefined ? brokersSuggestTls(brokers) : truthy(rawSsl);
+
   if (ca) {
     options.ssl = { ca };
   } else if (sslOn) {

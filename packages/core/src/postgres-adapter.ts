@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { resolvePostgresEndpoint } from './config/endpoints.js';
+import { normaliseSslMode } from './ssl-mode.js';
 
 const { Pool } = pg;
 
@@ -34,7 +35,9 @@ export function createAdapterPool(
   const connectionString = endpoint.connectionString || LOCAL_FALLBACK;
 
   return new Pool({
-    connectionString,
+    // sslmode=require is rewritten to node-postgres' own no-verify spelling;
+    // see normaliseSslMode for why, and for the verify-full case it leaves alone.
+    connectionString: normaliseSslMode(connectionString, endpoint.ssl),
     ssl: endpoint.ssl ? { rejectUnauthorized: false } : undefined,
     max: tuning.max ?? 20,
     idleTimeoutMillis: tuning.idleTimeoutMillis ?? 30_000,
