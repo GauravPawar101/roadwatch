@@ -1,10 +1,12 @@
 import { getRedisClient } from './client.js';
 import { isRedisConfigured } from './config.js';
 import {
-  acquireDistributedBackpressurePermit,
+  acquireAdmission,
+  admissionRejection,
+  type AdmissionOutcome,
   type DistributedBackpressureConfig,
   type DistributedBackpressurePermit
-} from './backpressure.js';
+} from './admission.js';
 
 export type AdaptiveLimitBounds = {
   minRequestsPerWindow: number;
@@ -200,20 +202,63 @@ export async function acquireAdaptiveBackpressurePermit(input: {
   principal: string;
   bounds: AdaptiveLimitBounds;
 }): Promise<DistributedBackpressurePermit> {
+  const admission = await acquireAdmission(getRedisClient(), [permitConfig(input, await resolveAdaptiveLimits(input.bounds))]);
+  if (!admission.outcome.admitted) {
+    await recordAdmissionRejection();
+    throw admissionRejection(admission.outcome, admission.outcome.rejection ?? 'inflight');
+  }
+  return { release: admission.release };
+}
+
+/**
+ * The admission a complaint write actually takes: a route/principal permit and
+ * a global one, acquired together.
+ *
+ * Both are evaluated in a single Redis command and released in a single command.
+ * The previous implementation issued them as two independent four-command
+ * sequences — six commands per write, measured — and, because the increments were
+ * not atomic, could admit more concurrent writes than `maxInflight` allowed.
+ * Acquired as a pair, a write that is refused is also not charged for a
+ * half-taken permit.
+ */
+export async function acquirePermitPair(input: {
+  route: { scope: string; principal: string };
+  global: { scope: string; principal: string };
+  bounds: AdaptiveLimitBounds;
+}): Promise<{ permit: DistributedBackpressurePermit; outcome: AdmissionOutcome }> {
+  if (!isRedisConfigured()) {
+    throw new Error(
+      'Redis is required for write admission but not configured. ' +
+        'Set REDIS_CLOUD_URL/REDIS_MANAGED_URL for a managed instance, or REDIS_URL for an explicit one.',
+    );
+  }
+
   const limits = await resolveAdaptiveLimits(input.bounds);
-  const config: DistributedBackpressureConfig = {
-    scope: input.scope,
-    principal: input.principal,
+  const admission = await acquireAdmission(
+    getRedisClient(),
+    [permitConfig(input.route, limits), permitConfig(input.global, limits)],
+    ['route', 'global']
+  );
+
+  if (!admission.outcome.admitted) {
+    await recordAdmissionRejection();
+    throw admissionRejection(admission.outcome, admission.outcome.rejection ?? 'inflight');
+  }
+
+  return { permit: { release: admission.release }, outcome: admission.outcome };
+}
+
+/** Applies one resolved limit set to one permit target. */
+function permitConfig(
+  target: { scope: string; principal: string },
+  limits: ResolvedLimits
+): DistributedBackpressureConfig {
+  return {
+    scope: target.scope,
+    principal: target.principal,
     maxRequestsPerWindow: limits.maxRequestsPerWindow,
     windowSeconds: limits.windowSeconds,
     maxInflight: limits.maxInflight,
     inflightTtlSeconds: limits.inflightTtlSeconds
   };
-
-  try {
-    return await acquireDistributedBackpressurePermit(config);
-  } catch (error) {
-    await recordAdmissionRejection();
-    throw error;
-  }
 }

@@ -29,6 +29,9 @@
     "verify:managed": "tsx ./tools/verify/managed-connectivity.mts",
     "verify:schema": "tsx ./tools/verify/schema-report.mts",
     "verify:write-path": "tsx ./tools/verify/write-path-probe.mts",
+    "verify:redis-cost": "tsx ./tools/verify/redis-command-cost.mts",
+    "verify:admission-race": "tsx ./tools/verify/admission-race.mts",
+    "verify:admission-race-old": "tsx ./tools/verify/admission-race-old.mts",
     "ops:apply-schema": "tsx ./tools/verify/apply-schema.mts",
 
     "----DEV (all services in parallel)----": "",

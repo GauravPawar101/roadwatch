@@ -9,9 +9,22 @@ export {
   resetReadCacheStats,
   writeCachedJson
 } from './read-cache.js';
-export { acquireDistributedBackpressurePermit, type DistributedBackpressureConfig, type DistributedBackpressurePermit } from './backpressure.js';
+export {
+  acquireAdmission,
+  acquireDistributedBackpressurePermit,
+  admissionRejection,
+  permitKeys,
+  type Admission,
+  type AdmissionOutcome,
+  type AdmissionRejection,
+  type DistributedBackpressureConfig,
+  type DistributedBackpressurePermit,
+  type PermitCounters,
+  type PermitLabel
+} from './admission.js';
 export {
   acquireAdaptiveBackpressurePermit,
+  acquirePermitPair,
   readLoadSignals,
   recordAdmissionRejection,
   recordUpstreamFailure,

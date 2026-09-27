@@ -73,14 +73,14 @@ export function createApp() {
       const principal = userSub || req.ip || 'unknown-ip';
       const routeScope = `gateway:${req.method}:${req.path.split('/')[1] ?? 'write'}`;
 
-      const [routePermit, globalPermit] = await Promise.all([
-        acquireComplaintWriteAdmission({ scope: routeScope, principal }),
-        acquireComplaintWriteAdmission({ scope: 'gateway:writes:global', principal: 'global' })
-      ]);
+      // Both permits in one Redis command. Previously acquired as two separate
+      // four-command sequences: six commands per write, and the increments were
+      // not atomic, so concurrent requests could both pass an inflight check
+      // that only one of them should have passed.
+      const permit = await acquireComplaintWriteAdmission({ routeScope, principal });
 
       res.on('finish', () => {
-        void routePermit.release();
-        void globalPermit.release();
+        void permit.release();
       });
 
       return next();

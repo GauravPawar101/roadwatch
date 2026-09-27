@@ -179,9 +179,43 @@ Both are configured in `.env`; neither is wired into the code yet.
 Running two error trackers is legitimate but usually means one is primary and the
 other is a mirror, so it is worth deciding which is which before wiring.
 
+## Upstash does not survive the target throughput
+
+The free tier allows **500,000 commands a month**, which is an average of
+**0.193 requests per second** sustained. At the 2.00 commands per write measured
+after the admission collapse, that is **0.096 writes per second** — about 250,000
+writes a month.
+
+A target of 100,000 requests per second needs 518 **billion** commands a month at
+that rate: roughly **1,036,800× the free tier**, and far beyond any metered plan
+Upstash sells.
+
+So Redis has to be self-hosted or a dedicated cluster before that target is
+reachable. Keeping Upstash means keeping the traffic it can actually serve. The
+free tier is a fine fit for a pilot and for development; it is not a component of
+a 100k req/s system.
+
+## The per-write Redis cost, measured
+
+`npm run verify:redis-cost` counts commands at the client while running the real
+admission path. Same machine, same request shape, before and after the two
+permits were collapsed into a single Lua script:
+
+| | Before | After |
+|---|---|---|
+| Commands per admitted write | 8.11 | **2.00** |
+| Admission control | 6 of the 8.11 | 2 |
+
+Admission control was the entire per-write Redis cost. It is now one `EVALSHA` to
+acquire both permits and one to release them.
+
+See [LOAD_TESTING.md](./LOAD_TESTING.md#efficiency-redis-commands-per-write) for
+the concurrency property this also fixed, and the claim that measurement
+contradicted.
+
 ## Profiling
 
-`BLACKFIRE_ID` / `BLACKFIRE_SECRET` are set. The recorded `BLACKFIRE_ID` is 36
-characters where Blackfire client IDs are normally 32 hex characters, so it is
-worth confirming the value is a client ID and not something else before relying
-on it.
+Blackfire is not integrated. The credentials were removed from `.env` and
+`.env.example`. If profiling is wanted later, the honest options without it are
+`--cpu-prof` on the Node process, `0x` for allocation sampling, and the
+`admission-metrics` counters already in the gateway.

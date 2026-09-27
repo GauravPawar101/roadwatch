@@ -286,8 +286,60 @@ Measured, same profile, before and after memoizing the resolved limits for 2s:
 
 Tune with `COMPLAINT_WRITE_LIMITS_CACHE_MS` (default `2000`, `0` disables).
 
-This also directly determines how much of a command-metered Redis free tier you
-get — see [MANAGED_SERVICES.md](./MANAGED_SERVICES.md#upstash).
+### The two permits, collapsed
+
+Memoizing the limits removed the repeated *reads*. The remaining cost was the
+permits themselves: two of them, each a rate `INCR` + an inflight `INCR` + an
+`EXPIRE` on first use, and a `DECR` each on release. Six commands per write, in
+eight separate round-trips.
+
+Both permits are now evaluated by a single Lua script and released by a second,
+so an admitted write costs two commands. Measured with
+`npm run verify:redis-cost`, which counts at the client while running the real
+admission path:
+
+| | Before | After | Change |
+|---|---|---|---|
+| Redis commands per admitted write | 8.11 | **2.00** | **−75%** |
+| Round-trips per write | 8 | 2 | −75% |
+
+This is what makes a command-metered Redis workable at all — see
+[MANAGED_SERVICES.md](./MANAGED_SERVICES.md#upstash-does-not-survive-the-target-throughput)
+for why even 2.00 is far past what a free tier supports at scale.
+
+#### The counter was wrong, not the decision
+
+A claim made while writing the script turned out to be wrong, and the measurement
+is kept so the correction is reproducible.
+
+The expectation was that incrementing and comparing in separate round-trips would
+let two requests both pass an inflight check, admitting more than the cap. It does
+not: `INCR` returns the post-increment value and the comparison uses that return,
+so there is no read-then-act gap. Measured consistently — 8 admitted against a cap
+of 8, across repeated runs.
+
+The defect is in the counter rather than the decision. A refused request increments
+and then decrements, so between the two the counter reports a number that is
+simply wrong. Sampling it during a 200-way storm against a cap of 8 caught values
+of 8, 21 and **200** — how much depends on how many samples land mid-storm, so the
+true peak is somewhere in between. The admitted count was correct throughout.
+
+That matters because this is a *distributed* limiter: the wrong number is exactly
+what a second gateway replica reads, and it would refuse valid writes until the
+backlog drained. Under the script the counter is only ever observable at its true
+value, because Lua runs to completion before any other client is served.
+
+The script also removes a leak. The rollback was a separate command, so a process
+dying between the increment and the decrement never returned the permit: the
+inflight slot was lost for the length of the TTL, and the rate slot was charged
+against a window in which no write happened.
+
+Reproduce both:
+
+```bash
+npm run verify:admission-race       # script:  admitted 8, counter peak 8
+npm run verify:admission-race-old   # previous: admitted 8, counter peak up to 200
+```
 
 ```bash
 # live command counts
