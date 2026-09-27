@@ -412,18 +412,76 @@ overload becomes latency and a 503 rather than a restart.
 
 ---
 
+## 6a. Read overload: the fix, and a correction
+
+The read path had no admission control, which is how an unbounded read load
+reached the connection pool: at ~1,000 read req/s the pool was exhausted, every
+request failed with `timeout exceeded when trying to connect`, 100 unhandled
+rejections accumulated in about two seconds and the process exited. A restart is
+the worst possible response to a traffic spike.
+
+Three things turned out to matter, in this order.
+
+**The process death is already fixed without a limiter.** That failure was
+unhandled *rejections* from acquire timeouts. They are now answered with a
+handled, retryable 503 carrying `Retry-After`, so there is nothing left to go
+unhandled. Verified at concurrency 64, 128 and 256 with no read limiter at all:
+0 crashes, 0 transport errors, and the pool was never exhausted at any of them.
+
+**The authority list had no read cache.** The citizen list in
+`routes/complaints.ts` has had one since it was written; the authority list —
+the endpoint every measurement here uses — did not, so each request spent a
+database connection to return rows identical to every other caller asking the
+same question. Measured after adding it: **5,223 accepted req/s at p50 10.2 ms**
+at concurrency 64, against 2,838 before.
+
+**A read limiter was implemented, measured, and made opt-in.** It works, and it
+costs more than it saves here:
+
+| | accepted req/s | p50 |
+|---|---|---|
+| default (no read limiter) | **5,223** | 10.2 ms |
+| `READ_ADMISSION=on`, cap 160 | 1,868 | 31.7 ms |
+| `READ_ADMISSION=on`, cap 20 (= pool) | 1,447 | 22.1 ms |
+
+Two mistakes worth recording, because both looked correct:
+
+1. *Sizing the cap at the pool size* was wrong, and measurably so. It assumes
+   every read holds a connection; once the cache is in front, most do not. The cap
+   was throttling requests that cost nothing, and cost 49% of throughput while
+   protecting nothing.
+2. *Deriving a rate ceiling from the inflight cap* — pool x 60 = 1200/min — made
+   the rate check bind before the concurrency one. At 5,694 req/s offered, every
+   request after the first 1200 in the window was refused and **none** were served.
+   A rate ceiling nobody asked for is worse than none, because it is invisible: it
+   looks like concurrency protection.
+
+So `READ_ADMISSION` is off by default and the read path is protected by the things
+that cost nothing when unused — the cache, pagination, and the retryable 503. The
+limiter remains available for a deployment that has nowhere else to shed load,
+such as one whose load balancer does not rate-limit.
+
+The cache key is the other thing that had to be right. The list is filtered by the
+caller's district scope, so a key that omitted the scope would serve one officer
+another's rows — a data leak, not just a stale read. `authority-list-cache.test.ts`
+covers the scope, pagination and filter dimensions against a real Redis, including
+the case where a district-wide officer must not receive a single-district
+officer's entry.
+
+---
+
 ## 7. Recommended next step
 
-1. **Add read admission control.** The read path still has none, so read overload
-   exhausts the pool and kills the process instead of shedding load. This is a
-   correctness issue before it is a throughput one, and the write path now shows
-   what the right shape is: cheap 429s, a matching pool, and acquire timeouts
-   surfaced as retryable 503s.
-2. **Stop parsing timestamps into `Date` objects** on the read path (§4, item 5).
-   Measured at 4.0% of read CPU; needs an audit of `.getTime()` call sites.
-3. **Make the dedupe status filter indexable** (§3) — a functional index on the
+1. **Stop parsing timestamps into `Date` objects** on the read path (§4, item 5).
+   Measured at 4.0% of read CPU; needs an audit of `.getTime()` call sites. The
+   largest single remaining item on the read path.
+2. **Make the dedupe status filter indexable** (§3) — a functional index on the
    partial predicate, or canonical status values so `UPPER()` can go. A schema
    migration, so it wants a production-shaped measurement first.
+3. **Put a CDN or edge cache in front of the read path.** At the measured
+   5,223 req/s the gateway is the cheapest thing in the request path; a read that
+   never reaches it costs nothing here. This is the single largest lever left for
+   the 100k read target, and it is deployment rather than code.
 4. **Decide the target shape.** 100k reads/s is a horizontal-scaling exercise.
    100k writes/s is a re-architecture: sharded Postgres, an asynchronous write
    path, and a faster runtime on the hot path.

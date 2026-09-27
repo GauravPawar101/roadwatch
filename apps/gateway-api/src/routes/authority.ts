@@ -19,7 +19,7 @@ import {
   slaHoursForRoadType,
   rewardOrgForRepair,
 } from '../services/complaint-lifecycle.js';
-import { bumpComplaintReadCache } from '@roadwatch/redis';
+import { bumpComplaintReadCache, readCachedJson, writeCachedJson } from '@roadwatch/redis';
 import { maybeSyncAnchorComplaint } from '../services/sync-anchor.js';
 import { uuidv7 } from '../uuid.js';
 
@@ -751,6 +751,31 @@ router.get('/complaints', requireAuth, async (req, res) => {
     })
     .parse(req.query);
 
+  // Read cache.
+  //
+  // The citizen-facing list in routes/complaints.ts has had this since it was
+  // written; the authority-facing list did not, and it is the endpoint the
+  // capacity measurements use. Under load the ungated version spends a database
+  // connection per request to return rows that are identical for every caller
+  // asking the same question.
+  //
+  // The cache key includes the district scope *after* the access filter below, so
+  // two officers with different districts cannot be served each other's rows: a
+  // shared key scoped only to the route would be a data leak, not just a stale
+  // read. Caching this response also removes the database work entirely on a hit,
+  // which is the real answer to read overload — shedding is the fallback for when
+  // the cache misses.
+  const cacheParts = {
+    district: query.district ?? null,
+    zone: query.zone ?? null,
+    status: query.status ?? null,
+    limit: query.limit,
+    offset: query.offset,
+    role: user.role,
+    districts: user.districts ?? [],
+    zones: user.zones ?? [],
+  };
+
   let districtCondition = sqlFragment``;
   if (query.district) {
     if (!assertDistrictAccess(user as any, query.district)) return res.status(403).json({ error: 'Forbidden' });
@@ -771,6 +796,17 @@ router.get('/complaints', requireAuth, async (req, res) => {
 
   // The LIMIT and OFFSET are parameters, not literals, so a caller cannot inject
   // either and the planner still gets a bound it can plan against.
+  // Looked up after the access filter has been resolved, so a caller who is
+  // refused never reaches the cache and a permitted caller's key reflects the
+  // scope they were actually granted.
+  const cached = await readCachedJson<{
+    complaints: unknown[];
+    pagination: unknown;
+  }>('authority-complaints-list', cacheParts);
+  if (cached) {
+    return res.json(cached);
+  }
+
   const list = await pool`
     SELECT id, district, zone, status, description, lat, lng, created_at, updated_at, fabric_txid
     FROM complaints
@@ -801,10 +837,15 @@ router.get('/complaints', requireAuth, async (req, res) => {
   // COUNT(*) per request would undo the saving this whole change is about.
   const hasMore = mappedList.length === query.limit;
 
-  res.json({
+  const payload = {
     complaints: mappedList,
     pagination: { limit: query.limit, offset: query.offset, returned: mappedList.length, hasMore }
-  });
+  };
+
+  // Best effort: a cache write that fails must not fail a successful read.
+  await writeCachedJson('authority-complaints-list', cacheParts, payload).catch(() => undefined);
+
+  res.json(payload);
 });
 
 // ---------------------------------------------------------------------------

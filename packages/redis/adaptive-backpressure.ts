@@ -225,6 +225,18 @@ export async function acquirePermitPair(input: {
   route: { scope: string; principal: string };
   global: { scope: string; principal: string };
   bounds: AdaptiveLimitBounds;
+  /**
+   * Optional narrower inflight ceiling for the first permit only.
+   *
+   * The two permits answer different questions — "is this one client being
+   * reasonable" and "is the system as a whole saturated" — so they do not always
+   * share a ceiling. Without this, a per-principal cap would have to be applied
+   * globally, which throttles everyone whenever a single client misbehaves.
+   *
+   * Only a maximum: these are resolved limits, already adjusted for measured
+   * pressure, so a floor has no meaning here.
+   */
+  routeMaxInflight?: number;
 }): Promise<{ permit: DistributedBackpressurePermit; outcome: AdmissionOutcome }> {
   if (!isRedisConfigured()) {
     throw new Error(
@@ -234,9 +246,14 @@ export async function acquirePermitPair(input: {
   }
 
   const limits = await resolveAdaptiveLimits(input.bounds);
+  const routeLimits: ResolvedLimits =
+    input.routeMaxInflight !== undefined
+      ? { ...limits, maxInflight: input.routeMaxInflight }
+      : limits;
+
   const admission = await acquireAdmission(
     getRedisClient(),
-    [permitConfig(input.route, limits), permitConfig(input.global, limits)],
+    [permitConfig(input.route, routeLimits), permitConfig(input.global, limits)],
     ['route', 'global']
   );
 

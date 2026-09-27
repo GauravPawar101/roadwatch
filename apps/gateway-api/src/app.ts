@@ -18,7 +18,7 @@ import notificationsRouter from './routes/notifications.js';
 import publicRouter from './routes/public.js';
 import reportsRouter from './routes/reports.js';
 import rtiRouter from './routes/rti.js';
-import { acquireComplaintWriteAdmission } from './security/write-backpressure.js';
+import { acquireComplaintWriteAdmission, acquireReadAdmission } from './security/write-backpressure.js';
 import { getAdmissionMetrics } from './security/admission-metrics.js';
 
 /**
@@ -114,49 +114,94 @@ export function createApp() {
     app.use(morgan(process.env.LOG_FORMAT ?? 'dev'));
   }
 
+  /**
+   * Admission control for the database-bound paths.
+   *
+   * Writes take a route/principal permit and a global one; reads take a
+   * per-principal permit and a global one capped at the connection pool. Both cost
+   * a single atomic Redis command.
+   *
+   * Reads are included because they were the gap: the write path has been limited
+   * all along, so an unbounded read load went straight at the pool. At ~1,000 read
+   * req/s the pool was exhausted, every request failed, and 100 unhandled
+   * rejections in about two seconds killed the process. A restart is the worst
+   * possible response to a traffic spike.
+   *
+   * Overload becomes a cheap 429 with Retry-After rather than a multi-second wait
+   * followed by a 500 or a process exit.
+   */
   app.use(async (req, res, next) => {
     const isWriteRequest = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-    const isComplaintPath = ['/citizen', '/authority', '/complaints'].some(prefix => req.path === prefix || req.path.startsWith(`${prefix}/`));
+    const isComplaintPath = ['/citizen', '/authority', '/complaints'].some(
+      prefix => req.path === prefix || req.path.startsWith(`${prefix}/`),
+    );
 
-    if (!isWriteRequest || !isComplaintPath) {
+    // Health and metrics must answer even when saturated. They are what the load
+    // balancer and an operator are watching, and shedding them removes the
+    // visibility needed to understand the shedding.
+    const isObservabilityPath =
+      req.path.startsWith('/health') || req.path.startsWith('/metrics');
+    if (isObservabilityPath || !isComplaintPath) {
       return next();
     }
 
     try {
+      // The principal is the token's `sub` when present, the address otherwise.
+      // It is decoded rather than verified here: admission is not authentication,
+      // and verification belongs to the route's own requireAuth. An unverified
+      // claim can only put a client against a different principal's budget, never
+      // a larger one.
       let userSub: string | undefined;
       const authHeader = req.headers.authorization;
       if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
         try {
           const payloadPart = authHeader.slice('Bearer '.length).split('.')[1];
           if (payloadPart) {
-            const json = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as { sub?: string };
-            if (typeof json.sub === 'string' && json.sub.trim()) userSub = json.sub.trim();
+            const payload = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as {
+              sub?: string;
+            };
+            if (typeof payload.sub === 'string' && payload.sub.trim()) {
+              userSub = payload.sub.trim();
+            }
           }
         } catch {
-          // ignore malformed tokens; fall back to IP
+          // ignore malformed tokens; fall back to the address
         }
       }
       const principal = userSub || req.ip || 'unknown-ip';
-      const routeScope = `gateway:${req.method}:${req.path.split('/')[1] ?? 'write'}`;
+      const routeScope = `${req.method}:${req.path.split('/')[1] ?? 'root'}`;
 
-      // Both permits in one Redis command. Previously acquired as two separate
-      // four-command sequences: six commands per write, and the increments were
-      // not atomic, so concurrent requests could both pass an inflight check
-      // that only one of them should have passed.
-      const permit = await acquireComplaintWriteAdmission({ routeScope, principal });
+      const permit = isWriteRequest
+        ? await acquireComplaintWriteAdmission({ routeScope, principal })
+        : await acquireReadAdmission({ routeScope, principal });
 
-      res.on('finish', () => {
+      // Released on both events. `finish` covers a completed response; `close`
+      // without `finish` is an aborted request, and its permit would otherwise
+      // leak — the inflight count would ratchet up over time until the service
+      // refused all work. Idempotent, so the double release is harmless.
+      let released = false;
+      const release = (): void => {
+        if (released) return;
+        released = true;
         void permit.release();
-      });
+      };
+      res.on('finish', release);
+      res.on('close', release);
 
       return next();
     } catch (error) {
-      const statusCode = typeof (error as any)?.statusCode === 'number' ? (error as any).statusCode : 503;
-      const retryAfterSeconds = typeof (error as any)?.retryAfterSeconds === 'number' ? (error as any).retryAfterSeconds : 5;
+      const statusCode =
+        typeof (error as any)?.statusCode === 'number' ? (error as any).statusCode : 503;
+      const retryAfterSeconds =
+        typeof (error as any)?.retryAfterSeconds === 'number'
+          ? (error as any).retryAfterSeconds
+          : 1;
       res.setHeader('Retry-After', String(retryAfterSeconds));
       return res.status(statusCode).json({
-        error: 'Write admission temporarily saturated',
-        retryAfterSeconds
+        error: isWriteRequest
+          ? 'Write admission temporarily saturated'
+          : 'Read capacity temporarily saturated',
+        retryAfterSeconds,
       });
     }
   });
