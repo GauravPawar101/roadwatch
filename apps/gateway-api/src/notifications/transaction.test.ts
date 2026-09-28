@@ -69,11 +69,24 @@ function fakeExecutor(onQuery?: (sql: string) => void) {
   };
 }
 
+/** Users matching a PUN/Z1 jurisdiction audience: a CE scoped to all, a Pune EE, a Mumbai EE. */
+const JURISDICTION_USERS = [
+  { id: 'ce-all', role: 'CE', districts: ['ALL'], zones: ['ALL'] },
+  { id: 'ee-pun-z1', role: 'EE', districts: ['PUN'], zones: ['Z1'] },
+  { id: 'ee-mum', role: 'EE', districts: ['MUM'], zones: ['ALL'] }
+];
+
+function rowsForAudience(sql: string): { rows: unknown[] } {
+  if (/FROM\s+users/i.test(String(sql))) return { rows: JURISDICTION_USERS };
+  return rowsFor(sql);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   // The pool's own client must satisfy the preferences lookup too, or the
   // no-transaction path throws before reaching the assertions.
-  connectMock.query.mockImplementation(async (sql: string) => rowsFor(sql));
+  connectMock.query.mockImplementation(async (sql: string) => rowsForAudience(sql));
+  poolMock.query.mockImplementation(async (sql: string) => rowsForAudience(sql));
 });
 
 describe('createAndFanoutNotification transaction enlistment', () => {
@@ -134,5 +147,72 @@ describe('createAndFanoutNotification transaction enlistment', () => {
     await expect(createAndFanoutNotification({ message: MESSAGE, tx })).rejects.toThrow(
       'notifications table missing',
     );
+  });
+});
+
+/**
+ * Connection discipline on the write path.
+ *
+ * `POST /authority/complaints` holds a Postgres connection for the whole of its
+ * transaction. If notification fan-out borrows a second connection from the pool
+ * while that transaction is open, then N concurrent writes need 2N connections,
+ * and the pool exhausts at N = PGPOOL_MAX/2. Measured on the hot partition:
+ * raising PGPOOL_MAX 60 -> 90 moved the write ceiling from 278/s to 464/s and
+ * removed every 500, and above the ceiling requests failed with
+ * `timeout exceeded when trying to connect` originating at resolveAudienceUsers
+ * while consuming *less* CPU — blocked, not computing.
+ *
+ * So the audience lookup has to run on the executor the caller supplied, and the
+ * executor it was given has to be the transaction.
+ */
+describe('notification audience resolution uses the caller executor', () => {
+  const jurisdictionAudience = {
+    kind: 'jurisdiction' as const,
+    district: 'PUN',
+    zone: 'Z1'
+  };
+
+  const buildExecutor = () => {
+    const seen: string[] = [];
+    const query = vi.fn(async (text: string) => {
+      seen.push(text);
+      return rowsForAudience(text) as any;
+    });
+    return { query, seen, executor: { query } as any };
+  };
+
+  it('resolves the audience through the supplied transaction client', async () => {
+    const { executor, seen } = buildExecutor();
+
+    const { userIds } = await createAndFanoutNotification({
+      message: {
+        type: 'new_complaint',
+        title: 't',
+        body: 'b',
+        audience: jurisdictionAudience
+      } as any,
+      tx: executor
+    });
+
+    // Scoped to PUN/Z1: the CE with ALL and the Pune EE qualify, Mumbai does not.
+    expect(userIds).toEqual(['ce-all', 'ee-pun-z1']);
+
+    // The decisive assertion: the users query went through the caller's executor.
+    // If it had used the module-level pool, `seen` would not contain it, and the
+    // write path would need a second connection per request.
+    expect(seen.some((t) => /FROM users/.test(t))).toBe(true);
+  });
+
+  it('still resolves correctly with no transaction supplied', async () => {
+    const { userIds } = await createAndFanoutNotification({
+      message: {
+        type: 'new_complaint',
+        title: 't',
+        body: 'b',
+        audience: jurisdictionAudience
+      } as any
+    });
+
+    expect(userIds).toEqual(['ce-all', 'ee-pun-z1']);
   });
 });

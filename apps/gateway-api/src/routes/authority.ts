@@ -19,7 +19,7 @@ import {
   slaHoursForRoadType,
   rewardOrgForRepair,
 } from '../services/complaint-lifecycle.js';
-import { bumpComplaintReadCache, readCachedJson, writeCachedJson } from '@roadwatch/redis';
+import { bumpComplaintReadCache, readThroughCachedJson } from '@roadwatch/redis';
 import { maybeSyncAnchorComplaint } from '../services/sync-anchor.js';
 import { uuidv7 } from '../uuid.js';
 
@@ -799,51 +799,45 @@ router.get('/complaints', requireAuth, async (req, res) => {
   // Looked up after the access filter has been resolved, so a caller who is
   // refused never reaches the cache and a permitted caller's key reflects the
   // scope they were actually granted.
-  const cached = await readCachedJson<{
+  const payload = await readThroughCachedJson<{
     complaints: unknown[];
     pagination: unknown;
-  }>('authority-complaints-list', cacheParts);
-  if (cached) {
-    return res.json(cached);
-  }
+  }>('authority-complaints-list', cacheParts, async () => {
+    const list = await pool`
+      SELECT id, district, zone, status, description, lat, lng, created_at, updated_at, fabric_txid
+      FROM complaints
+      WHERE 1=1
+      ${districtCondition}
+      ${zoneCondition}
+      ${statusCondition}
+      ORDER BY created_at DESC
+      LIMIT ${query.limit} OFFSET ${query.offset}
+    `;
 
-  const list = await pool`
-    SELECT id, district, zone, status, description, lat, lng, created_at, updated_at, fabric_txid
-    FROM complaints
-    WHERE 1=1
-    ${districtCondition}
-    ${zoneCondition}
-    ${statusCondition}
-    ORDER BY created_at DESC
-    LIMIT ${query.limit} OFFSET ${query.offset}
-  `;
+    // postgres.js returns camelCased fields natively if configured. Mapping manually back to old output contract if necessary.
+    const mappedList = list.map((c: any) => ({
+      id: c.id,
+      district: c.district,
+      zone: c.zone,
+      status: c.status,
+      description: c.description,
+      lat: c.lat,
+      lng: c.lng,
+      created_at: c.createdAt ?? c.created_at,
+      updated_at: c.updatedAt ?? c.updated_at,
+      fabric_txid: c.fabricTxid ?? c.fabric_txid
+    }));
 
-  // postgres.js returns camelCased fields natively if configured. Mapping manually back to old output contract if necessary.
-  const mappedList = list.map((c: any) => ({
-    id: c.id,
-    district: c.district,
-    zone: c.zone,
-    status: c.status,
-    description: c.description,
-    lat: c.lat,
-    lng: c.lng,
-    created_at: c.createdAt ?? c.created_at,
-    updated_at: c.updatedAt ?? c.updated_at,
-    fabric_txid: c.fabricTxid ?? c.fabric_txid
-  }));
+    // Pagination is reported, so a client can tell a short page from the end of
+    // the data. `hasMore` is a hint rather than a count: it costs nothing, and a
+    // COUNT(*) per request would undo the saving this whole change is about.
+    const hasMore = mappedList.length === query.limit;
 
-  // Pagination is reported, so a client can tell a short page from the end of
-  // the data. `hasMore` is a hint rather than a count: it costs nothing, and a
-  // COUNT(*) per request would undo the saving this whole change is about.
-  const hasMore = mappedList.length === query.limit;
-
-  const payload = {
-    complaints: mappedList,
-    pagination: { limit: query.limit, offset: query.offset, returned: mappedList.length, hasMore }
-  };
-
-  // Best effort: a cache write that fails must not fail a successful read.
-  await writeCachedJson('authority-complaints-list', cacheParts, payload).catch(() => undefined);
+    return {
+      complaints: mappedList,
+      pagination: { limit: query.limit, offset: query.offset, returned: mappedList.length, hasMore }
+    };
+  });
 
   res.json(payload);
 });

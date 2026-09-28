@@ -246,7 +246,12 @@ export async function createAndFanoutNotification(params: {
 }): Promise<{ notificationId: string; userIds: string[] }> {
   const m = params.message;
   const notificationId = uuidv7();
-  const userIds = await resolveAudienceUsers(m.audience);
+  // Resolve the audience through the caller's executor when there is one. The
+  // transaction already holds a connection, so borrowing a second one from the
+  // pool for this read exhausted the pool at PGPOOL_MAX concurrent writes and
+  // turned every one of them into a connect-timeout 500. When the caller owns
+  // no transaction we fall back to the pool, exactly as before.
+  const userIds = await resolveAudienceUsers(m.audience, params.tx ?? pool);
 
   const emit = (fn: () => void) => {
     if (params.deferBroadcasts) params.deferBroadcasts.push(fn);
@@ -339,14 +344,17 @@ export async function createAndFanoutNotification(params: {
   return { notificationId, userIds };
 }
 
-async function resolveAudienceUsers(audience: NotificationAudience): Promise<string[]> {
+async function resolveAudienceUsers(
+  audience: NotificationAudience,
+  executor: NotificationQueryExecutor
+): Promise<string[]> {
   if (audience.kind === 'user') return [audience.userId];
 
   if (audience.kind === 'jurisdiction') {
     const district = audience.district;
     const zone = audience.zone ?? 'ALL';
 
-    const candidates = await pool.query(
+    const candidates: any = await executor.query(
       `SELECT id, role, districts, zones 
        FROM users 
        WHERE role = ANY($1)`,

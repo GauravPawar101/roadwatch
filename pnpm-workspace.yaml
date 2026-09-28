@@ -13,3 +13,6 @@ packages:
   - "packages/providers/*"
   - "packages/adapters/*"
   - "packages/platforms/*"
+  # Operational tools (scrapers, probes, profilers). A workspace package so
+  # their mapping and parsing logic is testable rather than trusted.
+  - "tools"

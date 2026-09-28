@@ -774,6 +774,9 @@ importers:
       '@roadwatch/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@roadwatch/kafka':
+        specifier: workspace:*
+        version: link:../../packages/kafka
       dotenv:
         specifier: ^16.6.1
         version: 16.6.1
@@ -836,6 +839,15 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+
+  tools:
+    devDependencies:
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(jsdom@25.0.1)
 
 packages:
 

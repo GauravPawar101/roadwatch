@@ -6,6 +6,7 @@ export {
   getReadCacheStats,
   isReadCacheEnabled,
   readCachedJson,
+  readThroughCachedJson,
   resetReadCacheStats,
   writeCachedJson
 } from './read-cache.js';

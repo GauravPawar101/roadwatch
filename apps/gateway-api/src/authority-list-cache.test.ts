@@ -1,6 +1,11 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
-import { readCachedJson, writeCachedJson } from '@roadwatch/redis';
+import {
+  bumpComplaintReadCache,
+  readCachedJson,
+  readThroughCachedJson,
+  writeCachedJson
+} from '@roadwatch/redis';
 
 /** The shape the route caches and serves. */
 type Payload = { complaints: string[] };
@@ -134,4 +139,177 @@ maybe('status filter is part of the key', async () => {
 
   expect((await readCachedJson<Payload>(key, cachePartsFor(CENTRAL, { ...base, status: 'FILED' })))?.complaints).toEqual(['filed']);
   expect((await readCachedJson<Payload>(key, cachePartsFor(CENTRAL, { ...base, status: 'RESOLVED' })))?.complaints).toEqual(['resolved']);
+});
+
+/**
+ * Single-flight fill.
+ *
+ * Every complaint write bumps the cache generation, which orphans every cached
+ * list. Without coordination, every read request in flight at that moment misses
+ * and runs the full origin query: measured at 4.1 misses per bump with 32 read
+ * workers, with the hit rate falling from 99.88% read-only to 7.8-15.5% under
+ * write load. `readThroughCachedJson` collapses those concurrent misses into one
+ * fill, so the number of origin queries per bump is 1 rather than the number of
+ * readers.
+ */
+maybe('concurrent misses for one key run the fill once', async () => {
+  const key = `single-flight-${Date.now()}`;
+  const parts = cachePartsFor(CENTRAL);
+  let fills = 0;
+  const fill = async () => {
+    fills += 1;
+    // Long enough that every caller is waiting on the same in-flight promise.
+    await new Promise((r) => setTimeout(r, 50));
+    return { complaints: [`fill-${fills}`] } satisfies Payload;
+  };
+
+  const results = await Promise.all(
+    Array.from({ length: 24 }, () => readThroughCachedJson<Payload>(key, parts, fill))
+  );
+
+  // One origin query, not 24.
+  expect(fills).toBe(1);
+  // Every caller gets the same value, so a waiter is never served an empty body.
+  for (const r of results) expect(r.complaints).toEqual(['fill-1']);
+});
+
+maybe('distinct scopes are not collapsed into one fill', async () => {
+  const key = `single-flight-scope-${Date.now()}`;
+  const shared = { district: null, zone: null, status: null, limit: 20, offset: 0 };
+  const mum = cachePartsFor(MUMBAI_ONLY, shared);
+  const pun = cachePartsFor(PUNE_ONLY, shared);
+
+  const mumFill = readThroughCachedJson<Payload>(key, mum, async () => {
+    await new Promise((r) => setTimeout(r, 40));
+    return { complaints: ['mum'] };
+  });
+  const punFill = readThroughCachedJson<Payload>(key, pun, async () => {
+    await new Promise((r) => setTimeout(r, 40));
+    return { complaints: ['pun'] };
+  });
+
+  // Single-flight must not become a cross-scope leak: two different officers'
+  // fills have to stay separate even when they overlap in time.
+  expect((await mumFill).complaints).toEqual(['mum']);
+  expect((await punFill).complaints).toEqual(['pun']);
+});
+
+/**
+ * The stampede itself, at the layer the measurements instrumented.
+ *
+ * A generation bump orphans every cached list, so a burst of readers arriving
+ * right after a write all miss together. Before the single-flight fill that was
+ * 4.1 origin queries per bump with 32 readers; it is now 1. The count below is
+ * what the load harness in `docs/CAPACITY.md` §8.3 measures, so if this
+ * regresses the capacity number regresses with it.
+ */
+maybe('a generation bump followed by a read burst costs one origin query', async () => {
+  const key = `stampede-${Date.now()}`;
+  const parts = cachePartsFor(CENTRAL);
+  const READERS = 32;
+
+  let fills = 0;
+  const fill = async () => {
+    fills += 1;
+    await new Promise((r) => setTimeout(r, 40));
+    return { complaints: [`n${fills}`] } satisfies Payload;
+  };
+
+  // Warm it, then invalidate exactly as a complaint write would.
+  await readThroughCachedJson<Payload>(key, parts, fill);
+  await bumpComplaintReadCache();
+
+  const before = fills;
+  await Promise.all(
+    Array.from({ length: READERS }, () => readThroughCachedJson<Payload>(key, parts, fill))
+  );
+
+  // One fill for the whole burst. Pre-fix this was ~READERS/8, measured at 4.1.
+  expect(fills - before).toBe(1);
+});
+
+maybe('a failed fill is not cached and does not poison later readers', async () => {
+  const key = `single-flight-fail-${Date.now()}`;
+  const parts = cachePartsFor(CENTRAL);
+  let calls = 0;
+
+  // The origin fails once, then recovers. The first caller sees the error, which
+  // is correct — it is the one that actually got the failure. What must not
+  // happen is the error being cached as a value, or the in-flight entry being
+  // left behind so that later readers keep joining a dead fill.
+  const flakyFill = async (): Promise<Payload> => {
+    calls += 1;
+    await new Promise((r) => setTimeout(r, 30));
+    if (calls === 1) throw new Error('origin down');
+    return { complaints: ['recovered'] };
+  };
+
+  const first = await readThroughCachedJson<Payload>(key, parts, flakyFill).catch((e) => e);
+  expect(first).toBeInstanceOf(Error);
+
+  const second = await readThroughCachedJson<Payload>(key, parts, flakyFill);
+  expect(second.complaints).toEqual(['recovered']);
+  // The recovered value is now cached, so a third read is served from it.
+  const third = await readThroughCachedJson<Payload>(key, parts, flakyFill);
+  expect(third.complaints).toEqual(['recovered']);
+  expect(calls).toBe(2);
+});
+
+maybe('waiters do not inherit the leader failure', async () => {
+  const key = `single-flight-waiter-fail-${Date.now()}`;
+  const parts = cachePartsFor(CENTRAL);
+  let calls = 0;
+
+  // The leader's fill fails; a waiter arriving behind it must run its own fill
+  // rather than being handed the leader's error, so a briefly unhealthy origin
+  // turns into one reported failure rather than N of them.
+  const results = await Promise.allSettled(
+    Array.from({ length: 8 }, () =>
+      readThroughCachedJson<Payload>(key, parts, async () => {
+        calls += 1;
+        await new Promise((r) => setTimeout(r, 30));
+        if (calls === 1) throw new Error('origin down');
+        return { complaints: ['ok'] };
+      })
+    )
+  );
+
+  const fulfilled = results.filter((r) => r.status === 'fulfilled');
+  // At least the leader fails; the point is that not all of them do.
+  expect(fulfilled.length).toBeGreaterThan(0);
+  expect(results.length - fulfilled.length).toBeLessThan(results.length);
+});
+
+/**
+ * Freshness is not weakened by the single-flight. The key still carries the
+ * generation, so a read issued *after* a write must miss and refill rather than
+ * being served the pre-write entry.
+ */
+maybe('a read after a write still refills', async () => {
+  const key = `single-flight-freshness-${Date.now()}`;
+  const parts = cachePartsFor(CENTRAL);
+
+  const first = await readThroughCachedJson<Payload>(key, parts, async () => ({ complaints: ['before'] }));
+  expect(first.complaints).toEqual(['before']);
+
+  await bumpComplaintReadCache();
+
+  const after = await readThroughCachedJson<Payload>(key, parts, async () => ({ complaints: ['after'] }));
+  expect(after.complaints).toEqual(['after']);
+});
+
+maybe('a second read after the fill is a hit and does not refill', async () => {
+  const key = `single-flight-hit-${Date.now()}`;
+  const parts = cachePartsFor(CENTRAL);
+  let fills = 0;
+  const fill = async () => {
+    fills += 1;
+    return { complaints: [`v${fills}`] } satisfies Payload;
+  };
+
+  await readThroughCachedJson<Payload>(key, parts, fill);
+  const second = await readThroughCachedJson<Payload>(key, parts, fill);
+
+  expect(fills).toBe(1);
+  expect(second.complaints).toEqual(['v1']);
 });

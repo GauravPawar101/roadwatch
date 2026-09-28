@@ -28,6 +28,8 @@ export async function acquireComplaintWriteAdmission(input: {
   return permit;
 }
 
+const warnedPoolMismatches = new Set<string>();
+
 /**
  * Warns when the inflight cap is above the connection pool.
  *
@@ -41,19 +43,33 @@ export async function acquireComplaintWriteAdmission(input: {
  * Warned rather than rejected, because the two are independently tuned and a
  * deliberate over-provisioned pool is legitimate. But the mismatch is the most
  * common cause of write-path 500s, and it is invisible until it is measured.
+ *
+ * This describes a fixed configuration, not a per-request condition, so it is
+ * reported once per distinct configuration rather than on every call. It used to
+ * warn per call from inside the admission path, which is a configuration fact
+ * being re-derived for every request: in a capacity run at a deliberate
+ * inflight-above-pool setting it wrote 13 MB of identical warnings and spent
+ * 3.9% of gateway CPU on the writes, which then had to be attributed between
+ * the gateway and the load generator in the throughput measurement.
  */
 function warnOnPoolMismatch(
   maxInflight: number,
   variable = 'COMPLAINT_WRITE_MAX_INFLIGHT',
   poolMax = readPositiveInt(process.env.PGPOOL_MAX, 20),
 ): void {
-  if (maxInflight > poolMax) {
-    console.warn(
-      `[gateway-api] ${variable}=${maxInflight} exceeds PGPOOL_MAX=${poolMax}. ` +
-        `Each admitted request holds a connection for its query, so the pool is the real ceiling: ` +
-        `requests beyond ${poolMax} will wait on connection acquire instead of being shed with a 429.`
-    );
+  if (maxInflight <= poolMax) {
+    return;
   }
+  const key = `${variable}=${maxInflight}|pgpool=${poolMax}`;
+  if (warnedPoolMismatches.has(key)) {
+    return;
+  }
+  warnedPoolMismatches.add(key);
+  console.warn(
+    `[gateway-api] ${variable}=${maxInflight} exceeds PGPOOL_MAX=${poolMax}. ` +
+      `Each admitted request holds a connection for its query, so the pool is the real ceiling: ` +
+      `requests beyond ${poolMax} will wait on connection acquire instead of being shed with a 429.`
+  );
 }
 
 /**

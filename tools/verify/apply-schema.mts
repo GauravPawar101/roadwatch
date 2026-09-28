@@ -5,7 +5,7 @@
  * Uses `sslmode=no-verify` via normaliseSslMode, because Aiven's private CA is
  * not in the system trust store — see ssl-mode.ts.
  *
- * docker/postgres/init.sql is 54 x CREATE TABLE IF NOT EXISTS with no DROP,
+ * docker/postgres/init.sql is 55 x CREATE TABLE IF NOT EXISTS with no DROP,
  * TRUNCATE, DELETE or role changes, so this is re-runnable and destroys
  * nothing.
  *

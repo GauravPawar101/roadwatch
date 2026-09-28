@@ -12,8 +12,22 @@ import { createPool } from '../../packages/core/src/postgres.js';
 import { resolvePostgresEndpoint } from '../../packages/core/src/config/endpoints.js';
 import { readFileSync } from 'node:fs';
 
+/**
+ * Environment for the tools, with **process.env taking precedence**.
+ *
+ * `process.env` is seeded from process.env rather than starting empty, and the file
+ * only fills in keys that are not already set. That ordering is the whole point:
+ * the cloud tier has the highest precedence in the resolver, so a tool that ignored
+ * process.env would silently target the managed database even when the operator had
+ * explicitly blanked the cloud variables to work against the on-device one.
+ *
+ * This is not hypothetical — it is what put 29,997 scraped roads into the managed
+ * database instead of the local one, and what made a verification probe time out
+ * against a host it was never meant to touch. Set a variable to an empty string to
+ * shadow the file: the resolver treats empty as unset, so the local tier wins.
+ */
 function loadEnv(path: string): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
+  const env: NodeJS.ProcessEnv = { ...process.env };
   for (const line of readFileSync(path, 'utf8').split('\n')) {
     const t = line.trim();
     if (!t || t.startsWith('#')) continue;

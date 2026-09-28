@@ -152,6 +152,35 @@ CREATE INDEX IF NOT EXISTS complaint_attachments_complaint_id_idx
   ON complaint_attachments (complaint_id);
 
 -- =============================================================
+--  Repair verifications
+-- =============================================================
+-- One row per complaint: the evidence that a repair actually happened
+-- where the complaint was raised. Written by
+-- POST /authority/complaints/:id/repair-verification and read back as
+-- a gate on RESOLVED (see the resolve and status routes). The resolve
+-- gate fails closed, so this table being absent from the schema meant
+-- every resolve attempt returned 400.
+CREATE TABLE IF NOT EXISTS complaint_repair_verifications (
+  complaint_id        uuid        PRIMARY KEY REFERENCES complaints (id) ON DELETE CASCADE,
+  before_sha256       text        NOT NULL,
+  after_sha256        text        NOT NULL,
+  image_lat           double precision,
+  image_lng           double precision,
+  current_lat         double precision,
+  current_lng         double precision,
+  distance_m          double precision,
+  ai_score            double precision,
+  repaired            boolean     NOT NULL DEFAULT false,
+  model               text,
+  details             jsonb       NOT NULL DEFAULT '{}',
+  verified_by_user_id uuid,
+  verified_at         timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS complaint_repair_verifications_repaired_idx
+  ON complaint_repair_verifications (repaired);
+
+-- =============================================================
 --  Complaint assignments
 -- =============================================================
 CREATE TABLE IF NOT EXISTS complaint_assignments (

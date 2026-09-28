@@ -1,0 +1,17 @@
+{
+  "name": "@roadwatch/tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Operational tools: data acquisition, verification probes, load and profiling harnesses.",
+  "scripts": {
+    "test": "vitest run",
+    "scrape:roads": "tsx ./scrape/import-roads.mts",
+    "scrape:roads:dry": "tsx ./scrape/import-roads.mts --dry-run",
+    "scrape:lengths": "tsx ./scrape/road-lengths.mts"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4",
+    "tsx": "^4.21.0"
+  }
+}

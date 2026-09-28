@@ -516,13 +516,25 @@ async function main(): Promise<void> {
         const regionCode = toFabricRegionCode(
           processedSubmitted[0]?.event.district || processedSubmitted[0]?.event.zone || 'UNKNOWN'
         );
-        const proposal = contract.newProposal('SubmitMerkleRoot', {
-          arguments: [root, regionCode, processedSubmitted.length.toString()]
+        // A Fabric transaction that commits with errors is a *successful commit*
+        // as far as the SDK is concerned: submit() resolves and getStatus()
+        // returns successful=false. Discarding that status would write a real
+        // fabric_txid into complaint_merkle_proofs and publish
+        // complaint-anchored for a root the ledger never accepted.
+        const fabricTxId = await withFabricCircuit(async () => {
+          const proposal = contract.newProposal('SubmitMerkleRoot', {
+            arguments: [root, regionCode, processedSubmitted.length.toString()]
+          });
+          const endorsed = await proposal.endorse();
+          const submitted = await endorsed.submit();
+          const status = await submitted.getStatus();
+          if (!status.successful) {
+            throw new Error(
+              `Fabric SubmitMerkleRoot committed without success: ${status.transactionId ?? proposal.getTransactionId()}`
+            );
+          }
+          return status.transactionId ?? proposal.getTransactionId();
         });
-        const fabricTxId = proposal.getTransactionId();
-        const endorsed = await proposal.endorse();
-        const submitted = await endorsed.submit();
-        await submitted.getStatus();
 
         for (let i = 0; i < processedSubmitted.length; i++) {
           const { event } = processedSubmitted[i]!;

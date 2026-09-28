@@ -3,6 +3,7 @@ import 'dotenv/config';
 import cron from 'node-cron';
 import { Pool } from 'pg';
 import { EscalationEngine, isRegionalHoliday, applySlaBreachContractorPenalty, applySlaBreachEngineerPenalty, applyInspectionOverduePenalty, scaleOrgKarmaDelta, getWorkBandFromScore, getDatePartsInTimeZone, resolvePostgresEndpoint, installProcessGuards, reportInfrastructure } from '@roadwatch/core';
+import { KafkaTopics } from '@roadwatch/kafka/topics';
 import { hierarchyForRoadType } from './hierarchy.js';
 
 interface SchedulerConfig {
@@ -230,7 +231,7 @@ async function enqueueStatusChangedOutbox(params: {
       `INSERT INTO kafka_event_outbox
          (id, topic, message_key, headers, payload, idempotency_key, status, attempts, available_at, created_at, updated_at)
        VALUES (gen_random_uuid(), $1, $2, NULL, $3::jsonb, $4, 'PENDING', 0, NOW(), NOW(), NOW())`,
-      ['complaint.status.changed', params.complaintId, JSON.stringify(payload), idempotencyKey]
+      [KafkaTopics.complaintStatusChanged, params.complaintId, JSON.stringify(payload), idempotencyKey]
     );
   } catch (error) {
     // Retry once without the optional columns, for a deployment whose
@@ -239,7 +240,7 @@ async function enqueueStatusChangedOutbox(params: {
       `INSERT INTO kafka_event_outbox
          (id, topic, message_key, payload, status, attempts, available_at, created_at, updated_at)
        VALUES (gen_random_uuid(), $1, $2, $3::jsonb, 'PENDING', 0, NOW(), NOW(), NOW())`,
-      ['complaint.status.changed', params.complaintId, JSON.stringify(payload)]
+      [KafkaTopics.complaintStatusChanged, params.complaintId, JSON.stringify(payload)]
     ).catch(fallbackError => {
       // Rethrow rather than swallow. The caller sets breach_notified = true
       // once this returns, and that flag is the only thing preventing a retry,
