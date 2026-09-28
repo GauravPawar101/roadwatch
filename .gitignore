@@ -91,6 +91,28 @@ coverage
 **/coverage
 .turbo
 **/.turbo
+
+# Compiled output emitted next to TypeScript sources. A stale committed `.js`
+# shadows the `.ts` file for any relative `./x.js` import, so it silently wins
+# over the real source at runtime. Scoped to the packages that build in-place
+# rather than ignored globally, because the repo also has hand-written `.d.ts`
+# shims (allow-listed below) that must stay trackable.
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+packages/*/*.js
+packages/*/*.js.map
+packages/*/*.d.ts
+packages/*/*.d.ts.map
+
+# Hand-written ambient declarations and module shims — never build output.
+!packages/core/src/react-native-config.d.ts
+!apps/gateway-api/src/types.d.ts
+!apps/gateway-api/src/types/form-data.d.ts
+!backend-api/src/types/express.d.ts
+!frontend/src/types/sql-js.d.ts
+!packages/providers/src/types.d.ts
 .vite
 **/.vite
 .expo
@@ -203,3 +225,5 @@ htmlcov/
 # Istio download cache
 .tools/
 k8s/base/layer-0-platform/secret.yaml
+profiles/
+data/

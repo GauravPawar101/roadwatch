@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Badge, Button, Card, CardBody, Container, Hero } from '../components/UIComponents'
+import { Badge, Button, Card, CardBody, Container, Hero, Spinner } from '../components/UIComponents'
 import { getRecord } from '../lib/offlineStore'
 
 const statusProgress: Record<string, number> = {
@@ -120,7 +120,7 @@ export default function ContractorComplaintDetail(){
                       {media.type === 'video' && media.dataUrl && <video src={media.dataUrl} className="stitch-img-cover" controls />}
                       <div style={{ paddingTop: 8 }}>
                         <div className="stitch-font-700" style={{ fontSize: 13 }}>{media.type === 'photo' ? 'Photo' : 'Video'}</div>
-                        <div style={{ marginTop: 8 }}><Badge tone={media.status === 'Verified' ? 'success' : 'warning'}>{media.status}</Badge></div>
+                        <div style={{ marginTop: 8 }}><Badge variant={media.status === 'Verified' ? 'success' : 'warning'}>{media.status}</Badge></div>
                         <div style={{ marginTop: 8 }} className="stitch-text-12 stitch-text-muted">{new Date(media.timestamp).toLocaleDateString()}</div>
                       </div>
                     </CardBody>

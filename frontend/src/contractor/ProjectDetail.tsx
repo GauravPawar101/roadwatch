@@ -130,7 +130,7 @@ export default function ContractorProjectDetail() {
           <div className="absolute right-0 top-0 h-40 w-40 bg-gradient-to-br from-[#06B6D4]/10 to-[#8B5CF6]/10 rounded-bl-full blur-2xl" />
           <div className="relative space-y-3">
             <div className="flex flex-wrap items-center gap-3">
-              <Badge tone="success" className="px-3 py-1 font-bold text-[10px] tracking-wider uppercase">
+              <Badge variant="success" className="px-3 py-1 font-bold text-[10px] tracking-wider uppercase">
                 Active Project
               </Badge>
               <span className="text-xs text-slate-400 font-mono">Contract ID: {project.id}</span>
@@ -204,7 +204,7 @@ export default function ContractorProjectDetail() {
                     <Wrench className="h-5 w-5 text-[#8B5CF6]" />
                     Required Dispatches / Work Queue
                   </h3>
-                  <Badge tone="warning" className="px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold">
+                  <Badge variant="warning" className="px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold">
                     {workQueue.length} Pending
                   </Badge>
                 </div>
@@ -215,7 +215,7 @@ export default function ContractorProjectDetail() {
                         <h4 className="text-sm font-bold text-white">{wq.title}</h4>
                         <p className="text-xs text-slate-400 mt-1">{wq.desc}</p>
                       </div>
-                      <Badge tone="warning" className="text-[10px] px-2 py-0.5">
+                      <Badge variant="warning" className="text-[10px] px-2 py-0.5">
                         {wq.status}
                       </Badge>
                     </div>
@@ -271,7 +271,7 @@ export default function ContractorProjectDetail() {
                   </div>
                   <div className="text-right">
                     <span className="text-[10px] text-slate-400 block font-semibold uppercase">Trend status</span>
-                    <Badge tone="success" className="text-[9px] px-2 py-0.5">Improving</Badge>
+                    <Badge variant="success" className="text-[9px] px-2 py-0.5">Improving</Badge>
                   </div>
                 </div>
               </CardBody>
@@ -349,7 +349,7 @@ export default function ContractorProjectDetail() {
                     <div key={c.id} className="p-2.5 rounded-lg border border-red-500/10 bg-red-950/10 space-y-1">
                       <div className="flex justify-between items-center">
                         <span className="text-[10px] font-mono text-red-400">{c.id}</span>
-                        <Badge tone={c.severity >= 4 ? 'error' : 'warning'} className="text-[9px] px-1.5 py-0.2">
+                        <Badge variant={c.severity >= 4 ? 'error' : 'warning'} className="text-[9px] px-1.5 py-0.2">
                           Severity {c.severity}
                         </Badge>
                       </div>

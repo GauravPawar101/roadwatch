@@ -9,8 +9,17 @@ const postgresMock = vi.hoisted(() => ({
   }
 }));
 
+// The real ensureAuthenticated always establishes an identity before calling
+// next(): it sets req.userId/req.user on the JWT path, or normalizes the
+// sidecar X-User-* context. A pass-through no-op left getActorId() with nothing
+// to read, so every route test 401'd.
 const authMock = vi.hoisted(() => ({
-  ensureAuthenticated: (_req: unknown, _res: unknown, next: () => void) => next()
+  ensureAuthenticated: (req: any, _res: unknown, next: () => void) => {
+    req.userId = '11111111-1111-4111-8111-111111111111';
+    req.user = { id: req.userId, roles: ['citizen'] };
+    req.userRole = 'CITIZEN';
+    next();
+  }
 }));
 
 const rateLimiterMock = vi.hoisted(() => ({
@@ -25,7 +34,12 @@ const kafkaMock = vi.hoisted(() => ({
   emitComplaintEvent: vi.fn()
 }));
 
-vi.mock('@roadwatch/core', () => postgresMock);
+// Partial mock: keep the real text-intelligence helpers (these tests assert
+// their actual behaviour) and replace only the database pool.
+vi.mock('@roadwatch/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@roadwatch/core')>();
+  return { ...actual, pool: postgresMock.pool };
+});
 vi.mock('../middleware/auth.js', () => authMock);
 vi.mock('../middleware/rateLimiter.js', () => rateLimiterMock);
 vi.mock('../services/complaintOutbox.js', () => complaintOutboxMock);

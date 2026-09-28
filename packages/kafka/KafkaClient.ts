@@ -1,15 +1,30 @@
 import { Kafka as KafkaJS } from 'kafkajs';
-import { getLocalKafkaBrokers } from './config.js';
+import { getKafkaClientOptions, type KafkaEnv } from './config.js';
+import type { KafkaClusterName } from '@roadwatch/core';
 
-let kafkaSingleton: KafkaJS | null = null;
+const clients = new Map<string, KafkaJS>();
 
-export function getKafkaClient(): KafkaJS {
-  if (kafkaSingleton) return kafkaSingleton;
-  const brokers = getLocalKafkaBrokers();
-  if (!brokers) {
-    throw new Error('Kafka is required but KAFKA_BROKER or KAFKA_BROKERS is not configured');
-  }
+/**
+ * Returns a Kafka client for one cluster, carrying that cluster's TLS and SASL
+ * configuration.
+ *
+ * Cached per cluster: the two clusters may point at different providers with
+ * different credentials, so a single shared client cannot serve both. Caching
+ * also keeps kafkajs' internal connection pools from being rebuilt per call.
+ */
+export function getKafkaClient(
+  cluster: KafkaClusterName = 'events',
+  env: KafkaEnv = process.env
+): KafkaJS {
+  const existing = clients.get(cluster);
+  if (existing) return existing;
 
-  kafkaSingleton = new KafkaJS({ clientId: 'roadwatch', brokers });
-  return kafkaSingleton;
+  const client = new KafkaJS(getKafkaClientOptions(cluster, `roadwatch-${cluster}`, env));
+  clients.set(cluster, client);
+  return client;
+}
+
+/** Test hook: drops cached clients so a new environment takes effect. */
+export function resetKafkaClients(): void {
+  clients.clear();
 }

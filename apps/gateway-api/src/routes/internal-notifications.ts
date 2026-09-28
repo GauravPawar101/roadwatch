@@ -1,10 +1,11 @@
+import { Router } from '@roadwatch/core'
 import express from 'express'
 import { z } from 'zod'
 import { createAndFanoutNotification } from '../notifications/service.js'
 import { pool } from '../postgres.js'
 import { uuidv7 } from '../uuid.js'
 
-const router = express.Router()
+const router = Router()
 
 // Simple shared-secret check for internal callers
 function checkServiceToken(req: express.Request) {

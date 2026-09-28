@@ -80,9 +80,15 @@ type DensityLayerHandle = {
   remove: () => void;
 };
 
+/** Leaflet layers are chainable: `addTo`/`bindPopup` both return the layer. */
+type ChainableCircle = {
+  addTo: (map: unknown) => ChainableCircle;
+  bindPopup: (html: string) => ChainableCircle;
+};
+
 /** Draw semi-transparent red overlays for high complaint density on a Leaflet map. */
 export function createDensityZoneLayers(
-  L: { circle: (latlng: [number, number], opts: Record<string, unknown>) => { addTo: (map: unknown) => unknown; bindPopup: (html: string) => unknown } },
+  L: { circle: (latlng: [number, number], opts: Record<string, unknown>) => ChainableCircle },
   map: unknown,
   zones: DensityZone[],
 ): DensityLayerHandle {
@@ -99,14 +105,14 @@ export function createDensityZoneLayers(
       fillOpacity,
       className: 'complaint-density-zone',
     })
+      .addTo(map)
       .bindPopup(
         `<div style="min-width:160px;font-size:12px;line-height:1.5">
           <strong style="color:#991b1b">High complaint density</strong><br/>
           ${zone.count} reports in this area
           ${zone.severeCount > 0 ? `<br/>${zone.severeCount} severe` : ''}
         </div>`,
-      )
-      .addTo(map);
+      );
     layers.push(layer);
   }
 

@@ -1,15 +1,34 @@
-# Replace these with your AWS managed service endpoints before deploying.
-# RDS → postgres, ElastiCache → redis, MSK → kafka-hlf / kafka-events (or single MSK cluster with two topics).
+# AWS managed-service endpoints.
+#
+# These use the *_CLOUD_* variables rather than overwriting the in-cluster
+# POSTGRES_HOST / REDIS_URL / KAFKA_*_BROKERS values. That matters because the
+# deployments interpolate DATABASE_URL from the generic parts; overriding the
+# parts leaves that interpolation in play, whereas a *_CLOUD_* value is picked
+# up directly by resolvePostgresEndpoint / resolveRedisEndpoint /
+# resolveKafkaEndpoint and bypasses it.
+#
+# Replace the placeholders before deploying:
+#   RDS        -> postgres
+#   RDS Proxy  -> pgbouncer
+#   ElastiCache-> redis
+#   MSK        -> kafka-hlf and kafka-events (or one cluster with two topic sets)
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: infra-config
   namespace: roadwatch
 data:
-  POSTGRES_HOST: "REPLACE_WITH_RDS_ENDPOINT"
-  PGBOUNCER_HOST: "REPLACE_WITH_PGBOUNCER_OR_RDS_PROXY"
-  REDIS_URL: "redis://REPLACE_WITH_ELASTICACHE:6379/0"
-  KAFKA_HLF_BROKERS: "REPLACE_WITH_MSK_BROKER:9092"
-  KAFKA_EVENTS_BROKERS: "REPLACE_WITH_MSK_BROKER:9092"
-  KAFKA_BROKER: "REPLACE_WITH_MSK_BROKER:9092"
-  KAFKA_BROKERS: "REPLACE_WITH_MSK_BROKER:9092"
+  # Managed PostgreSQL. Include ?sslmode=require — managed databases require TLS.
+  DATABASE_CLOUD_URL: "postgresql://REPLACE_WITH_RDS_USER:REPLACE_WITH_RDS_PASSWORD@REPLACE_WITH_RDS_ENDPOINT:5432/roadwatch?sslmode=require"
+  POSTGRES_CLOUD_URL: ""
+
+  # Managed Redis. Use rediss:// (TLS) for ElastiCache with transit encryption.
+  REDIS_CLOUD_URL:   "rediss://REPLACE_WITH_ELASTICACHE:6379/0"
+  REDIS_MANAGED_URL: ""
+
+  # Managed Kafka (MSK). SASL/TLS credentials go in the app-secrets Secret as
+  # KAFKA_SASL_USERNAME / KAFKA_SASL_PASSWORD when IAM auth is not used.
+  KAFKA_EVENTS_CLOUD_BROKERS:   "REPLACE_WITH_MSR_BROKER_1:9098,REPLACE_WITH_MSR_BROKER_2:9098"
+  KAFKA_EVENTS_MANAGED_BROKERS: ""
+  KAFKA_HLF_CLOUD_BROKERS:      "REPLACE_WITH_MSR_BROKER_1:9098,REPLACE_WITH_MSR_BROKER_2:9098"
+  KAFKA_HLF_MANAGED_BROKERS:    ""

@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { Request } from 'express';
+import type { Request } from 'express';
 
 interface OtpSession {
     otp: string;
@@ -54,7 +54,7 @@ export class AuditLayer {
         } catch (error) {
             // Remove session if SMS sending fails
             this.otpSessions.delete(sessionId);
-            throw new Error(`Failed to send OTP: ${error.message}`);
+            throw new Error(`Failed to send OTP: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 

@@ -7,7 +7,7 @@ import { promises as fs } from 'fs';
 import { Kafka as KafkaJS } from 'kafkajs';
 import { Pool } from 'pg';
 
-import { fabricLedgerService } from '@roadwatch/core';
+import { fabricLedgerService, installProcessGuards, reportInfrastructure, resolvePostgresEndpoint } from '@roadwatch/core';
 import { getHlfKafkaBrokers, KafkaProducer, KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent, type DlqEvent, type NotificationSendEvent } from '@roadwatch/kafka';
 
 type DbClient = Pool;
@@ -177,7 +177,7 @@ function requireEnv(value: string | undefined, name: string): string {
   return value;
 }
 
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
@@ -188,11 +188,11 @@ function stableStringify(value: unknown): string {
   return `{${body}}`;
 }
 
-function sha256Hex(input: string): string {
+export function sha256Hex(input: string): string {
   return crypto.createHash('sha256').update(input, 'utf8').digest('hex');
 }
 
-function toFabricRegionCode(input: string | null | undefined): string {
+export function toFabricRegionCode(input: string | null | undefined): string {
   const compact = String(input ?? '')
     .trim()
     .replace(/\s+/g, '-')
@@ -205,7 +205,7 @@ function toFabricRegionCode(input: string | null | undefined): string {
   return compact.length <= 10 ? compact : compact.slice(0, 10);
 }
 
-function merkleRoot(leaves: string[]): { root: string; proofs: ProofStep[][] } {
+export function merkleRoot(leaves: string[]): { root: string; proofs: ProofStep[][] } {
   if (leaves.length === 0) {
     return { root: sha256Hex(''), proofs: [] };
   }
@@ -281,10 +281,18 @@ async function connectFabric(env: Env = process.env): Promise<{ gateway: Gateway
 }
 
 async function connectPostgres(env: Env = process.env): Promise<DbClient> {
-  const connectionString = env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:16432/roadwatch';
+  // Resolve rather than reading DATABASE_URL: a managed endpoint is selected by
+  // DATABASE_CLOUD_URL while DATABASE_URL still points at the in-cluster
+  // service, so reading DATABASE_URL here would ignore the managed choice.
+  const { connectionString, ssl } = resolvePostgresEndpoint(env);
+  const resolved =
+    connectionString || 'postgresql://postgres:postgres@127.0.0.1:16432/roadwatch';
 
   const pool = new Pool({
-    connectionString,
+    connectionString: resolved,
+    // Managed Postgres requires TLS; its certificate is issued for the
+    // provider's own hostname, so chain verification would fail.
+    ssl: ssl ? { rejectUnauthorized: false } : undefined,
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 2000
@@ -508,13 +516,25 @@ async function main(): Promise<void> {
         const regionCode = toFabricRegionCode(
           processedSubmitted[0]?.event.district || processedSubmitted[0]?.event.zone || 'UNKNOWN'
         );
-        const proposal = contract.newProposal('SubmitMerkleRoot', {
-          arguments: [root, regionCode, processedSubmitted.length.toString()]
+        // A Fabric transaction that commits with errors is a *successful commit*
+        // as far as the SDK is concerned: submit() resolves and getStatus()
+        // returns successful=false. Discarding that status would write a real
+        // fabric_txid into complaint_merkle_proofs and publish
+        // complaint-anchored for a root the ledger never accepted.
+        const fabricTxId = await withFabricCircuit(async () => {
+          const proposal = contract.newProposal('SubmitMerkleRoot', {
+            arguments: [root, regionCode, processedSubmitted.length.toString()]
+          });
+          const endorsed = await proposal.endorse();
+          const submitted = await endorsed.submit();
+          const status = await submitted.getStatus();
+          if (!status.successful) {
+            throw new Error(
+              `Fabric SubmitMerkleRoot committed without success: ${status.transactionId ?? proposal.getTransactionId()}`
+            );
+          }
+          return status.transactionId ?? proposal.getTransactionId();
         });
-        const fabricTxId = proposal.getTransactionId();
-        const endorsed = await proposal.endorse();
-        const submitted = await endorsed.submit();
-        await submitted.getStatus();
 
         for (let i = 0; i < processedSubmitted.length; i++) {
           const { event } = processedSubmitted[i]!;
@@ -688,7 +708,22 @@ async function main(): Promise<void> {
   await db.end();
 }
 
-main().catch(err => {
-  console.error('[fabric-anchor-consumer] fatal:', err);
-  process.exitCode = 1;
-});
+// Only run the consumer loop when this module is the service entrypoint, so the
+// pure helpers above can be imported by tests without connecting to Fabric/Kafka.
+const isServiceEntryPoint =
+  process.env.VITEST !== 'true' &&
+  process.env.NODE_ENV !== 'test' &&
+  process.env.FABRIC_ANCHOR_NO_AUTOSTART !== 'true';
+
+if (isServiceEntryPoint) {
+  // Fabric/Kafka handlers that reject must not kill the consumer, or anchors
+  // would stop being written while the events still look acknowledged.
+  installProcessGuards({ serviceName: 'fabric-anchor-consumer' });
+  // Report the resolved endpoints before connecting, so a missing managed
+  // endpoint is visible even if the consumer later exits.
+  reportInfrastructure('fabric-anchor-consumer');
+  main().catch(err => {
+    console.error('[fabric-anchor-consumer] fatal:', err);
+    process.exitCode = 1;
+  });
+}

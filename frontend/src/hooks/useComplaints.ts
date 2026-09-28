@@ -21,6 +21,8 @@ export type ComplaintData = {
     kind: string;
     file_path: string;
     file_mime: string;
+    file_sha256?: string | null;
+    created_at?: string;
   }>;
 };
 

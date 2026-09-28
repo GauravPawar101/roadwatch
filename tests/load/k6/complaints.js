@@ -3,7 +3,10 @@ import crypto from 'k6/crypto';
 import encoding from 'k6/encoding';
 import http from 'k6/http';
 
-const BASE_URL = __ENV.TARGET_URL || 'http://localhost:3000';
+// Defaults to the gateway API, not the frontend. The previous default pointed
+// at :3000, so an unconfigured run measured the wrong service and reported a
+// wall of failures that looked like a capacity problem.
+const BASE_URL = __ENV.TARGET_URL || 'http://localhost:3100';
 const JWT_SECRET = __ENV.JWT_SECRET || 'local_development_cryptographic_secret';
 
 export const options = {
@@ -42,7 +45,10 @@ function authHeader() {
   const now = Math.floor(Date.now() / 1000);
   const token = jwtHS256(
     {
-      sub: 'loadtest-user',
+      // Must be a UUID: the gateway persists `sub` into uuid columns
+      // (complaints.user_id). A non-UUID subject aborts the insert and, before
+      // the gateway validated it, took the whole process down.
+      sub: '00000000-0000-4000-8000-0000000000aa',
       phone: '+91******0000',
       phoneHash: 'loadtest',
       role: 'CE',

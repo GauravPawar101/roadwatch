@@ -1,6 +1,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: roadwatch
+
+# No global `namespace:` here on purpose. Every base resource already declares
+# its own namespace (roadwatch, or observability for the monitoring stack), and
+# a global namespace rewrites the observability Namespace object to `roadwatch`,
+# colliding with the platform Namespace:
+#   "namespace transformation produces ID conflict: Namespace/roadwatch ..."
+# which meant this overlay — and the aws overlay that inherits it — could not
+# render at all.
 
 resources:
   - ../../base

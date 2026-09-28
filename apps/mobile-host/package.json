@@ -38,6 +38,7 @@
     "@babel/core": "^7.20.0",
     "@react-native/babel-preset": "0.73.0",
     "@react-native/metro-config": "0.73.0",
+    "@types/react": "^18.3.28",
     "typescript": "^5.0.0"
   }
 }

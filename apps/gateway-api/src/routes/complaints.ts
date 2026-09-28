@@ -1,3 +1,4 @@
+import { Router } from '@roadwatch/core';
 import express from 'express';
 import { z } from 'zod';
 import { countryAdapter, RoadType, Severity, ComplaintStatus, mapIndianRoadToDomainType } from '@roadwatch/adapters';
@@ -19,7 +20,7 @@ import { bumpComplaintReadCache, readCachedJson, writeCachedJson } from '@roadwa
 import { maybeSyncAnchorComplaint } from '../services/sync-anchor.js';
 import { uuidv7 } from '../uuid.js';
 
-const router = express.Router();
+const router = Router();
 
 function mergeEscalationWindowMs(roadId: string): number {
   return slaHoursForRoadType(roadId) * 60 * 60 * 1000;

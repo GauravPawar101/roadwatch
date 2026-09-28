@@ -4,10 +4,17 @@
     "noEmit": false,
     "outDir": "./dist",
     "rootDir": ".",
+    // Clears the workspace `paths` mapping inherited from tsconfig.base.json.
+    // With the mapping in place TypeScript resolves @roadwatch/core to core's
+    // *source* and pulls those files into this compilation, which violates
+    // `rootDir` above. Clearing it makes the build resolve the published
+    // package (core's dist) like any other dependency. Typechecking keeps
+    // using the source mapping, which is what we want for fast feedback.
+    "paths": {},
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true
   },
   "include": ["*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
 }

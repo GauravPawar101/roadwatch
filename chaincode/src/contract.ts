@@ -1,5 +1,5 @@
 import { Context, Contract } from 'fabric-contract-api';
-import { Complaint, ComplaintPII, ComplaintStatus, MerkleAnchorBatch } from './asset';
+import { Complaint, ComplaintPII, ComplaintStatus } from './asset';
 
 export class ComplaintContract extends Contract {
     private async markEventProcessed(ctx: Context, eventId: string): Promise<boolean> {
@@ -159,6 +159,10 @@ export class ComplaintContract extends Contract {
         const tsObj = await ctx.stub.getTxTimestamp();
         const ts = tsObj && tsObj.seconds ? Number(tsObj.seconds.low || tsObj.seconds) : Math.floor(Date.now() / 1000);
 
+        // Persisted shape is the anchor record itself (lowercase fields), which is
+        // what VerifyMerkleRoot returns verbatim. It is deliberately NOT a
+        // MerkleAnchorBatch — that asset declares ID/MerkleRoot/Count/CreatedAt and
+        // shares no fields with this record, so casting to it was simply false.
         const record = {
             anchorId: 'ANCHOR_' + merkleRoot.slice(0, 16),
             merkleRoot,
@@ -167,7 +171,7 @@ export class ComplaintContract extends Contract {
             submittedBy: clientMSP,
             txId: ctx.stub.getTxID(),
             timestamp: ts,
-        } as MerkleAnchorBatch & { anchorId: string; regionCode: string; submittedBy: string; txId: string; timestamp: number };
+        };
 
         await ctx.stub.putState(key, Buffer.from(JSON.stringify(record)));
         await ctx.stub.setEvent('MerkleRootAnchored', Buffer.from(JSON.stringify(record)));

@@ -117,6 +117,23 @@ ALTER TABLE IF EXISTS complaints
   ADD COLUMN IF NOT EXISTS user_id uuid;
 CREATE INDEX IF NOT EXISTS complaints_user_id_idx        ON complaints (user_id);
 
+-- Supports the proximity-dedupe lookup performed on every complaint create
+-- (routes/authority.ts): the same district+zone, located rows, open statuses,
+-- newest first, LIMIT 25 FOR UPDATE.
+--
+-- Without this the planner chose a Seq Scan plus a quicksort over the whole
+-- table on every insert: measured at 11.9 ms and growing linearly with row
+-- count, at 9.3k rows. The index makes the lookup O(rows examined) instead of
+-- O(table), so it stays flat as complaints accumulate.
+--
+-- lat/lng are in the partial predicate because the dedupe only applies to
+-- located complaints. The status filter remains a heap check: the query wraps
+-- the column in UPPER(), so it cannot be served from the index, and FOR UPDATE
+-- requires a heap tuple regardless.
+CREATE INDEX IF NOT EXISTS complaints_open_dedupe_idx
+  ON complaints (district, zone, created_at DESC)
+  WHERE lat IS NOT NULL AND lng IS NOT NULL;
+
 -- =============================================================
 --  Complaint attachments
 -- =============================================================
@@ -133,6 +150,35 @@ CREATE TABLE IF NOT EXISTS complaint_attachments (
 
 CREATE INDEX IF NOT EXISTS complaint_attachments_complaint_id_idx
   ON complaint_attachments (complaint_id);
+
+-- =============================================================
+--  Repair verifications
+-- =============================================================
+-- One row per complaint: the evidence that a repair actually happened
+-- where the complaint was raised. Written by
+-- POST /authority/complaints/:id/repair-verification and read back as
+-- a gate on RESOLVED (see the resolve and status routes). The resolve
+-- gate fails closed, so this table being absent from the schema meant
+-- every resolve attempt returned 400.
+CREATE TABLE IF NOT EXISTS complaint_repair_verifications (
+  complaint_id        uuid        PRIMARY KEY REFERENCES complaints (id) ON DELETE CASCADE,
+  before_sha256       text        NOT NULL,
+  after_sha256        text        NOT NULL,
+  image_lat           double precision,
+  image_lng           double precision,
+  current_lat         double precision,
+  current_lng         double precision,
+  distance_m          double precision,
+  ai_score            double precision,
+  repaired            boolean     NOT NULL DEFAULT false,
+  model               text,
+  details             jsonb       NOT NULL DEFAULT '{}',
+  verified_by_user_id uuid,
+  verified_at         timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS complaint_repair_verifications_repaired_idx
+  ON complaint_repair_verifications (repaired);
 
 -- =============================================================
 --  Complaint assignments

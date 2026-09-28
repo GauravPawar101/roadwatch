@@ -108,8 +108,8 @@ export const complaints: ComplaintRecord[] = [
   { id: 'cmp-1006', complaintId: 'RW-CHE-6214', roadId: 'TN-08F', title: 'Crack propagation in arterial road', category: 'Crack', district: 'Chennai', state: 'Tamil Nadu', geo: '13.082, 80.270', severity: 8, status: 'Verified', slaHoursLeft: 26, trustImpact: 7, karmaImpact: 4, blockchainRef: 'FAB-1D9A-6C01', assignedAuthority: 'Section Officer, Chennai East', assignedContractor: 'MetroRoads Ltd', updatedAt: '5h ago', createdAt: '2026-05-10T11:52:00Z', evidenceCount: 5, fraudRisk: 14, duplicateCluster: 'Cluster-B' },
 ]
 
-function normalizeValue(value: string | undefined) {
-  return value.trim().toLowerCase()
+function normalizeValue(value: string | undefined | null) {
+  return String(value ?? '').trim().toLowerCase()
 }
 
 function compareComplaintPriority(left: ComplaintRecord, right: ComplaintRecord) {

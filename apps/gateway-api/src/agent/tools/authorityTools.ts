@@ -1,5 +1,7 @@
+import { KafkaTopics, type ComplaintStatusChangedEvent } from '@roadwatch/kafka';
 import { trackAnalyticsEvent } from '../../analytics/service.js';
 import type { JwtClaims } from '../../auth/jwt.js';
+import { enqueueKafkaEvent } from '../../kafka/outbox.js';
 import { createAndFanoutNotification } from '../../notifications/service.js';
 import { pool } from '../../postgres.js'; // Migrated from execute wrapper to postgres.js instance
 import { assertDistrictAccess, assertZoneAccess } from '../../rbac.js';
@@ -64,7 +66,9 @@ export const AUTHORITY_TOOLS: ToolDefinition[] = [
   ),
   tool(
     'upload_repair_proof',
-    'Mark work as completed and attach repair proof metadata to the audit log.',
+    'Mark work as completed and attach repair proof metadata to the audit log. ' +
+    'Requires a passing repair verification for the complaint; fails with ' +
+    'REPAIR_VERIFICATION_REQUIRED if the repair has not been verified.',
     {
       type: 'object',
       additionalProperties: false,
@@ -429,6 +433,33 @@ async function uploadRepairProof(params: {
     throw new Error('FORBIDDEN');
   }
 
+  // Idempotency first, matching POST /complaints/:id/resolve: an already
+  // resolved complaint is a no-op rather than a gate failure.
+  if (complaint.status === 'RESOLVED') {
+    // Same output shape as the normal path, so the documented contract holds.
+    return { 
+      resolutionTxId: complaint.fabric_txid ?? null, 
+      mediaCIDs: [] as string[],
+      unchanged: true
+    };
+  }
+
+  // Same gate as POST /complaints/:id/resolve. Without it this tool is a
+  // bypass: an LLM-driven call could close a complaint with no repair
+  // verification at all, and the resolution would never reach the ledger
+  // because the status change was not published either.
+  const verificationResult = await pool.query(
+    `SELECT repaired, ai_score, distance_m, verified_at
+     FROM complaint_repair_verifications
+     WHERE complaint_id = $1
+     LIMIT 1`,
+    [params.complaintId]
+  );
+  const verification = verificationResult.rows[0];
+  if (!verification || !verification.repaired) {
+    throw new Error('REPAIR_VERIFICATION_REQUIRED');
+  }
+
   let updatedComplaint;
   const client = await pool.connect();
   try {
@@ -440,6 +471,23 @@ async function uploadRepairProof(params: {
        WHERE id = $1`,
       [params.complaintId]
     );
+
+    // The Fabric accountability record is built from this event, so omitting
+    // it left tool-driven resolutions invisible on the ledger.
+    const statusEvent: ComplaintStatusChangedEvent = {
+      type: 'complaint-status-changed',
+      idempotencyKey: `complaint:${params.complaintId}:status:${complaint.status}->RESOLVED`,
+      occurredAt: new Date().toISOString(),
+      version: 1,
+      complaintId: params.complaintId,
+      fromStatus: complaint.status,
+      toStatus: 'RESOLVED',
+      changedBy: { actorType: 'authority', actorId: actor.sub }
+    };
+    await enqueueKafkaEvent(client, KafkaTopics.complaintStatusChanged, statusEvent, {
+      key: params.complaintId,
+      idempotencyKey: statusEvent.idempotencyKey
+    });
 
     await client.query(
       `INSERT INTO audit_log (
@@ -563,7 +611,7 @@ export async function executeAuthorityTool(params: {
         mediaIds: Array.isArray(args.mediaIds) ? args.mediaIds.map(String) : [],
         workDescription: String(args.workDescription ?? '')
       });
-      source = { kind: 'gateway-db', tables: ['complaints', 'audit_log', 'analytics_events'], media: 'metadata_only' };
+      source = { kind: 'gateway-db', tables: ['complaints', 'complaint_repair_verifications', 'kafka_event_outbox', 'audit_log', 'analytics_events'], media: 'metadata_only' };
     } else {
       throw new Error('UNKNOWN_TOOL');
     }

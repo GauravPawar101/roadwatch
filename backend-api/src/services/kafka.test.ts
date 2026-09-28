@@ -2,9 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const publish = vi.hoisted(() => vi.fn());
 
-vi.mock('../../../providers/kafka/KafkaProducer.js', () => ({
-  KafkaProducer: vi.fn(() => ({ publish }))
-}));
+// kafka.ts imports KafkaProducer from @roadwatch/kafka. The previous mock
+// targeted providers/kafka/KafkaProducer.js, which does not exist in this
+// workspace layout, so the real producer ran and demanded a live broker.
+vi.mock('@roadwatch/kafka', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@roadwatch/kafka')>();
+  return {
+    ...actual,
+    KafkaProducer: vi.fn(() => ({ publish })),
+  };
+});
 
 import { emitComplaintEvent } from './kafka.js';
 

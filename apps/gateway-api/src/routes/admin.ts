@@ -1,3 +1,4 @@
+import { Router } from '@roadwatch/core';
 import express from 'express';
 import { z } from 'zod';
 import { registerFabricIdentity, verifyFabricIdentity } from '../auth/fabric.js';
@@ -17,7 +18,7 @@ import { pool } from '../postgres.js';
 import { requireAuth, requireRole } from '../rbac.js';
 import { uuidv7 } from '../uuid.js';
 
-const router = express.Router();
+const router = Router();
 
 async function claimAdminIdempotency(
   req: express.Request,

@@ -77,6 +77,10 @@ export function CitizenGuard({ children }: { children: ReactNode }) {
   return <ProtectedRoute requiredRoles={['CITIZEN']}>{children}</ProtectedRoute>;
 }
 
+export function SuperAdminGuard({ children }: { children: ReactNode }) {
+  return <ProtectedRoute requiredRoles={['SUPER_ADMIN']}>{children}</ProtectedRoute>;
+}
+
 /** Redirect already-authenticated users away from login pages */
 export function GuestOnly({ children }: { children: ReactNode }) {
   const { isAuthenticated, user, loading } = useAuth();

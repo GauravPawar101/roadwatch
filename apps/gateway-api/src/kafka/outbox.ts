@@ -210,11 +210,32 @@ export async function drainKafkaEventOutbox(batchSize = 25): Promise<number> {
 export async function startKafkaEventRelay(): Promise<() => Promise<void>> {
   await ensureOutboxTable();
 
+  const batchSize = positiveInt(process.env.KAFKA_OUTBOX_BATCH_SIZE, 200);
+  const intervalMs = positiveInt(process.env.KAFKA_OUTBOX_INTERVAL_MS, 1000);
+  // Bounds how much work one tick may do, so draining a large backlog cannot
+  // monopolise the event loop and stall request handling.
+  const maxBatchesPerTick = positiveInt(process.env.KAFKA_OUTBOX_MAX_BATCHES_PER_TICK, 20);
+
   const tick = async () => {
     if (relayRunning) return;
     relayRunning = true;
     try {
-      await drainKafkaEventOutbox(25);
+      // Drain repeatedly until a batch comes back short.
+      //
+      // This previously drained a fixed 25 rows once per second, capping the
+      // relay at 25 events/second. The write path produced ~54/second under
+      // load, so the backlog grew without bound: 18,463 PENDING against 34,052
+      // SENT after a single 3-minute run. The backlog is read as a pressure
+      // signal by the admission limiter, so an undersized relay throttles the
+      // primary write path — the async side starving the sync side.
+      //
+      // Looping only while a batch is full means a partial failure (some rows
+      // failed to publish) stops the loop and backs off to the next tick
+      // instead of spinning on a poison batch.
+      for (let batch = 0; batch < maxBatchesPerTick; batch += 1) {
+        const sent = await drainKafkaEventOutbox(batchSize);
+        if (sent < batchSize) break;
+      }
     } catch (error) {
       console.error('[gateway-kafka-outbox] relay tick failed:', error instanceof Error ? error.message : String(error));
     } finally {
@@ -225,7 +246,7 @@ export async function startKafkaEventRelay(): Promise<() => Promise<void>> {
   void tick();
   relayTimer = setInterval(() => {
     void tick();
-  }, 1000);
+  }, intervalMs);
 
   return async () => {
     if (relayTimer) {
@@ -233,4 +254,9 @@ export async function startKafkaEventRelay(): Promise<() => Promise<void>> {
       relayTimer = null;
     }
   };
+}
+
+function positiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }

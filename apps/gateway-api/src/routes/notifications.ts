@@ -1,3 +1,4 @@
+import { Router } from '@roadwatch/core';
 import express from 'express';
 import { z } from 'zod';
 import type { JwtClaims } from '../auth/jwt.js';
@@ -11,7 +12,7 @@ import {
 } from '../notifications/service.js';
 import { requireAuth } from '../rbac.js';
 
-const router = express.Router();
+const router = Router();
 
 router.get('/inbox', requireAuth, async (req, res) => {
   const user = (req as any).user as JwtClaims;

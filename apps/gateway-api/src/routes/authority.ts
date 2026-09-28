@@ -1,11 +1,13 @@
+import { Router } from '@roadwatch/core';
 import { KafkaTopics, type ComplaintStatusChangedEvent, type ComplaintSubmittedEvent } from '@roadwatch/kafka';
 import express from 'express';
 import { z } from 'zod';
+import { paginationShape } from '../http/pagination.js';
 import { getContractorScorecard, trackAnalyticsEvent } from '../analytics/service.js';
-import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
+import { buildRequestHash, claimIdempotency, deriveIdempotencyKey, releaseIdempotencyKey, storeIdempotencyResult } from '../idempotency.js';
 import { enqueueKafkaEvent } from '../kafka/outbox.js';
 import { createAndFanoutNotification } from '../notifications/service.js';
-import { sql as pool } from '../postgres.js'; // Use `sql` tagged-template executor exported from postgres.ts
+import { sql as pool, sqlFragment } from '../postgres.js'; // `sql` executes; `sqlFragment` composes
 import { assertDistrictAccess, assertZoneAccess, requireAuth, requireRole } from '../rbac.js';
 import { broadcastComplaintEvent } from '../realtime/sse.js';
 import { fabricLedgerService } from '../services/fabric-ledger.js';
@@ -17,14 +19,35 @@ import {
   slaHoursForRoadType,
   rewardOrgForRepair,
 } from '../services/complaint-lifecycle.js';
-import { bumpComplaintReadCache } from '@roadwatch/redis';
+import { bumpComplaintReadCache, readThroughCachedJson } from '@roadwatch/redis';
 import { maybeSyncAnchorComplaint } from '../services/sync-anchor.js';
 import { uuidv7 } from '../uuid.js';
 
 const MERGE_RADIUS_M = 100;
+
+/**
+ * Statuses a complaint can no longer be merged into.
+ *
+ * Set membership rather than an inline array literal: this is evaluated once per
+ * candidate row inside the dedupe scan, and `Array.includes` on a fresh literal
+ * allocates on every call.
+ */
+const MERGE_CLOSED_STATUSES = new Set(['RESOLVED', 'DISMISSED', 'CLOSED']);
+
+/**
+ * How many times the dedupe rescan will retry when the merge target turns out to
+ * be stale under the lock.
+ *
+ * Re-verification only fails when a concurrent writer resolved or removed the row
+ * between the scan and the lock, so a stale candidate is rare and one retry is
+ * normally enough. Three leaves room for a burst without letting a write spin:
+ * the loop is bounded, and exhaustion returns a retryable 503 rather than
+ * splitting a report that should have been merged.
+ */
+const MERGE_SCAN_ATTEMPTS = 3;
 const MERGE_SLA_WINDOW_MS = (roadTypeOrId?: string) => slaHoursForRoadType(roadTypeOrId ?? 'URBAN') * 60 * 60 * 1000;
 
-const router = express.Router();
+const router = Router();
 
 function toRad(v: number) {
   return (v * Math.PI) / 180;
@@ -133,42 +156,99 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     return res.status(claimed.statusCode).json(claimed.body as any);
   }
 
+  // From here on the claim is held. Anything that throws before
+  // storeIdempotencyResult would otherwise leave it incomplete, and an
+  // incomplete claim is not reclaimable by the caller — auto-derived keys hash
+  // the body, so a retry with any changed field derives a different key and the
+  // original complaint becomes permanently unwritable. Release on the way out.
+  try {
   let id = body.id ?? uuidv7();
   let merged = false;
   let escalated = false;
   let reportCount = 1;
   let mergeReason: string | null = null;
   let status = 'FILED';
+  // Live SSE pushes, flushed only once the transaction has committed.
+  const deferredBroadcasts: Array<() => void> = [];
 
   await pool.begin(async (tx: any) => {
     if (body.lat != null && body.lng != null) {
-      const candidates = await tx`
-        SELECT id, status, report_count, created_at, updated_at, lat, lng
-        FROM complaints
-        WHERE district = ${body.district}
-          AND zone = ${body.zone}
-          AND lat IS NOT NULL AND lng IS NOT NULL
-          AND UPPER(status) NOT IN ('RESOLVED', 'DISMISSED', 'CLOSED')
-        ORDER BY created_at DESC
-        LIMIT 25
-        FOR UPDATE
-      `;
+      const target = { lat: Number(body.lat), lng: Number(body.lng) };
+      const withinMergeRadius = (row: any): boolean =>
+        row.lat != null &&
+        row.lng != null &&
+        haversineMeters(target, { lat: Number(row.lat), lng: Number(row.lng) }) <= MERGE_RADIUS_M;
+      const isMergeable = (row: any): boolean => !MERGE_CLOSED_STATUSES.has(String(row.status ?? '').toUpperCase());
 
-      const near = (candidates as any[]).find((row) => {
-        if (row.lat == null || row.lng == null) return false;
-        return haversineMeters(
-          { lat: Number(body.lat), lng: Number(body.lng) },
-          { lat: Number(row.lat), lng: Number(row.lng) }
-        ) <= MERGE_RADIUS_M;
-      });
+      // Two-phase dedupe: find the merge target without locking anything, then
+      // lock only that one row, then re-verify it under the lock.
+      //
+      // The previous query was a single `LIMIT 25 ... FOR UPDATE`, which locks
+      // the 25 newest rows *in the district/zone*. Every concurrent write to the
+      // same district/zone therefore queued on the same 25 rows, which is why
+      // adding gateway instances made this worse rather than better: the lock
+      // lives in Postgres, keyed by district/zone, so a second instance contends
+      // on exactly the same rows. Measured on the hot partition, p50 was 794 ms
+      // against 55.6 ms spread over 200 partitions — 14x — and every waiting
+      // backend was on a row lock rather than on CPU or disk.
+      //
+      // The unlocked scan is a plain MVCC read: no row locks, so writers in the
+      // same partition no longer serialise. Correctness is preserved by locking
+      // the single row actually merged into, and re-checking under that lock,
+      // because a candidate can be resolved or removed between the scan and the
+      // lock.
+      // Tracks whether a candidate was found and then rejected under the lock.
+      // Only that case is a genuine contention failure. "No candidate within the
+      // radius" is the ordinary path to a new row, and must not be mistaken for
+      // contention — an earlier version of this conflated the two and answered
+      // 503 for every write outside the radius in a busy partition.
+      let staleCandidateSeen = false;
 
-      if (near) {
-        const decision = shouldEscalateOnMerge(near, MERGE_SLA_WINDOW_MS());
+      for (let attempt = 0; attempt < MERGE_SCAN_ATTEMPTS; attempt += 1) {
+        const candidates = await tx`
+          SELECT id, status, report_count, created_at, updated_at, lat, lng
+          FROM complaints
+          WHERE district = ${body.district}
+            AND zone = ${body.zone}
+            AND lat IS NOT NULL AND lng IS NOT NULL
+            AND UPPER(status) NOT IN ('RESOLVED', 'DISMISSED', 'CLOSED')
+          ORDER BY created_at DESC
+          LIMIT 25
+        `;
+
+        const near = (candidates as any[]).find(
+          (row) => withinMergeRadius(row) && isMergeable(row),
+        );
+        // Nothing within the radius: no lock is needed at all, and a new row is
+        // the right outcome. Two simultaneous first reports at the same spot
+        // create two rows, which is also what the previous version did — neither
+        // could see the other's uncommitted insert.
+        if (!near) break;
+
+        // Lock exactly one row: the one that will be merged into.
+        const locked = await tx`
+          SELECT id, status, report_count, created_at, updated_at, lat, lng
+          FROM complaints
+          WHERE id = ${near.id}
+          FOR UPDATE
+        `;
+        const row = (locked as any[])[0];
+
+        // Re-verify under the lock. READ COMMITTED gives each statement a fresh
+        // snapshot, so this sees any commit that landed while we were scanning.
+        // A row that was resolved or deleted in the meantime is not a valid
+        // merge target, and merging into it would corrupt report_count.
+        if (!row || !withinMergeRadius(row) || !isMergeable(row)) {
+          staleCandidateSeen = true;
+          continue;
+        }
+
+        const decision = shouldEscalateOnMerge(row, MERGE_SLA_WINDOW_MS());
         merged = true;
-        id = String(near.id);
+        id = String(row.id);
         mergeReason = decision.reason;
         escalated = decision.escalate;
-        status = escalated ? 'ESCALATED' : String(near.status ?? 'FILED');
+        status = escalated ? 'ESCALATED' : String(row.status ?? 'FILED');
 
         const updated = await tx`
           UPDATE complaints
@@ -191,7 +271,7 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
             occurredAt: new Date().toISOString(),
             version: 1,
             complaintId: id,
-            fromStatus: String(near.status ?? 'FILED'),
+            fromStatus: String(row.status ?? 'FILED'),
             toStatus: 'ESCALATED',
             changedBy: { actorType: 'system', actorId: user.sub },
           };
@@ -200,6 +280,19 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
             idempotencyKey: event.idempotencyKey,
           });
         }
+        break;
+      }
+
+      // Only a candidate that went stale under the lock counts as contention.
+      // Inserting after a genuinely contended scan would risk splitting a report
+      // that should have been merged, so the caller is asked to retry. The
+      // idempotency claim is released on the way out, so a retry is an ordinary
+      // request rather than a permanently failed one.
+      if (!merged && staleCandidateSeen) {
+        const error: any = new Error('Complaint merge target changed during this request; please retry');
+        error.statusCode = 503;
+        error.retryAfterSeconds = 1;
+        throw error;
       }
     }
 
@@ -234,19 +327,54 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
         idempotencyKey: event.idempotencyKey,
       });
     }
+
+    // SLA tracking drives breach detection, so a complaint without it is never
+    // escalated. It belongs in the same transaction as the complaint, and reads
+    // the complaint row through the transaction's own snapshot.
+    if (!merged) {
+      await ensureSlaTracking(id, { severity: body.severity }, tx);
+    } else if (escalated) {
+      // Shorten remaining SLA on escalation (half window)
+      await ensureSlaTracking(id, {
+        severity: body.severity,
+        deadline: new Date(Date.now() + (MERGE_SLA_WINDOW_MS() / 2)),
+      }, tx);
+    }
+
+    // The notification is business data, not a side effect: a citizen filing a
+    // complaint and the resulting notification either both exist or neither
+    // does. It previously ran on its own transaction *after* this one
+    // committed, so a failure there produced a 500 for a complaint that was
+    // already durable — and the caller's retry merged into it, taking one
+    // report to report_count 2.
+    await createAndFanoutNotification({
+      message: {
+        type: escalated ? 'status_change' : 'new_complaint',
+        title: escalated
+          ? `Complaint ${id} escalated`
+          : merged
+            ? `Complaint merged into ${id}`
+            : `New complaint ${id}`,
+        body: escalated
+          ? `SLA-based escalation for ${body.district} / ${body.zone}.`
+          : merged
+            ? `Nearby report merged (count=${reportCount}).`
+            : `New complaint filed in ${body.district} / ${body.zone}.`,
+        data: { complaintId: id, district: body.district, zone: body.zone, merged, escalated, reportCount },
+        audience: { kind: 'jurisdiction', district: body.district, zone: body.zone },
+        critical: escalated,
+      },
+      tx,
+      deferBroadcasts: deferredBroadcasts,
+    });
   });
 
-  if (!merged) {
-    await ensureSlaTracking(id, { severity: body.severity });
-  } else if (escalated) {
-    // Shorten remaining SLA on escalation (half window)
-    await ensureSlaTracking(id, {
-      severity: body.severity,
-      deadline: new Date(Date.now() + (MERGE_SLA_WINDOW_MS() / 2)),
-    });
-  }
-
-  await awardValidSubmissionKarma(user.sub, id).catch(() => null);
+  // Best-effort from here: these are observability and scoring, not the record
+  // of the complaint. Throwing would return a 500 for an already-committed
+  // write, and the caller's retry would merge into the complaint it just made.
+  await awardValidSubmissionKarma(user.sub, id).catch(error => {
+    console.error('[authority] karma award failed for complaint', id, error);
+  });
 
   await writeAudit(
     user.sub,
@@ -256,8 +384,15 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     'complaint',
     id,
     { district: body.district, zone: body.zone, merged, escalated, reportCount, mergeReason }
-  );
+  ).catch(error => {
+    console.error('[authority] audit write failed for complaint', id, error);
+  });
 
+  // Analytics and audit are observability, not business data. They run after
+  // the transaction has committed and are explicitly best-effort: if they threw,
+  // the caller would see a 500 for a complaint that already exists, and the
+  // retry would merge into it and double-count the report. Losing an analytics
+  // row is recoverable; corrupting report_count is not.
   await trackAnalyticsEvent({
     type: escalated ? 'COMPLAINT_ESCALATED' : 'COMPLAINT_CREATED',
     actorUserId: user.sub,
@@ -267,26 +402,18 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     lat: body.lat ?? null,
     lng: body.lng ?? null,
     properties: { status, merged, escalated, reportCount, mergeReason },
+  }).catch(error => {
+    console.error('[authority] analytics event failed for complaint', id, error);
   });
 
-  await createAndFanoutNotification({
-    message: {
-      type: escalated ? 'status_change' : 'new_complaint',
-      title: escalated
-        ? `Complaint ${id} escalated`
-        : merged
-          ? `Complaint merged into ${id}`
-          : `New complaint ${id}`,
-      body: escalated
-        ? `SLA-based escalation for ${body.district} / ${body.zone}.`
-        : merged
-          ? `Nearby report merged (count=${reportCount}).`
-          : `New complaint filed in ${body.district} / ${body.zone}.`,
-      data: { complaintId: id, district: body.district, zone: body.zone, merged, escalated, reportCount },
-      audience: { kind: 'jurisdiction', district: body.district, zone: body.zone },
-      critical: escalated,
-    },
-  });
+  // Flush live notification pushes now that the transaction has committed.
+  for (const flush of deferredBroadcasts) {
+    try {
+      flush();
+    } catch (error) {
+      console.error('[authority] notification broadcast failed for complaint', id, error);
+    }
+  }
 
   const responseBody = {
     ok: true,
@@ -318,6 +445,18 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     reportCount
   });
   res.json(responseBody);
+  } catch (error) {
+    // The claim is dropped so the caller can retry immediately.
+    //
+    // Everything that makes up the complaint record — the complaint row, the
+    // merge counter, SLA tracking, the notification and the Kafka outbox event
+    // — is written inside one transaction, so reaching here means none of it
+    // committed and the retry starts clean. Only the post-commit observability
+    // writes (audit, analytics, karma) sit outside, and those are explicitly
+    // best-effort so they cannot turn a durable write into a 500.
+    await releaseIdempotencyKey(claimed);
+    throw error;
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -601,54 +740,106 @@ router.get('/complaints', requireAuth, async (req, res) => {
   const user = (req as any).user as { role: string; districts: string[]; zones: string[] };
 
   const query = z
-    .object({ district: z.string().optional(), zone: z.string().optional(), status: z.string().optional() })
+    .object({
+      district: z.string().optional(),
+      zone: z.string().optional(),
+      status: z.string().optional(),
+      // Previously accepted by clients and ignored: the SQL below carried a
+      // hardcoded LIMIT 200, so a request for 20 rows received 200. See
+      // ./pagination.ts for what that cost.
+      ...paginationShape,
+    })
     .parse(req.query);
 
-  let districtCondition = pool``;
+  // Read cache.
+  //
+  // The citizen-facing list in routes/complaints.ts has had this since it was
+  // written; the authority-facing list did not, and it is the endpoint the
+  // capacity measurements use. Under load the ungated version spends a database
+  // connection per request to return rows that are identical for every caller
+  // asking the same question.
+  //
+  // The cache key includes the district scope *after* the access filter below, so
+  // two officers with different districts cannot be served each other's rows: a
+  // shared key scoped only to the route would be a data leak, not just a stale
+  // read. Caching this response also removes the database work entirely on a hit,
+  // which is the real answer to read overload — shedding is the fallback for when
+  // the cache misses.
+  const cacheParts = {
+    district: query.district ?? null,
+    zone: query.zone ?? null,
+    status: query.status ?? null,
+    limit: query.limit,
+    offset: query.offset,
+    role: user.role,
+    districts: user.districts ?? [],
+    zones: user.zones ?? [],
+  };
+
+  let districtCondition = sqlFragment``;
   if (query.district) {
     if (!assertDistrictAccess(user as any, query.district)) return res.status(403).json({ error: 'Forbidden' });
-    districtCondition = pool`AND district = ${query.district}`;
+    districtCondition = sqlFragment`AND district = ${query.district}`;
   } else if (user.role !== 'CE' && !user.districts.includes('ALL') && user.districts.length) {
-    districtCondition = pool`AND district = ANY(${user.districts})`;
+    districtCondition = sqlFragment`AND district = ANY(${user.districts})`;
   }
 
-  let zoneCondition = pool``;
+  let zoneCondition = sqlFragment``;
   if (query.zone) {
     if (!assertZoneAccess(user as any, query.zone)) return res.status(403).json({ error: 'Forbidden' });
-    zoneCondition = pool`AND zone = ${query.zone}`;
+    zoneCondition = sqlFragment`AND zone = ${query.zone}`;
   } else if (user.role !== 'CE' && !user.zones.includes('ALL') && user.zones.length) {
-    zoneCondition = pool`AND zone = ANY(${user.zones})`;
+    zoneCondition = sqlFragment`AND zone = ANY(${user.zones})`;
   }
 
-  const statusCondition = query.status ? pool`AND status = ${query.status}` : pool``;
+  const statusCondition = query.status ? sqlFragment`AND status = ${query.status}` : sqlFragment``;
 
-  // Use dynamic pool tagging components seamlessly
-  const list = await pool`
-    SELECT id, district, zone, status, description, lat, lng, created_at, updated_at, fabric_txid
-    FROM complaints
-    WHERE 1=1
-    ${districtCondition}
-    ${zoneCondition}
-    ${statusCondition}
-    ORDER BY created_at DESC
-    LIMIT 200
-  `;
+  // The LIMIT and OFFSET are parameters, not literals, so a caller cannot inject
+  // either and the planner still gets a bound it can plan against.
+  // Looked up after the access filter has been resolved, so a caller who is
+  // refused never reaches the cache and a permitted caller's key reflects the
+  // scope they were actually granted.
+  const payload = await readThroughCachedJson<{
+    complaints: unknown[];
+    pagination: unknown;
+  }>('authority-complaints-list', cacheParts, async () => {
+    const list = await pool`
+      SELECT id, district, zone, status, description, lat, lng, created_at, updated_at, fabric_txid
+      FROM complaints
+      WHERE 1=1
+      ${districtCondition}
+      ${zoneCondition}
+      ${statusCondition}
+      ORDER BY created_at DESC
+      LIMIT ${query.limit} OFFSET ${query.offset}
+    `;
 
-  // postgres.js returns camelCased fields natively if configured. Mapping manually back to old output contract if necessary.
-  const mappedList = list.map((c: any) => ({
-    id: c.id,
-    district: c.district,
-    zone: c.zone,
-    status: c.status,
-    description: c.description,
-    lat: c.lat,
-    lng: c.lng,
-    created_at: c.createdAt ?? c.created_at,
-    updated_at: c.updatedAt ?? c.updated_at,
-    fabric_txid: c.fabricTxid ?? c.fabric_txid
-  }));
+    // postgres.js returns camelCased fields natively if configured. Mapping manually back to old output contract if necessary.
+    const mappedList = list.map((c: any) => ({
+      id: c.id,
+      district: c.district,
+      zone: c.zone,
+      status: c.status,
+      description: c.description,
+      lat: c.lat,
+      lng: c.lng,
+      created_at: c.createdAt ?? c.created_at,
+      updated_at: c.updatedAt ?? c.updated_at,
+      fabric_txid: c.fabricTxid ?? c.fabric_txid
+    }));
 
-  res.json({ complaints: mappedList });
+    // Pagination is reported, so a client can tell a short page from the end of
+    // the data. `hasMore` is a hint rather than a count: it costs nothing, and a
+    // COUNT(*) per request would undo the saving this whole change is about.
+    const hasMore = mappedList.length === query.limit;
+
+    return {
+      complaints: mappedList,
+      pagination: { limit: query.limit, offset: query.offset, returned: mappedList.length, hasMore }
+    };
+  });
+
+  res.json(payload);
 });
 
 // ---------------------------------------------------------------------------

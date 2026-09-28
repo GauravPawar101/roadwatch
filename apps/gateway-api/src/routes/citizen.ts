@@ -1,6 +1,6 @@
 import { KafkaTopics, type ComplaintSubmittedEvent } from '@roadwatch/kafka';
 import crypto from 'crypto';
-import express from 'express';
+import { Router } from '@roadwatch/core';
 import fs from 'fs/promises';
 import multer from 'multer';
 import path from 'path';
@@ -21,7 +21,7 @@ import {
 } from '../services/complaint-lifecycle.js';
 import { uuidv7 } from '../uuid.js';
 
-const router = express.Router();
+const router = Router();
 
 const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads', 'complaints');
 
@@ -270,7 +270,7 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
       await tx`
         INSERT INTO complaints
            (id, district, zone, status, description, lat, lng, road_id, authority_id, user_id, report_count, created_at, updated_at)
-         VALUES (${complaintId}, ${districtCode}, ${authorityId}, 'FILED', ${body.description}, ${body.lat}, ${body.lng}, ${body.roadId}, ${authorityId}, ${user.sub}, 1, NOW(), NOW())
+         VALUES (${complaintId}, ${districtCode}, NULL, 'FILED', ${body.description}, ${body.lat}, ${body.lng}, ${body.roadId}, ${authorityId}, ${user.sub}, 1, NOW(), NOW())
       `;
       reportCount = 1;
     }

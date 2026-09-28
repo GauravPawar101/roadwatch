@@ -1,6 +1,8 @@
 import cors from 'cors';
 import express from 'express';
 import morgan from 'morgan';
+import { makeAsyncSafe } from '@roadwatch/core';
+import { isDraining } from './graceful-shutdown.js';
 import { getServiceGraph, getSystemHealth } from './health.js';
 import { requireAuth } from './rbac.js';
 import { addSseClient } from './realtime/sse.js';
@@ -16,11 +18,39 @@ import notificationsRouter from './routes/notifications.js';
 import publicRouter from './routes/public.js';
 import reportsRouter from './routes/reports.js';
 import rtiRouter from './routes/rti.js';
-import { acquireComplaintWriteAdmission } from './security/write-backpressure.js';
+import { acquireComplaintWriteAdmission, acquireReadAdmission } from './security/write-backpressure.js';
 import { getAdmissionMetrics } from './security/admission-metrics.js';
 
+/**
+ * True for a Postgres connection-acquire timeout, across the shapes the driver
+ * and the pool can produce it in.
+ *
+ * Matched on the message as well as a code because node-postgres surfaces a
+ * `pool.query` acquire timeout as a rejected Error carrying no `code`, and this
+ * string is what appears in the log. Narrow deliberately: a genuine statement
+ * timeout or a constraint violation must not be reported as retryable, because
+ * retrying those makes no progress.
+ */
+function isConnectionAcquireTimeout(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/timeout exceeded when trying to connect|connection timeout/i.test(message)) {
+    return true;
+  }
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === 'ETIMEDOUT' || code === '53300';
+}
+
+/** Truthy in the same sense the config layer uses, so both agree on what "on" means. */
+function truthyEnv(raw: string | undefined): boolean {
+  return /^(1|true|yes|on)$/i.test((raw ?? '').trim());
+}
+
 export function createApp() {
-  const app = express();
+  // Patched before any handler is registered so that every route and
+  // middleware below is async-safe. Without this, Express 4 lets a rejected
+  // promise from a handler escape: the client gets no response at all and the
+  // process takes an unhandled rejection.
+  const app = makeAsyncSafe(express());
 
   // Configure CORS: allow origins from environment or sensible defaults
   const allowedOrigins = (process.env.CORS_ORIGIN || process.env.CORS_ORIGINS || '')
@@ -40,58 +70,153 @@ export function createApp() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin']
   }));
-  app.use(express.json({ limit: '2mb' }));
-  app.use(morgan('dev'));
+  // Body parsing. Before any route: a malformed body has to be rejected here, and
+  // the 404 handler below must not be reached first.
+  // Connection-acquire timeouts are retryable, not fatal.
+  //
+  // Every admitted complaint write holds a Postgres connection for the length of
+  // its transaction. When more writes are in flight than there are connections,
+  // the surplus waits on acquire and then fails with `timeout exceeded when
+  // trying to connect` — which the error handler would report as a 500, telling
+  // the caller the request failed outright when nothing was wrong with it. A
+  // client that gives up on a 500 but retries a 503 is the difference between
+  // shedding load and losing writes.
+  //
+  // Measured at concurrency 24 against a pool of 20: 93 of 690 requests answered
+  // 500 for this reason alone. Admission control is supposed to prevent it, but
+  // it can only bound concurrency as far as it is configured to, and the pool is
+  // the harder limit.
+  app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err instanceof Error && isConnectionAcquireTimeout(err)) {
+      res.setHeader('Retry-After', '1');
+      res.status(503).json({ error: 'Database busy, please retry' });
+      return;
+    }
+    next(err);
+  });
 
+  app.use(express.json({ limit: '2mb' }));
+
+  // Request logging.
+  //
+  // `morgan('dev')` wrote a formatted line to stdout for *every* request. At the
+  // throughput this system is being aimed at that is not observability, it is the
+  // workload: 100,000 log lines per second, each formatted and written on the
+  // event loop, and each one a syscall contending with the socket writes for the
+  // response itself. Measured on the paginated complaint list, morgan was among
+  // the largest single consumers of CPU in the response path.
+  //
+  // It is therefore opt-in. LOG_REQUESTS=1 restores per-request logging for
+  // development; in production the deployment is expected to sample, or to
+  // collect access logs from the load balancer, which already sees every request
+  // and is not on the request's critical path.
+  if (truthyEnv(process.env.LOG_REQUESTS)) {
+    app.use(morgan(process.env.LOG_FORMAT ?? 'dev'));
+  }
+
+  /**
+   * Admission control for the database-bound paths.
+   *
+   * Writes take a route/principal permit and a global one; reads take a
+   * per-principal permit and a global one capped at the connection pool. Both cost
+   * a single atomic Redis command.
+   *
+   * Reads are included because they were the gap: the write path has been limited
+   * all along, so an unbounded read load went straight at the pool. At ~1,000 read
+   * req/s the pool was exhausted, every request failed, and 100 unhandled
+   * rejections in about two seconds killed the process. A restart is the worst
+   * possible response to a traffic spike.
+   *
+   * Overload becomes a cheap 429 with Retry-After rather than a multi-second wait
+   * followed by a 500 or a process exit.
+   */
   app.use(async (req, res, next) => {
     const isWriteRequest = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-    const isComplaintPath = ['/citizen', '/authority', '/complaints'].some(prefix => req.path === prefix || req.path.startsWith(`${prefix}/`));
+    const isComplaintPath = ['/citizen', '/authority', '/complaints'].some(
+      prefix => req.path === prefix || req.path.startsWith(`${prefix}/`),
+    );
 
-    if (!isWriteRequest || !isComplaintPath) {
+    // Health and metrics must answer even when saturated. They are what the load
+    // balancer and an operator are watching, and shedding them removes the
+    // visibility needed to understand the shedding.
+    const isObservabilityPath =
+      req.path.startsWith('/health') || req.path.startsWith('/metrics');
+    if (isObservabilityPath || !isComplaintPath) {
       return next();
     }
 
     try {
+      // The principal is the token's `sub` when present, the address otherwise.
+      // It is decoded rather than verified here: admission is not authentication,
+      // and verification belongs to the route's own requireAuth. An unverified
+      // claim can only put a client against a different principal's budget, never
+      // a larger one.
       let userSub: string | undefined;
       const authHeader = req.headers.authorization;
       if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
         try {
           const payloadPart = authHeader.slice('Bearer '.length).split('.')[1];
           if (payloadPart) {
-            const json = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as { sub?: string };
-            if (typeof json.sub === 'string' && json.sub.trim()) userSub = json.sub.trim();
+            const payload = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as {
+              sub?: string;
+            };
+            if (typeof payload.sub === 'string' && payload.sub.trim()) {
+              userSub = payload.sub.trim();
+            }
           }
         } catch {
-          // ignore malformed tokens; fall back to IP
+          // ignore malformed tokens; fall back to the address
         }
       }
       const principal = userSub || req.ip || 'unknown-ip';
-      const routeScope = `gateway:${req.method}:${req.path.split('/')[1] ?? 'write'}`;
+      const routeScope = `${req.method}:${req.path.split('/')[1] ?? 'root'}`;
 
-      const [routePermit, globalPermit] = await Promise.all([
-        acquireComplaintWriteAdmission({ scope: routeScope, principal }),
-        acquireComplaintWriteAdmission({ scope: 'gateway:writes:global', principal: 'global' })
-      ]);
+      const permit = isWriteRequest
+        ? await acquireComplaintWriteAdmission({ routeScope, principal })
+        : await acquireReadAdmission({ routeScope, principal });
 
-      res.on('finish', () => {
-        void routePermit.release();
-        void globalPermit.release();
-      });
+      // Released on both events. `finish` covers a completed response; `close`
+      // without `finish` is an aborted request, and its permit would otherwise
+      // leak — the inflight count would ratchet up over time until the service
+      // refused all work. Idempotent, so the double release is harmless.
+      let released = false;
+      const release = (): void => {
+        if (released) return;
+        released = true;
+        void permit.release();
+      };
+      res.on('finish', release);
+      res.on('close', release);
 
       return next();
     } catch (error) {
-      const statusCode = typeof (error as any)?.statusCode === 'number' ? (error as any).statusCode : 503;
-      const retryAfterSeconds = typeof (error as any)?.retryAfterSeconds === 'number' ? (error as any).retryAfterSeconds : 5;
+      const statusCode =
+        typeof (error as any)?.statusCode === 'number' ? (error as any).statusCode : 503;
+      const retryAfterSeconds =
+        typeof (error as any)?.retryAfterSeconds === 'number'
+          ? (error as any).retryAfterSeconds
+          : 1;
       res.setHeader('Retry-After', String(retryAfterSeconds));
       return res.status(statusCode).json({
-        error: 'Write admission temporarily saturated',
-        retryAfterSeconds
+        error: isWriteRequest
+          ? 'Write admission temporarily saturated'
+          : 'Read capacity temporarily saturated',
+        retryAfterSeconds,
       });
     }
   });
 
-  // Basic health check
-  app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+  // Readiness. Reports 503 while draining, which is what makes a rolling deploy
+  // stop sending traffic here before the process stops accepting it. A plain
+  // `200 ok` would leave the load balancer writing to a closing instance for the
+  // whole grace period.
+  app.get('/health', (_req, res) => {
+    if (isDraining()) {
+      res.status(503).json({ status: 'draining' });
+      return;
+    }
+    res.json({ status: 'ok' });
+  });
 
   // Comprehensive health check with service status
   app.get('/health/status', async (_req, res) => {
@@ -160,6 +285,55 @@ export function createApp() {
       cleanup();
       res.end();
     });
+  });
+
+  // Unmatched routes. Registered before the error handler so a 404 is not
+  // swallowed by it.
+  app.use((_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+
+  // Terminal error handler. This must stay last, and must keep its four
+  // parameters: Express only treats a layer as error middleware when
+  // `fn.length === 4`.
+  //
+  // It also gives the gateway something it previously lacked entirely — before
+  // this, a synchronous throw produced Express's default HTML error page and an
+  // async throw produced no response whatsoever.
+  app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) {
+      // Too late to change the status; hand off so Express can destroy the
+      // socket rather than leave the client hanging.
+      next(err);
+      return;
+    }
+
+    // Accept both spellings. `status` is what Express and body-parser set; the
+    // rest of this codebase (the admission limiter, the rate limiter, the merge
+    // retry) sets `statusCode`. Reading only `status` turned every deliberate 503
+    // into a 500, which told the caller the request had failed outright rather
+    // than that it should be retried.
+    const candidate = err as { status?: unknown; statusCode?: unknown; retryAfterSeconds?: unknown };
+    const status =
+      typeof candidate?.status === 'number' && candidate.status >= 400 && candidate.status < 600
+        ? candidate.status
+        : typeof candidate?.statusCode === 'number' && candidate.statusCode >= 400 && candidate.statusCode < 600
+          ? candidate.statusCode
+          : 500;
+    const message = err instanceof Error ? err.message : 'Internal server error';
+
+    // Preserved so a 429 or a retryable 503 can still tell the client when to
+    // come back; without it the Retry-After the route set is dropped here.
+    const retryAfterSeconds = candidate?.retryAfterSeconds;
+    if (typeof retryAfterSeconds === 'number' && status === 429) {
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+    }
+
+    if (status >= 500) {
+      console.error('[gateway-api] unhandled request error:', err);
+    }
+
+    res.status(status).json({ error: status >= 500 ? 'Internal server error' : message });
   });
 
   return app;

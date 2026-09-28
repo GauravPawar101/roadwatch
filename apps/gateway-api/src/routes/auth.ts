@@ -1,3 +1,4 @@
+import { Router } from '@roadwatch/core';
 import { getRedisClient } from '@roadwatch/redis';
 import express from 'express';
 import { z } from 'zod';
@@ -44,7 +45,7 @@ async function resolveUserForLogin(
   return { user, phone };
 }
 
-const router = express.Router();
+const router = Router();
 
 router.post('/authority/otp/request', async (req, res) => {
   const body = z.object({ identifier: z.string().min(1).optional(), phone: z.string().min(6).optional() }).parse(req.body);

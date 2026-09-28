@@ -1,0 +1,36 @@
+# Reference for the optional `managed-endpoints` Secret.
+#
+# Copy the keys you need; omit the rest. Every key is optional and absent keys
+# fall back to the in-cluster endpoints from the `infra-config` ConfigMap.
+#
+#   kubectl -n roadwatch create secret generic managed-endpoints \
+#     --from-literal=DATABASE_CLOUD_URL='...' \
+#     --from-literal=REDIS_CLOUD_URL='...'
+#
+# Precedence implemented by @roadwatch/core (config/endpoints.ts):
+#   cloud (*_CLOUD_*)  ->  explicit URL  ->  in-cluster parts  ->  local default
+#
+# The cloud tier is checked FIRST on purpose: in Kubernetes the deployments
+# always materialise DATABASE_URL / REDIS_URL / KAFKA_*_BROKERS from the generic
+# infra ConfigMap, so an "explicit" tier would always be satisfied and a
+# managed endpoint could never take effect.
+
+# ── Managed PostgreSQL (RDS / Cloud SQL / Azure Database / Neon / Supabase) ──
+# Managed databases require TLS: include ?sslmode=require
+DATABASE_CLOUD_URL: "postgresql://USER:PASSWORD@HOST:5432/roadwatch?sslmode=require"
+# Alias, consulted only if DATABASE_CLOUD_URL is absent.
+POSTGRES_CLOUD_URL: ""
+
+# ── Managed Redis (ElastiCache / Memorystore / Azure Cache / Upstash) ───────
+# Use rediss:// when the provider requires TLS.
+REDIS_CLOUD_URL: "rediss://HOST:6379/0"
+# Alias, consulted only if REDIS_CLOUD_URL is absent.
+REDIS_MANAGED_URL: ""
+
+# ── Managed Kafka (MSK / Confluent / Event Hubs / Aiven) ────────────────────
+# Comma-separated bootstrap brokers.
+KAFKA_EVENTS_CLOUD_BROKERS: "BROKER-1:9094,BROKER-2:9094"
+KAFKA_HLF_CLOUD_BROKERS: "BROKER-1:9094,BROKER-2:9094"
+# Aliases, consulted only if the matching _CLOUD_BROKERS is absent.
+KAFKA_EVENTS_MANAGED_BROKERS: ""
+KAFKA_HLF_MANAGED_BROKERS: ""

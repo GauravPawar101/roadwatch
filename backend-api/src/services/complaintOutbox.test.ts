@@ -11,7 +11,13 @@ const kafkaMock = vi.hoisted(() => ({
   emitComplaintEvent: vi.fn()
 }));
 
-vi.mock('../../../apps/gateway-api/src/postgres.js', () => postgresMock);
+// complaintOutbox.ts imports `pool` from @roadwatch/core. The previous mock
+// targeted apps/gateway-api/src/postgres.js, a path this module never imports,
+// so the real pg pool was used and these tests hit a live database.
+vi.mock('@roadwatch/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@roadwatch/core')>();
+  return { ...actual, pool: postgresMock.pool };
+});
 vi.mock('./kafka.js', () => kafkaMock);
 
 import { drainComplaintEventOutbox, enqueueComplaintSubmittedEvent, startComplaintEventRelay } from './complaintOutbox.js';
@@ -125,7 +131,7 @@ describe('complaintOutbox', () => {
     );
   });
 
-  it('starts the relay, creates the outbox table, and returns a stop function', async () => {
+  it('starts the relay without runtime DDL and returns a stop function', async () => {
     const transactionClient = makeTransactionClient([]);
     poolMock.connect.mockResolvedValue(transactionClient);
     poolMock.query.mockResolvedValue({ rows: [] });
@@ -136,8 +142,12 @@ describe('complaintOutbox', () => {
 
     const stop = await startComplaintEventRelay();
 
-    // DDL is centralized in docker/postgres/init.sql; runtime creation is skipped.
-    expect(poolMock.query).toHaveBeenCalled();
+    // DDL is centralized in docker/postgres/init.sql, so the relay must NOT issue
+    // CREATE TABLE at runtime — assert the table is never created here.
+    const ddlCalls = poolMock.query.mock.calls.filter((call) =>
+      /CREATE\s+TABLE/i.test(String(call[0]))
+    );
+    expect(ddlCalls).toEqual([]);
     expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
 
     await stop();

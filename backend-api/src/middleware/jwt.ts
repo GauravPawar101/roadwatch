@@ -62,12 +62,18 @@ export function validateJWT(req: Request, res: Response, next: NextFunction) {
     
     // Determine algorithm based on key type
     const algorithm = publicKey.includes('BEGIN') ? 'RS256' : 'HS256';
-    
-    const payload = jwt.verify(token, publicKey, {
-      algorithms: [algorithm],
-      audience: process.env.JWT_AUDIENCE || 'roadwatch-api',
-      issuer: process.env.JWT_ISSUER || 'roadwatch-auth'
-    }) as JWTPayload;
+
+    // Only enforce audience/issuer when they are actually configured. The token
+    // issuer (@roadwatch/gateway-api signAccessToken) does not set aud/iss, so
+    // hardcoding expected values here rejected every real token with
+    // "jwt audience invalid". Set JWT_AUDIENCE/JWT_ISSUER to opt in.
+    const verifyOptions: jwt.VerifyOptions = { algorithms: [algorithm] };
+    const expectedAudience = process.env.JWT_AUDIENCE?.trim();
+    const expectedIssuer = process.env.JWT_ISSUER?.trim();
+    if (expectedAudience) verifyOptions.audience = expectedAudience;
+    if (expectedIssuer) verifyOptions.issuer = expectedIssuer;
+
+    const payload = jwt.verify(token, publicKey, verifyOptions) as JWTPayload;
     
     // Validate token structure
     if (!payload.sub) {

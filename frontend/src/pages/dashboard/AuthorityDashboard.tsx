@@ -12,7 +12,7 @@ import {
 import MapEmbed from '../../components/MapEmbed'
 import { useComplaints } from '../../hooks/useComplaints'
 import { DELHI_CENTER } from '../../lib/mapLocation'
-import { authorityProfiles, getAuthorityComplaintRows, getAuthorityProfileForLevel, insights, jurisdictionMap, roleActionLabels } from '../../data/roadwatchDashboard'
+import { authorityProfiles, getAuthorityComplaintRows, getAuthorityProfileForLevel, insights, jurisdictionMap, roleActionLabels, type AuthorityLevel } from '../../data/roadwatchDashboard'
 
 const shellStyle: React.CSSProperties = {
   minHeight: '100vh',
@@ -54,7 +54,13 @@ function MetricCard({ label, value, detail }: { label: string; value: string; de
   )
 }
 
-const hierarchyLevels = ['municipal', 'city-town-village', 'district', 'state'] as const
+const hierarchyLevels: AuthorityLevel[] = ['junior-engineer', 'district-officer', 'chief-engineer']
+
+const hierarchyLabels: Record<AuthorityLevel, string> = {
+  'junior-engineer': 'Ward / Junior Engineer',
+  'district-officer': 'District',
+  'chief-engineer': 'State',
+}
 
 function sectionTitleStyle(): React.CSSProperties {
   return { color: '#64748b', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em' }
@@ -73,7 +79,7 @@ const jurisdictionCoordinates: Record<string, { lat: number; lng: number }> = {
 
 export default function AuthorityDashboard() {
   const navigate = useNavigate()
-  const [level, setLevel] = useState<(typeof hierarchyLevels)[number]>('district')
+  const [level, setLevel] = useState<AuthorityLevel>('district-officer')
   const { complaints: mapComplaints } = useComplaints({ limit: 500 })
   const mapDensityPoints = useMemo(
     () => mapComplaints.map((c) => ({ lat: c.lat, lng: c.lng, severity: c.severity })),
@@ -151,7 +157,7 @@ export default function AuthorityDashboard() {
                     onClick={() => setLevel(item)}
                     className={`inspector-btn ${item === level ? 'selected' : ''}`}
                   >
-                    {item}
+                    {hierarchyLabels[item]}
                   </button>
                 ))}
               </div>

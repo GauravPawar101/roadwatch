@@ -1,3 +1,4 @@
+import { Router } from '@roadwatch/core';
 import express from 'express';
 import type { Request, Response } from 'express-serve-static-core';
 import { z } from 'zod';
@@ -10,7 +11,7 @@ import { rateLimiter } from '../middleware/rateLimiter.js';
 import { enqueueComplaintSubmittedEvent } from '../services/complaintOutbox.js';
 import { emitComplaintEvent } from '../services/kafka.js';
 
-const router = express.Router();
+const router = Router();
 
 const complaintSchema = z.object({
   roadId: z.string().min(1),
@@ -129,9 +130,27 @@ function isUuidLike(value: string | undefined): value is string {
 }
 
 function getActorId(req: Request): string | null {
-  const payload = (req as Request & { jwtPayload?: JwtPayload }).jwtPayload;
-  const userId = payload?.sub ?? payload?.userId ?? null;
-  return userId && userId.trim() ? userId : null;
+  // `jwtPayload` is only populated on the bearer-JWT path. When the gateway
+  // forwards X-User-* headers (mesh / sidecar), ensureAuthenticated normalizes
+  // the identity onto req.user.id / req.userId / req.userContext.id instead —
+  // reading only jwtPayload 401'd every authenticated mesh request.
+  const req_ = req as Request & {
+    jwtPayload?: JwtPayload;
+    user?: { id?: string | null };
+    userId?: string | null;
+    userContext?: { id?: string | null };
+  };
+  const candidates = [
+    req_.jwtPayload?.sub,
+    req_.jwtPayload?.userId,
+    req_.user?.id,
+    req_.userId,
+    req_.userContext?.id,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  }
+  return null;
 }
 
 type ComplaintMergeCandidate = {

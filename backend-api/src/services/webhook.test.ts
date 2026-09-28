@@ -8,7 +8,20 @@ const postgresMock = vi.hoisted(() => ({
   }
 }));
 
-vi.mock('@roadwatch/core', () => postgresMock);
+// `Router` comes from @roadwatch/core so that async handlers are wrapped
+// (Express 4 does not catch rejections). The mock replaces the whole module, so
+// it has to provide a real router factory as well as the pool.
+vi.mock('@roadwatch/core', async () => {
+  // Under NodeNext + verbatimModuleSyntax the dynamic import of this CommonJS
+  // package exposes its members on `default`, not as named exports.
+  const expressModule = (await import('express')) as unknown as {
+    default?: { Router: () => unknown };
+    Router?: () => unknown;
+  };
+  const factory = expressModule.default?.Router ?? expressModule.Router;
+  if (!factory) throw new Error('could not resolve express.Router in the @roadwatch/core mock');
+  return { ...postgresMock, Router: factory };
+});
 
 import webhookRouter from './webhook.js';
 

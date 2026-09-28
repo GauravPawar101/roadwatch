@@ -1,17 +1,31 @@
-export { getRedisClient } from './client.js';
+export { closeRedisClient, getRedisClient } from './client.js';
 export { getRedisConfig, isRedisConfigured, type RedisConfig } from './config.js';
-export { claimIdempotencyKey, type ClaimIdempotencyResult } from './idempotency.js';
+export { claimIdempotencyKey, releaseIdempotencyKey, type ClaimIdempotencyResult } from './idempotency.js';
 export {
   bumpComplaintReadCache,
   getReadCacheStats,
   isReadCacheEnabled,
   readCachedJson,
+  readThroughCachedJson,
   resetReadCacheStats,
   writeCachedJson
 } from './read-cache.js';
-export { acquireDistributedBackpressurePermit, type DistributedBackpressureConfig, type DistributedBackpressurePermit } from './backpressure.js';
+export {
+  acquireAdmission,
+  acquireDistributedBackpressurePermit,
+  admissionRejection,
+  permitKeys,
+  type Admission,
+  type AdmissionOutcome,
+  type AdmissionRejection,
+  type DistributedBackpressureConfig,
+  type DistributedBackpressurePermit,
+  type PermitCounters,
+  type PermitLabel
+} from './admission.js';
 export {
   acquireAdaptiveBackpressurePermit,
+  acquirePermitPair,
   readLoadSignals,
   recordAdmissionRejection,
   recordUpstreamFailure,

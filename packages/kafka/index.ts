@@ -1,3 +1,4 @@
+export * from './describe-auth.js';
 export * from './clusters.js';
 export * from './config.js';
 export * from './dlq.js';

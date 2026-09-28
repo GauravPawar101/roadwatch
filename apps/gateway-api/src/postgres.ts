@@ -1,17 +1,54 @@
 import { config as loadEnv } from 'dotenv';
 import { resolve } from 'node:path';
 import pg from 'pg';
+import { normaliseSslMode, resolvePostgresEndpoint } from '@roadwatch/core';
 
 const workspaceRoot = resolve(new URL(import.meta.url).pathname, '..', '..', '..', '..');
 loadEnv({ path: resolve(workspaceRoot, 'apps/gateway-api/.env'), override: false });
 
-const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@127.0.0.1:16432/roadwatch';
+// Managed/cloud endpoint -> DATABASE_URL -> in-cluster/local parts.
+const database = resolvePostgresEndpoint(process.env, {
+  host: '127.0.0.1',
+  port: '16432',
+  db: 'roadwatch',
+  user: 'postgres',
+  password: 'postgres',
+});
+
+const connectionString = database.connectionString || 'postgres://postgres:postgres@127.0.0.1:16432/roadwatch';
 
 const { Pool } = pg;
 
+/**
+ * Pool sizing.
+ *
+ * PGPOOL_MAX matches the convention already used by the adapter pool in
+ * @roadwatch/core, so one variable tunes both.
+ *
+ * This value and COMPLAINT_WRITE_MAX_INFLIGHT must be kept in step. Each
+ * admitted complaint write holds a connection for the length of its
+ * transaction, so an inflight cap above the pool size converts cheap 429
+ * rejections into multi-second waits on connection acquire, ending in a 500
+ * ("timeout exceeded when trying to connect"). Measured with inflight 400
+ * against a pool of 20: p95 3.06 s and 31 failed requests; with inflight
+ * matched to the pool: p95 423 ms and none.
+ *
+ * Postgres defaults to max_connections = 100, so the ceiling across all
+ * application pools on one database is that number, not this one.
+ */
+const poolMax = (() => {
+  const parsed = Number.parseInt(process.env.PGPOOL_MAX ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 20;
+})();
+
 const realPool = new Pool({
-  connectionString,
-  max: 20,
+  // Rewritten so `?sslmode=require` means "encrypt" rather than "verify the
+  // chain", which is what pg-connection-string >= 2.7 otherwise does and which
+  // a managed provider's private-CA certificate cannot satisfy. `ssl` was
+  // previously not passed here at all, so a managed endpoint could not connect.
+  connectionString: normaliseSslMode(connectionString, database.ssl),
+  ssl: database.ssl ? { rejectUnauthorized: false } : undefined,
+  max: poolMax,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
 });
@@ -113,6 +150,26 @@ function createSqlExecutor(executor: (text: string, values: any[]) => Promise<an
   return tag;
 }
 
+/**
+ * Build a composable SQL fragment without executing it.
+ *
+ * The `pool` tag executes and returns rows, so it can never be used to build a
+ * partial statement. The list endpoints built their WHERE clauses as
+ * `let cond = pool``; if (x) cond = pool`AND col = ${x}``, which produced a
+ * *Promise* in the variable. Interpolating that Promise into the outer template
+ * failed the isSqlFragment check, so the condition was never spliced into the
+ * SQL and the parameter list was shifted past a placeholder that no longer
+ * existed — Postgres rejected it with `syntax error at or near "$1"` and the
+ * endpoint returned 500 for every request. Two read endpoints were affected.
+ *
+ * This returns the fragment shape the executor actually understands, so
+ * placeholders are renumbered correctly when spliced.
+ */
+export function sqlFragment(strings: TemplateStringsArray, ...values: unknown[]): SqlFragment {
+  const built = buildSql(strings, values);
+  return { __isSqlFragment: true, text: built.text, values: built.values };
+}
+
 // Simple query wrapper using the shared PgBouncer-backed pg pool
 export const query = <T extends pg.QueryResultRow = pg.QueryResultRow>(text: string, params?: any[]): Promise<pg.QueryResult<T>> =>
   realPool.query<T>(text, params);
@@ -158,6 +215,19 @@ export const pool = new Proxy(realPool, {
     return val;
   },
 }) as pg.Pool;
+
+/**
+ * Closes the pool, so a graceful shutdown does not exit with connections open.
+ *
+ * Called last in the drain sequence. `realPool.end()` rather than the proxy's,
+ * because the proxy binds methods to the target and would otherwise work by
+ * accident rather than by design.
+ */
+export async function closePool(): Promise<void> {
+  await realPool.end().catch((err: unknown) => {
+    console.error('[postgres] pool.end() failed:', err instanceof Error ? err.message : String(err));
+  });
+}
 
 // Existing connection helpers
 export async function connect(): Promise<void> {

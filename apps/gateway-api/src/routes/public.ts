@@ -1,3 +1,4 @@
+import { Router } from '@roadwatch/core';
 import express from 'express';
 import { z } from 'zod';
 import {
@@ -21,7 +22,7 @@ import {
 } from '../db.js';
 import { pool } from '../postgres.js';
 
-const router = express.Router();
+const router = Router();
 
 router.get('/countries', async (_req, res) => {
   const countries = await listCountries();

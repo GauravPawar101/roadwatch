@@ -4,7 +4,8 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { Kafka } from 'kafkajs';
 import pg from 'pg';
-import { claimIdempotencyKey } from '@roadwatch/redis';
+import { claimIdempotencyKey, releaseIdempotencyKey } from '@roadwatch/redis';
+import { reportInfrastructure, resolveKafkaEndpoint, resolvePostgresEndpoint, installProcessGuards } from '@roadwatch/core';
 
 type NotificationSendEvent = {
   idempotencyKey: string;
@@ -16,8 +17,18 @@ type NotificationSendEvent = {
 };
 
 const { Pool } = pg;
+
+// Managed/cloud endpoint -> DATABASE_URL -> in-cluster/local parts.
+const database = resolvePostgresEndpoint(process.env, {
+  host: '127.0.0.1',
+  port: '16432',
+  db: 'roadwatch',
+  user: 'postgres',
+  password: 'postgres',
+});
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:16432/roadwatch',
+  connectionString: database.connectionString || undefined,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
@@ -51,9 +62,10 @@ interface Config {
 }
 
 function getConfig(): Config {
-  const brokers = (process.env.KAFKA_EVENTS_BROKERS || process.env.KAFKA_BROKERS || '127.0.0.1:9095').split(',');
+  // Managed/cloud brokers -> KAFKA_EVENTS_BROKERS -> legacy KAFKA_BROKERS -> local.
+  const { brokers } = resolveKafkaEndpoint('events', process.env, { brokers: '127.0.0.1:9095' });
   return {
-    kafkaBrokers: brokers,
+    kafkaBrokers: brokers.length > 0 ? brokers : ['127.0.0.1:9095'],
     kafkaGroupId: process.env.KAFKA_GROUP_ID || 'webhook-handler',
     kafkaConsumerTimeout: parseInt(process.env.KAFKA_CONSUMER_TIMEOUT || '3000'),
     serviceName: process.env.SERVICE_NAME || 'webhook-handler',
@@ -185,6 +197,21 @@ interface KafkaMessage {
 }
 
 /**
+ * Payload published on the `complaint-anchored` topic by fabric-anchor-consumer
+ * (mirrors ComplaintAnchoredEvent in @roadwatch/kafka). Declared locally so the
+ * parsed payload is type-checked rather than `any` — a bare JSON.parse let a
+ * wrong field name (txHash vs fabricTxId) compile and silently persist NULL.
+ */
+interface ComplaintAnchoredEvent {
+  type: 'complaint-anchored';
+  complaintId: string;
+  merkleRoot?: string;
+  merkleProof?: Array<{ direction: 'left' | 'right'; hash: string }>;
+  fabricTxId: string;
+  batchId?: string;
+}
+
+/**
  * Handle complaint-submitted events
  * Triggered when a citizen submits a new complaint
  */
@@ -221,7 +248,7 @@ async function handleComplaintSubmitted(message: KafkaMessage): Promise<void> {
  */
 async function handleComplaintAnchored(message: KafkaMessage): Promise<void> {
   try {
-    const event = JSON.parse(message.value || '{}');
+    const event = JSON.parse(message.value || '{}') as ComplaintAnchoredEvent;
     console.log('[webhook] Processing complaint-anchored:', event.complaintId);
 
     // Update complaint with anchoring details
@@ -229,7 +256,7 @@ async function handleComplaintAnchored(message: KafkaMessage): Promise<void> {
       `UPDATE complaints 
        SET anchored_at = NOW(), anchored_tx_hash = $1, updated_at = NOW()
        WHERE id = $2`,
-      [event.txHash, event.complaintId]
+      [event.fabricTxId ?? null, event.complaintId]
     );
 
     // Send notification through gateway; fall back to local inserts if the gateway is unavailable.
@@ -238,7 +265,7 @@ async function handleComplaintAnchored(message: KafkaMessage): Promise<void> {
       type: 'complaint_anchored',
       title: 'Complaint Anchored to Blockchain',
       body: `Complaint #${event.complaintId} has been anchored to blockchain`,
-      data: { complaintId: event.complaintId, txHash: event.txHash }
+      data: { complaintId: event.complaintId, fabricTxId: event.fabricTxId }
     });
 
     if (!handledByGateway) {
@@ -250,7 +277,7 @@ async function handleComplaintAnchored(message: KafkaMessage): Promise<void> {
           'complaint_anchored',
           'Complaint Anchored to Blockchain',
           `Complaint #${event.complaintId} has been anchored to blockchain`,
-          JSON.stringify({ complaintId: event.complaintId, txHash: event.txHash })
+          JSON.stringify({ complaintId: event.complaintId, fabricTxId: event.fabricTxId })
         ]
       );
 
@@ -266,7 +293,7 @@ async function handleComplaintAnchored(message: KafkaMessage): Promise<void> {
       }
     }
 
-    console.log('[webhook] Processed complaint-anchored:', event.complaintId, 'TX:', event.txHash);
+    console.log('[webhook] Processed complaint-anchored:', event.complaintId, 'TX:', event.fabricTxId);
   } catch (error) {
     console.error('[webhook] Error handling complaint-anchored:', error);
     throw error;
@@ -510,10 +537,61 @@ async function processMessage(message: KafkaMessage): Promise<void> {
 }
 
 /**
+ * Dedupe key for a consumed message.
+ *
+ * Keyed on the Kafka message identity (topic:partition:offset) rather than the
+ * business key. The gateway publishes every complaint event with
+ * `key = complaintId`, so several genuinely distinct events share one business
+ * key; keying on it let a complaint's first event suppress every later one for
+ * the whole TTL (in practice: all status-change events dropped).
+ */
+export function idempotencyKeyFor(topic: string, partition: number, offset: string): string {
+  return `roadwatch:webhook:idempotency:${topic}:${partition}:${offset}`;
+}
+
+const IDEMPOTENCY_TTL_SECONDS = 86_400;
+
+/**
+ * Process one message at most once, releasing the claim if processing fails so
+ * Kafka redelivery is not mistaken for a duplicate.
+ *
+ * Returns true when the message was handled, false when it was skipped as a
+ * duplicate. Rethrows on failure so kafkajs does not commit the offset.
+ */
+export async function handleWithDedupe(
+  message: KafkaMessage,
+  topic: string,
+  partition: number,
+  offset: string,
+): Promise<boolean> {
+  const key = idempotencyKeyFor(topic, partition, offset);
+  try {
+    const claim = await claimIdempotencyKey(key, IDEMPOTENCY_TTL_SECONDS);
+    if (claim.ok && !claim.claimed) {
+      return false;
+    }
+  } catch {
+    // fail-open on redis
+  }
+
+  try {
+    await processMessage(message);
+    return true;
+  } catch (error) {
+    // Release the claim so the redelivery is not mistaken for a duplicate;
+    // otherwise one transient failure drops the message for the full TTL and
+    // the retry/DLQ path never runs.
+    await releaseIdempotencyKey(key).catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
  * Initialize webhook handler
  */
 async function initializeWebhookHandler(): Promise<void> {
   console.log(`[${config.serviceName}] Starting webhook handler...`);
+  reportInfrastructure(config.serviceName);
 
   try {
     // Test PostgreSQL connection
@@ -562,17 +640,7 @@ async function initializeWebhookHandler(): Promise<void> {
             }
           }
 
-          const dedupeKey = kafkaMessage.key || `${topic}:${partition}:${message.offset}`;
-          try {
-            const claim = await claimIdempotencyKey(`roadwatch:webhook:idempotency:${dedupeKey}`, 86_400);
-            if (claim.ok && !claim.claimed) {
-              return;
-            }
-          } catch {
-            // fail-open on redis
-          }
-
-          await processMessage(kafkaMessage);
+          await handleWithDedupe(kafkaMessage, topic, partition, message.offset);
         });
       }
     });
@@ -599,8 +667,20 @@ async function initializeWebhookHandler(): Promise<void> {
   });
 }
 
-// Start the webhook handler
-initializeWebhookHandler().catch(error => {
-  console.error('[webhook-handler] Failed to initialize:', error);
-  process.exit(1);
-});
+// Only boot the consumer when this module is the service entrypoint. Importing
+// it (tests, tooling) must not connect to Kafka/Postgres or exit the process.
+// Mirrors the guard used by @roadwatch/scheduler.
+const isServiceEntryPoint =
+  process.env.VITEST !== 'true' &&
+  process.env.NODE_ENV !== 'test' &&
+  process.env.WEBHOOK_HANDLER_NO_AUTOSTART !== 'true';
+
+if (isServiceEntryPoint) {
+  // A rejected Kafka handler must not take the consumer down; it would stop
+  // every webhook delivery and let the backlog grow unprocessed.
+  installProcessGuards({ serviceName: 'webhook-handler' });
+  initializeWebhookHandler().catch(error => {
+    console.error('[webhook-handler] Failed to initialize:', error);
+    process.exit(1);
+  });
+}

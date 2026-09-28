@@ -1,10 +1,12 @@
 import { getRedisClient } from './client.js';
 import { isRedisConfigured } from './config.js';
 import {
-  acquireDistributedBackpressurePermit,
+  acquireAdmission,
+  admissionRejection,
+  type AdmissionOutcome,
   type DistributedBackpressureConfig,
   type DistributedBackpressurePermit
-} from './backpressure.js';
+} from './admission.js';
 
 export type AdaptiveLimitBounds = {
   minRequestsPerWindow: number;
@@ -13,7 +15,36 @@ export type AdaptiveLimitBounds = {
   maxInflight: number;
   windowSeconds: number;
   inflightTtlSeconds: number;
+  /**
+   * How long a resolved limit may be reused in-process before the load signals
+   * are read again. Defaults to 2000ms.
+   *
+   * The limits move on the scale of seconds (outbox depth, error counters),
+   * so re-reading them on every request spends several Redis round-trips per
+   * request to obtain a value that has barely changed. Under load that
+   * overhead was measured at ~37 Redis commands per complaint write, the
+   * majority of them admission-control bookkeeping rather than application
+   * work. Set to 0 to always re-read.
+   */
+  limitsCacheMs?: number;
 };
+
+const DEFAULT_LIMITS_CACHE_MS = 2000;
+
+type ResolvedLimits = {
+  maxRequestsPerWindow: number;
+  maxInflight: number;
+  windowSeconds: number;
+  inflightTtlSeconds: number;
+};
+
+/** Cached per distinct bounds so two services with different limits do not collide. */
+const limitsCache = new Map<string, { at: number; limits: ResolvedLimits }>();
+
+/** Test hook: drops memoized limits so a test starts from a known state. */
+export function resetAdaptiveLimitsCache(): void {
+  limitsCache.clear();
+}
 
 export type AdaptiveLoadSignals = {
   outboxDepth: number;
@@ -70,12 +101,30 @@ export async function readLoadSignals(): Promise<AdaptiveLoadSignals> {
 /**
  * Compute effective admission limits from load signals, shared across gateway replicas via Redis.
  */
-export async function resolveAdaptiveLimits(bounds: AdaptiveLimitBounds): Promise<{
-  maxRequestsPerWindow: number;
-  maxInflight: number;
-  windowSeconds: number;
-  inflightTtlSeconds: number;
-}> {
+export async function resolveAdaptiveLimits(bounds: AdaptiveLimitBounds): Promise<ResolvedLimits> {
+  const cacheMs = bounds.limitsCacheMs ?? DEFAULT_LIMITS_CACHE_MS;
+  const cacheKey = JSON.stringify([
+    bounds.minRequestsPerWindow,
+    bounds.maxRequestsPerWindow,
+    bounds.minInflight,
+    bounds.maxInflight,
+    bounds.windowSeconds,
+    bounds.inflightTtlSeconds,
+    cacheMs
+  ]);
+
+  const now = Date.now();
+  const memo = limitsCache.get(cacheKey);
+  if (memo && now - memo.at < cacheMs) {
+    return memo.limits;
+  }
+
+  const limits = await computeAdaptiveLimits(bounds);
+  limitsCache.set(cacheKey, { at: now, limits });
+  return limits;
+}
+
+async function computeAdaptiveLimits(bounds: AdaptiveLimitBounds): Promise<ResolvedLimits> {
   const midRequests = Math.round((bounds.minRequestsPerWindow + bounds.maxRequestsPerWindow) / 2);
   const midInflight = Math.round((bounds.minInflight + bounds.maxInflight) / 2);
 
@@ -91,12 +140,27 @@ export async function resolveAdaptiveLimits(bounds: AdaptiveLimitBounds): Promis
   const redis = getRedisClient();
   const signals = await readLoadSignals();
 
-  // Pressure score: outbox backlog + rejection/error spikes shrink capacity.
+  // Pressure score: genuine load signals shrink capacity.
+  //
+  // recent429Count is deliberately NOT an input. A rejection is an *output* of
+  // this limiter, so feeding it back into the score that decides the ceiling
+  // closes a control loop around its own output: rejections raise pressure,
+  // pressure lowers the ceiling, the lower ceiling causes more rejections.
+  // Under sustained load that ratchets to the floor and never recovers, which
+  // makes the configured maximum structurally unreachable.
+  //
+  // Measured before this change: a 1000-VU run stayed pinned at pressure 4
+  // (the maximum) for the entire run, collapsing the effective window to
+  // minRequestsPerWindow and the inflight cap to minInflight — 15,000/min and
+  // 100 concurrent against a configured 60,000/min and 400.
+  //
+  // The remaining inputs are independent of the limiter's own decisions:
+  // outbox depth is a real downstream backlog and 5xx count is a real upstream
+  // failure. Both are transient, so capacity recovers once the backlog drains.
+  // The 429 count is still tracked and exported for observability.
   let pressure = 0;
   if (signals.outboxDepth > 500) pressure += 2;
   else if (signals.outboxDepth > 100) pressure += 1;
-  if (signals.recent429Count > 50) pressure += 2;
-  else if (signals.recent429Count > 10) pressure += 1;
   if (signals.recent5xxCount > 20) pressure += 2;
   else if (signals.recent5xxCount > 5) pressure += 1;
 
@@ -138,20 +202,80 @@ export async function acquireAdaptiveBackpressurePermit(input: {
   principal: string;
   bounds: AdaptiveLimitBounds;
 }): Promise<DistributedBackpressurePermit> {
+  const admission = await acquireAdmission(getRedisClient(), [permitConfig(input, await resolveAdaptiveLimits(input.bounds))]);
+  if (!admission.outcome.admitted) {
+    await recordAdmissionRejection();
+    throw admissionRejection(admission.outcome, admission.outcome.rejection ?? 'inflight');
+  }
+  return { release: admission.release };
+}
+
+/**
+ * The admission a complaint write actually takes: a route/principal permit and
+ * a global one, acquired together.
+ *
+ * Both are evaluated in a single Redis command and released in a single command.
+ * The previous implementation issued them as two independent four-command
+ * sequences — six commands per write, measured — and, because the increments were
+ * not atomic, could admit more concurrent writes than `maxInflight` allowed.
+ * Acquired as a pair, a write that is refused is also not charged for a
+ * half-taken permit.
+ */
+export async function acquirePermitPair(input: {
+  route: { scope: string; principal: string };
+  global: { scope: string; principal: string };
+  bounds: AdaptiveLimitBounds;
+  /**
+   * Optional narrower inflight ceiling for the first permit only.
+   *
+   * The two permits answer different questions — "is this one client being
+   * reasonable" and "is the system as a whole saturated" — so they do not always
+   * share a ceiling. Without this, a per-principal cap would have to be applied
+   * globally, which throttles everyone whenever a single client misbehaves.
+   *
+   * Only a maximum: these are resolved limits, already adjusted for measured
+   * pressure, so a floor has no meaning here.
+   */
+  routeMaxInflight?: number;
+}): Promise<{ permit: DistributedBackpressurePermit; outcome: AdmissionOutcome }> {
+  if (!isRedisConfigured()) {
+    throw new Error(
+      'Redis is required for write admission but not configured. ' +
+        'Set REDIS_CLOUD_URL/REDIS_MANAGED_URL for a managed instance, or REDIS_URL for an explicit one.',
+    );
+  }
+
   const limits = await resolveAdaptiveLimits(input.bounds);
-  const config: DistributedBackpressureConfig = {
-    scope: input.scope,
-    principal: input.principal,
+  const routeLimits: ResolvedLimits =
+    input.routeMaxInflight !== undefined
+      ? { ...limits, maxInflight: input.routeMaxInflight }
+      : limits;
+
+  const admission = await acquireAdmission(
+    getRedisClient(),
+    [permitConfig(input.route, routeLimits), permitConfig(input.global, limits)],
+    ['route', 'global']
+  );
+
+  if (!admission.outcome.admitted) {
+    await recordAdmissionRejection();
+    throw admissionRejection(admission.outcome, admission.outcome.rejection ?? 'inflight');
+  }
+
+  return { permit: { release: admission.release }, outcome: admission.outcome };
+}
+
+/** Applies one resolved limit set to one permit target. */
+function permitConfig(
+  target: { scope: string; principal: string },
+  limits: ResolvedLimits
+): DistributedBackpressureConfig {
+  return {
+    scope: target.scope,
+    principal: target.principal,
     maxRequestsPerWindow: limits.maxRequestsPerWindow,
     windowSeconds: limits.windowSeconds,
     maxInflight: limits.maxInflight,
     inflightTtlSeconds: limits.inflightTtlSeconds
   };
-
-  try {
-    return await acquireDistributedBackpressurePermit(config);
-  } catch (error) {
-    await recordAdmissionRejection();
-    throw error;
-  }
 }
