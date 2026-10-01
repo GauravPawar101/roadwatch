@@ -369,7 +369,11 @@ export async function getOrgRoadKm(orgId: string): Promise<number> {
   const result = await pool.query<{ km: string | null; cnt: string }>(
     `SELECT COALESCE(SUM(total_length_km), 0)::text AS km, COUNT(*)::text AS cnt
      FROM roads_catalog
-     WHERE authority_org = $1 OR authority_id = $1`,
+     WHERE authority_org = $1
+        OR authority_zone = $1
+        OR authority_msp_id = $1
+        OR authority_fabric_org = $1
+        OR authority_id = $1`,
     [orgId]
   ).catch(() => null);
   const km = Number(result?.rows[0]?.km ?? 0);

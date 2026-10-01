@@ -96,9 +96,12 @@ CREATE TABLE IF NOT EXISTS complaints (
   details_hash     text,
   lat              double precision,
   lng              double precision,
-  authority_id     text,
-  authority_org    text,
-  report_count     integer     NOT NULL DEFAULT 1,
+  authority_id         text,
+  authority_org        text,
+  authority_zone       text,
+  authority_msp_id     text,
+  authority_fabric_org text,
+  report_count         integer     NOT NULL DEFAULT 1,
   event_status     text,
   anchored_tx_hash text,
   anchored_at      timestamptz,
@@ -116,6 +119,31 @@ CREATE INDEX IF NOT EXISTS complaints_severity_idx       ON complaints (severity
 ALTER TABLE IF EXISTS complaints
   ADD COLUMN IF NOT EXISTS user_id uuid;
 CREATE INDEX IF NOT EXISTS complaints_user_id_idx        ON complaints (user_id);
+
+-- Split authority_org into separate typed columns for accountability
+ALTER TABLE IF EXISTS complaints
+  ADD COLUMN IF NOT EXISTS authority_zone text,
+  ADD COLUMN IF NOT EXISTS authority_msp_id text,
+  ADD COLUMN IF NOT EXISTS authority_fabric_org text;
+
+-- Backfill: if authority_org looks like a UUID, put in authority_msp_id; else zone
+UPDATE complaints
+SET authority_zone = authority_org
+WHERE authority_zone IS NULL
+  AND authority_org IS NOT NULL
+  AND authority_org NOT LIKE '%-%'
+  AND authority_org NOT IN ('DefaultAuthority');
+
+UPDATE complaints
+SET authority_msp_id = authority_org
+WHERE authority_msp_id IS NULL
+  AND authority_org IS NOT NULL
+  AND authority_org LIKE '%-%';
+
+-- Indexes for the new columns
+CREATE INDEX IF NOT EXISTS complaints_authority_zone_idx       ON complaints (authority_zone);
+CREATE INDEX IF NOT EXISTS complaints_authority_msp_id_idx     ON complaints (authority_msp_id);
+CREATE INDEX IF NOT EXISTS complaints_authority_fabric_org_idx ON complaints (authority_fabric_org);
 
 -- =============================================================
 --  Complaint attachments
@@ -339,11 +367,31 @@ ALTER TABLE IF EXISTS roads_catalog
 
 ALTER TABLE IF EXISTS roads_catalog
   ADD COLUMN IF NOT EXISTS block_code text,
-  ADD COLUMN IF NOT EXISTS authority_org text;
+  ADD COLUMN IF NOT EXISTS authority_org text,
+  ADD COLUMN IF NOT EXISTS authority_zone text,
+  ADD COLUMN IF NOT EXISTS authority_msp_id text,
+  ADD COLUMN IF NOT EXISTS authority_fabric_org text;
 
 CREATE INDEX IF NOT EXISTS roads_catalog_district_id_idx ON roads_catalog (district_id);
 CREATE INDEX IF NOT EXISTS roads_catalog_block_code_idx ON roads_catalog (block_code);
 CREATE INDEX IF NOT EXISTS roads_catalog_authority_org_idx ON roads_catalog (authority_org);
+CREATE INDEX IF NOT EXISTS roads_catalog_authority_zone_idx ON roads_catalog (authority_zone);
+CREATE INDEX IF NOT EXISTS roads_catalog_authority_msp_id_idx ON roads_catalog (authority_msp_id);
+CREATE INDEX IF NOT EXISTS roads_catalog_authority_fabric_org_idx ON roads_catalog (authority_fabric_org);
+
+-- Backfill roads_catalog
+UPDATE roads_catalog
+SET authority_zone = authority_org
+WHERE authority_zone IS NULL
+  AND authority_org IS NOT NULL
+  AND authority_org NOT LIKE '%-%'
+  AND authority_org NOT IN ('DefaultAuthority');
+
+UPDATE roads_catalog
+SET authority_msp_id = authority_org
+WHERE authority_msp_id IS NULL
+  AND authority_org IS NOT NULL
+  AND authority_org LIKE '%-%';
 
 -- =============================================================
 --  Geography: countries / states / districts

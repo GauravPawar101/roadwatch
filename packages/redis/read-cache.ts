@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { getRedisClient } from './client.js';
 import { isRedisConfigured } from './config.js';
 
-const GEN_KEY = 'rw:cache:gen';
+const GEN_KEY_PREFIX = 'rw:cache:gen';
 const KEY_PREFIX = 'rw:cache:v1';
 const DEFAULT_TTL_SECONDS = 10;
 
@@ -27,6 +27,22 @@ function hashParts(parts: Record<string, unknown>): string {
   return createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 24);
 }
 
+interface CacheParts {
+  district?: string | string[] | null;
+  zone?: string | string[] | null;
+  districts?: string[];
+  zones?: string[];
+  [key: string]: unknown;
+}
+
+function genKeyForParts(parts: CacheParts): string {
+  // Use district and zone from parts to scope the generation counter.
+  // This way, a write in one district/zone only invalidates caches for that scope.
+  const district = String(parts.district ?? parts.districts?.[0] ?? 'global');
+  const zone = String(parts.zone ?? parts.zones?.[0] ?? 'global');
+  return `${GEN_KEY_PREFIX}:${district}:${zone}`;
+}
+
 type CacheLookup = { gen: string; key: string; value: string | null };
 
 /**
@@ -34,13 +50,13 @@ type CacheLookup = { gen: string; key: string; value: string | null };
  * miss counters cannot drift between callers and the generation is only fetched
  * once per lookup.
  */
-async function lookup(route: string, parts: Record<string, unknown>): Promise<CacheLookup> {
+async function lookup(route: string, parts: CacheParts): Promise<CacheLookup> {
   if (!isReadCacheEnabled() || !isRedisConfigured()) {
     return { gen: '0', key: '', value: null };
   }
   try {
     const redis = getRedisClient();
-    const gen = await currentGeneration(redis);
+    const gen = await currentGeneration(redis, parts);
     const key = `${KEY_PREFIX}:${gen}:${route}:${hashParts(parts)}`;
     const value = await redis.get(key);
     return { gen, key, value };
@@ -49,11 +65,12 @@ async function lookup(route: string, parts: Record<string, unknown>): Promise<Ca
   }
 }
 
-async function currentGeneration(redis: { get: (key: string) => Promise<string | null> }): Promise<string> {
-  return (await redis.get(GEN_KEY)) ?? '0';
+async function currentGeneration(redis: { get: (key: string) => Promise<string | null> }, parts: CacheParts): Promise<string> {
+  const genKey = genKeyForParts(parts);
+  return (await redis.get(genKey)) ?? '0';
 }
 
-export async function readCachedJson<T>(route: string, parts: Record<string, unknown>): Promise<T | null> {
+export async function readCachedJson<T>(route: string, parts: CacheParts): Promise<T | null> {
   const { value } = await lookup(route, parts);
   if (!value) {
     missCount += 1;
@@ -87,7 +104,7 @@ const inflightFills = new Map<string, Promise<unknown>>();
  */
 export async function readThroughCachedJson<T>(
   route: string,
-  parts: Record<string, unknown>,
+  parts: CacheParts,
   fill: () => Promise<T>,
   ttlSeconds = DEFAULT_TTL_SECONDS
 ): Promise<T> {
@@ -134,7 +151,7 @@ export async function readThroughCachedJson<T>(
 
 export async function writeCachedJson(
   route: string,
-  parts: Record<string, unknown>,
+  parts: CacheParts,
   value: unknown,
   ttlSeconds = DEFAULT_TTL_SECONDS
 ): Promise<void> {
@@ -142,7 +159,7 @@ export async function writeCachedJson(
 
   try {
     const redis = getRedisClient();
-    const gen = await currentGeneration(redis);
+    const gen = await currentGeneration(redis, parts);
     const key = `${KEY_PREFIX}:${gen}:${route}:${hashParts(parts)}`;
     await redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
   } catch {
@@ -150,11 +167,12 @@ export async function writeCachedJson(
   }
 }
 
-export async function bumpComplaintReadCache(): Promise<void> {
+export async function bumpComplaintReadCache(parts: CacheParts = {}): Promise<void> {
   if (!isRedisConfigured()) return;
   try {
     const redis = getRedisClient();
-    await redis.incr(GEN_KEY);
+    const genKey = genKeyForParts(parts);
+    await redis.incr(genKey);
   } catch {
     // next TTL expiry still drops stale entries
   }

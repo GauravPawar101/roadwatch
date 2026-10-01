@@ -650,6 +650,9 @@ export async function bulkUpsertRoads(input: {
     await client.query('BEGIN');
     await client.query(`ALTER TABLE IF EXISTS roads_catalog ADD COLUMN IF NOT EXISTS block_code text`).catch(() => null);
     await client.query(`ALTER TABLE IF EXISTS roads_catalog ADD COLUMN IF NOT EXISTS authority_org text`).catch(() => null);
+    await client.query(`ALTER TABLE IF EXISTS roads_catalog ADD COLUMN IF NOT EXISTS authority_zone text`).catch(() => null);
+    await client.query(`ALTER TABLE IF EXISTS roads_catalog ADD COLUMN IF NOT EXISTS authority_msp_id text`).catch(() => null);
+    await client.query(`ALTER TABLE IF EXISTS roads_catalog ADD COLUMN IF NOT EXISTS authority_fabric_org text`).catch(() => null);
 
     for (const road of input.roads) {
       const authorityOrg = (road as any).authorityOrg ?? road.authorityId;
@@ -657,14 +660,27 @@ export async function bulkUpsertRoads(input: {
       const existing = await client.query(`SELECT 1 FROM roads_catalog WHERE id = $1 LIMIT 1`, [road.id]);
       const isNew = existing.rowCount === 0;
 
+      // Determine authority_zone vs authority_msp_id
+      let authorityZone: string | null = null;
+      let authorityMspId: string | null = null;
+      if (authorityOrg) {
+        if (authorityOrg.includes('-') && authorityOrg !== 'DefaultAuthority') {
+          authorityMspId = authorityOrg;
+        } else {
+          authorityZone = authorityOrg;
+        }
+      }
+
       await client.query(
-        `INSERT INTO roads_catalog (id, name, district_id, road_type, authority_id, authority_org, block_code, total_length_km, geometry)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO roads_catalog (id, name, district_id, road_type, authority_id, authority_org, authority_zone, authority_msp_id, block_code, total_length_km, geometry)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (id) DO UPDATE SET
            name = $2, road_type = $4, authority_id = $5,
            authority_org = COALESCE($6, roads_catalog.authority_org),
-           block_code = COALESCE($7, roads_catalog.block_code),
-           total_length_km = $8, geometry = $9`,
+           authority_zone = COALESCE($7, roads_catalog.authority_zone),
+           authority_msp_id = COALESCE($8, roads_catalog.authority_msp_id),
+           block_code = COALESCE($9, roads_catalog.block_code),
+           total_length_km = $10, geometry = $11`,
         [
           road.id,
           road.name,
@@ -672,6 +688,8 @@ export async function bulkUpsertRoads(input: {
           road.roadType,
           road.authorityId,
           authorityOrg,
+          authorityZone,
+          authorityMspId,
           blockCode,
           road.totalLengthKm ?? 0,
           road.geometry ?? null

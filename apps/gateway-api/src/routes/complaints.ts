@@ -19,6 +19,8 @@ import {
 import { bumpComplaintReadCache, readCachedJson, writeCachedJson } from '@roadwatch/redis';
 import { maybeSyncAnchorComplaint } from '../services/sync-anchor.js';
 import { uuidv7 } from '../uuid.js';
+import { KafkaTopics, type ComplaintSubmittedEvent } from '@roadwatch/kafka';
+import { enqueueKafkaEvent } from '../kafka/outbox.js';
 
 const router = Router();
 
@@ -704,6 +706,36 @@ router.post('/', requireAuth, async (req, res) => {
       client.release();
     }
 
+    // Emit complaint-submitted event for new complaints (not merged)
+    if (!reused && existingComplaintId) {
+      const event: ComplaintSubmittedEvent = {
+        type: 'complaint-submitted',
+        idempotencyKey: `complaint:${existingComplaintId}:submitted`,
+        occurredAt: new Date().toISOString(),
+        version: 1,
+        complaintId: existingComplaintId,
+        district: user.districts?.[0] || 'Unknown',
+        zone: user.zones?.[0] || 'Unknown',
+        lat: data.lat,
+        lng: data.lng,
+        description: data.description,
+        roadId: data.roadId,
+        authorityOrg: user.zones?.[0] || 'Unknown',
+        citizenId: user.sub,
+        initialIPFSCid: data.imageCid,
+        detailsHash: data.imageSha256,
+        location: { lat: data.lat, lng: data.lng, capturedAt: data.capturedAt ?? null },
+        merged: false,
+        reportCount: 1,
+      };
+      await pool.query(
+        `INSERT INTO kafka_event_outbox
+           (id, topic, message_key, payload, idempotency_key, status, attempts, available_at, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, $2, $3::jsonb, $4, 'PENDING', 0, NOW(), NOW(), NOW())`,
+        [KafkaTopics.complaintSubmitted, existingComplaintId, JSON.stringify(event), event.idempotencyKey]
+      ).catch(() => null);
+    }
+
     if (escalated) {
       await trackAnalyticsEvent({
         type: 'COMPLAINT_ESCALATED',
@@ -765,7 +797,7 @@ router.post('/', requireAuth, async (req, res) => {
     };
 
     await storeIdempotencyResult(claimed, 201, responseBody);
-    await bumpComplaintReadCache();
+    await bumpComplaintReadCache({ district: user.districts?.[0] || 'Unknown', zone: user.zones?.[0] || 'Unknown' });
     await maybeSyncAnchorComplaint({
       complaintId: String(existingComplaintId),
       citizenId: user.sub,
