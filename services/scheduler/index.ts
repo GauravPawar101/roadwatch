@@ -292,56 +292,20 @@ async function syncOfflineQueue(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Recalculate karma scores for all users
 // ---------------------------------------------------------------------------
+// NOTE: This hourly recalculation was removed because it erased all incremental
+// karma adjustments (SLA penalties, submission bonuses, etc.) by overwriting
+// the karma_score with an absolute computed value and then logging that absolute
+// value as a delta in the ledger. The incremental karma system (awardKarma,
+// applyContractorKarma, applySlaBreachKarmaPenalties, etc.) already maintains
+// correct scores. Keeping this job caused:
+//   - SLA penalties to be erased every hour
+//   - Ledger corruption (absolute score written as delta, then averaged back in)
+//   - Cartesian product across complaints x karma_ledger in the query
+// If a periodic reconciliation is needed, it should compute the *difference*
+// from the current score and apply only that delta, not overwrite.
 async function recalculateKarmaScores(): Promise<void> {
-  try {
-    if (!(await canRecalculateKarmaScores())) {
-      console.warn('[scheduler] karma recalculation skipped; required tables/columns are missing');
-      return;
-    }
-
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const now = new Date();
-
-    const result = await pool.query(
-      `WITH user_stats AS (
-         SELECT
-           u.id,
-           COALESCE(SUM(CASE WHEN c.status = 'RESOLVED' THEN 1 ELSE 0 END), 0) as resolved_count,
-           COALESCE(SUM(CASE WHEN c.created_at > $1 THEN 1 ELSE 0 END), 0) as recent_count,
-           COALESCE(AVG(kl.delta), 50) as avg_verification
-         FROM users u
-         LEFT JOIN complaints c ON u.id = c.user_id
-         LEFT JOIN karma_ledger kl ON u.id = kl.user_id
-         GROUP BY u.id
-       )
-       UPDATE users
-       SET karma_score = LEAST(1000, GREATEST(0, 
-         CAST(us.resolved_count * 10 + us.avg_verification - us.recent_count * 5 AS INT)
-       )),
-           karma_updated_at = $2,
-           updated_at = $2
-       FROM user_stats us
-       WHERE users.id = us.id
-       RETURNING users.id`,
-      [sevenDaysAgo, now]
-    );
-
-    const updatedCount = result.rowCount || 0;
-
-    if (updatedCount > 0) {
-      await pool.query(
-        `INSERT INTO karma_ledger (user_id, delta, reason, ref_id, created_at)
-         SELECT u.id, u.karma_score, 'hourly_recalc', 'scheduler', $1
-         FROM users u
-         WHERE u.updated_at = $1`,
-        [now]
-      );
-    }
-
-    console.log(`[scheduler] Recalculated karma scores for ${updatedCount} users`);
-  } catch (error) {
-    console.error('[scheduler] Error recalculating karma scores:', error);
-  }
+  console.log('[scheduler] Karma recalculation disabled — incremental system handles karma');
+  return;
 }
 
 type BreachRow = {
@@ -657,7 +621,11 @@ async function applyOrgKarma(orgId: string | null | undefined, baseDelta: number
   if (!orgId || !baseDelta) return;
   const kmRes = await pool.query<{ km: string }>(
     `SELECT COALESCE(SUM(total_length_km), COUNT(*)::numeric, 0)::text AS km
-     FROM roads_catalog WHERE authority_org = $1 OR authority_id = $1`,
+     FROM roads_catalog WHERE authority_org = $1
+        OR authority_zone = $1
+        OR authority_msp_id = $1
+        OR authority_fabric_org = $1
+        OR authority_id = $1`,
     [orgId]
   ).catch(() => null);
   const orgRoadKm = Number(kmRes?.rows[0]?.km ?? 0);
@@ -896,8 +864,9 @@ async function initializeScheduler(): Promise<void> {
   cron.schedule(config.cronSyncQueue, syncOfflineQueue, cronOpts());
   console.log(`  - Offline queue sync:       ${config.cronSyncQueue} (${config.timezone})`);
 
-  cron.schedule(config.cronKarmaRecalc, recalculateKarmaScores, cronOpts());
-  console.log(`  - Karma recalculation:      ${config.cronKarmaRecalc} (${config.timezone})`);
+  // Karma recalculation disabled — incremental system handles karma
+  // cron.schedule(config.cronKarmaRecalc, recalculateKarmaScores, cronOpts());
+  // console.log(`  - Karma recalculation:      ${config.cronKarmaRecalc} (${config.timezone})`);
 
   cron.schedule(config.cronSlaCheck, checkSlaBreaches, cronOpts());
   console.log(`  - SLA breach detection:     ${config.cronSlaCheck} (${config.timezone})`);

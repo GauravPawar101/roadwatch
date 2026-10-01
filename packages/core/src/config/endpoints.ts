@@ -145,8 +145,9 @@ export function resolvePostgresEndpoint(
 
   // Accept the libpq PG* spellings too: `pg` reads them natively, so a
   // deployment that sets PGHOST would otherwise be silently ignored here.
-  const host = clean(env.POSTGRES_HOST) ?? clean(env.PGHOST) ?? clean(defaults.host);
-  const port = clean(env.POSTGRES_PORT) ?? clean(env.PGPORT) ?? clean(defaults.port);
+  // Prefer PgBouncer when available to avoid exhausting Postgres connections.
+  const host = clean(env.PGBOUNCER_HOST) ?? clean(env.POSTGRES_HOST) ?? clean(env.PGHOST) ?? clean(defaults.host);
+  const port = clean(env.PGBOUNCER_PORT) ?? clean(env.POSTGRES_PORT) ?? clean(env.PGPORT) ?? clean(defaults.port);
   const db = clean(env.POSTGRES_DB) ?? clean(env.PGDATABASE) ?? clean(defaults.db);
   const user = clean(env.POSTGRES_USER) ?? clean(env.PGUSER) ?? clean(defaults.user);
   const password = clean(env.POSTGRES_PASSWORD) ?? clean(env.PGPASSWORD) ?? clean(defaults.password);

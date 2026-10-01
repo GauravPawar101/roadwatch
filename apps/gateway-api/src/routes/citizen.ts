@@ -144,6 +144,8 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
       description: z.string().min(5),
       lat: z.coerce.number(),
       lng: z.coerce.number(),
+      damageType: z.enum(['Potholes & Roads', 'Street Lighting', 'Water & Sewage', 'Waste Management', 'Signage']).optional(),
+      severity: z.number().int().min(1).max(5).optional().default(3),
       capturedLat: z.coerce.number().optional(),
       capturedLng: z.coerce.number().optional(),
       capturedAt: z.string().datetime().optional(),
@@ -267,10 +269,21 @@ router.post('/complaints', requireAuth, requireRole(['CITIZEN']), upload.single(
       reportCount = Number(updated[0]?.report_count ?? 2);
     } else {
       complaintId = uuidv7();
+      const metadata = {
+        title: body.description.slice(0, 100),
+        damageType: body.damageType || 'Unknown',
+        severity: body.severity,
+        authorId: user.sub,
+        authorRole: user.role,
+        capturedLat: body.capturedLat,
+        capturedLng: body.capturedLng,
+        capturedAt: body.capturedAt,
+        public: true
+      };
       await tx`
         INSERT INTO complaints
-           (id, district, zone, status, description, lat, lng, road_id, authority_id, user_id, report_count, created_at, updated_at)
-         VALUES (${complaintId}, ${districtCode}, NULL, 'FILED', ${body.description}, ${body.lat}, ${body.lng}, ${body.roadId}, ${authorityId}, ${user.sub}, 1, NOW(), NOW())
+           (id, district, zone, status, description, lat, lng, road_id, authority_id, authority_zone, user_id, report_count, damage_type, severity, metadata, created_at, updated_at)
+         VALUES (${complaintId}, ${districtCode}, NULL, 'FILED', ${body.description}, ${body.lat}, ${body.lng}, ${body.roadId}, ${authorityId}, ${authorityId}, ${user.sub}, 1, ${body.damageType ?? null}, ${body.severity}, ${JSON.stringify(metadata)}, NOW(), NOW())
       `;
       reportCount = 1;
     }

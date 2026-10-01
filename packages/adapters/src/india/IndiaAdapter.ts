@@ -34,22 +34,32 @@ export class IndiaAdapter extends BaseAdapter {
   }
 
   /**
-   * Road-type primary grace (overrides severity-fraction baseline):
-   * - NH / SH / MDR (big projects): 7 days (168h)
-   * - URBAN / RURAL (local): 2 days (48h)
+   * Road-type primary grace with severity adjustment:
+   * - NH / SH / MDR (highways): base 7 days (168h)
+   * - URBAN / RURAL (local): base 2 days (48h)
+   * Severity modifier: CRITICAL=0.5x, HIGH=0.75x, MODERATE=1x, LOW=1.5x
    * Env overrides: SLA_GRACE_HIGHWAY_HOURS / SLA_GRACE_LOCAL_HOURS
    */
-  public override calculateSLA(_severity: Severity, roadType: RoadType): number {
+  public override calculateSLA(severity: Severity, roadType: RoadType): number {
     const highwayHours = Number(process.env.SLA_GRACE_HIGHWAY_HOURS ?? 168);
     const localHours = Number(process.env.SLA_GRACE_LOCAL_HOURS ?? 48);
     const supremeLegalHardStop = RTI_MAX_LEGAL_DAYS * 24;
 
-    const graded =
+    const baseHours =
       roadType === RoadType.NH || roadType === RoadType.SH || roadType === RoadType.MDR
         ? highwayHours
         : localHours;
 
-    return Math.min(Math.max(1, graded), supremeLegalHardStop);
+    // Severity modifier: higher severity = shorter SLA
+    const severityMultiplier =
+      severity === Severity.CRITICAL ? 0.5 :
+      severity === Severity.HIGH ? 0.75 :
+      severity === Severity.MODERATE ? 1.0 :
+      1.5; // LOW
+
+    const adjustedHours = Math.max(1, Math.floor(baseHours * severityMultiplier));
+
+    return Math.min(adjustedHours, supremeLegalHardStop);
   }
 
   /**

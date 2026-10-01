@@ -807,14 +807,14 @@ async function seedComplaintRecord(params: {
     await pool.query(
         `INSERT INTO complaints (
       id, road_id, district, zone, status, title, damage_type, severity, description,
-      metadata, details_hash, lat, lng, authority_id, authority_org, report_count,
+      metadata, details_hash, lat, lng, authority_id, authority_org, authority_zone, report_count,
       event_status, anchored_tx_hash, anchored_at, last_authority_action, fabric_txid,
       created_at, updated_at
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9,
-      $10::jsonb, $11, $12, $13, $14, $15, $16,
-      $17, $18, $19, $20, $21,
-      $22, $23
+      $10::jsonb, $11, $12, $13, $14, $15, $16, $17,
+      $18, $19, $20, $21, $22,
+      $23, $24
     )
     ON CONFLICT (id) DO UPDATE SET
       road_id = EXCLUDED.road_id,
@@ -831,6 +831,7 @@ async function seedComplaintRecord(params: {
       lng = EXCLUDED.lng,
       authority_id = EXCLUDED.authority_id,
       authority_org = EXCLUDED.authority_org,
+      authority_zone = EXCLUDED.authority_zone,
       report_count = EXCLUDED.report_count,
       event_status = EXCLUDED.event_status,
       anchored_tx_hash = EXCLUDED.anchored_tx_hash,
@@ -854,6 +855,7 @@ async function seedComplaintRecord(params: {
             complaint.lng,
             complaint.authorityId,
             complaint.authorityName,
+            complaint.authorityName, // authority_zone
             1,
             'ASSIGNED',
             `SEED-TX-${complaint.id}`,

@@ -298,8 +298,8 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
 
     if (!merged) {
       await tx`
-        INSERT INTO complaints (id, district, zone, status, description, lat, lng, user_id, report_count, created_at, updated_at)
-        VALUES (${id}, ${body.district}, ${body.zone}, 'FILED', ${body.description}, ${body.lat ?? null}, ${body.lng ?? null}, ${user.sub}, 1, NOW(), NOW())
+        INSERT INTO complaints (id, district, zone, status, description, lat, lng, user_id, report_count, authority_id, authority_zone, created_at, updated_at)
+        VALUES (${id}, ${body.district}, ${body.zone}, 'FILED', ${body.description}, ${body.lat ?? null}, ${body.lng ?? null}, ${user.sub}, 1, ${body.zone}, ${body.zone}, NOW(), NOW())
         ON CONFLICT (id) DO NOTHING
       `;
 
@@ -433,7 +433,7 @@ router.post('/complaints', requireAuth, requireRole(['CE', 'EE']), async (req, r
     },
   };
   await storeIdempotencyResult(claimed, 200, responseBody);
-  await bumpComplaintReadCache();
+  await bumpComplaintReadCache({ district: body.district, zone: body.zone });
   await maybeSyncAnchorComplaint({
     complaintId: id,
     citizenId: user.sub,
@@ -611,7 +611,7 @@ router.post('/complaints/:id/status', requireAuth, requireRole(['CE', 'EE']), as
     });
   }
 
-  await bumpComplaintReadCache();
+  await bumpComplaintReadCache({ district: u.district, zone: u.zone });
   res.json({ ok: true });
 });
 
@@ -956,7 +956,7 @@ router.post('/complaints/:id/resolve', requireAuth, async (req, res) => {
     });
   }
 
-  await bumpComplaintReadCache();
+  await bumpComplaintReadCache({ district: u.district, zone: u.zone });
   res.json({ ok: true });
 });
 
