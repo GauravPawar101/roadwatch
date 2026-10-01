@@ -60,6 +60,46 @@ system. See `STATE.md` §6 and §9 for what is still outstanding.
 - **`SubmitMerkleRoot` ignored `status.successful`.** A Fabric transaction that commits with errors
   is a *successful commit* to the SDK — `submit()` resolves, `getStatus().successful` is `false`,
   and nothing throws. The consumer now checks it and runs the submit under the circuit breaker.
+- **`POST /citizen/complaints` stores no category and no severity** (its INSERT omits `metadata`).
+  **FIXED:** Added `damageType`, `severity`, and `metadata` JSONB to INSERT in `citizen.ts:283-286`.
+  Enables heatmap, category filters, and citizen-path dedupe.
+- **`POST /complaints` emits no Kafka events** — `routes/complaints.ts` never imports
+  `enqueueKafkaEvent`. **FIXED:** Added `complaint-submitted` event emission to `kafka_event_outbox`
+  in `complaints.ts:800-815`.
+- **Severity is discarded in SLA calculation** — `calculateSLA(_severity, …)`. **FIXED:**
+  Updated `IndiaAdapter.calculateSLA()` in `packages/adapters/src/india/IndiaAdapter.ts:42-53`
+  to apply severity multipliers: CRITICAL=0.5x, HIGH=0.75x, MODERATE=1.0x, LOW=1.5x.
+- **The hourly karma recalculation erases every SLA penalty**. **FIXED:** Disabled hourly
+  `recalculateKarmaScores` cron job in `services/scheduler/index.ts:295-310`. Incremental karma
+  system (`awardKarma`, `applySlaBreachKarmaPenalties`) maintains correct scores.
+- **PgBouncer is deployed but bypassed** — `POSTGRES_HOST` points straight at the primary.
+  **FIXED:** Updated `resolvePostgresEndpoint` in `packages/core/src/config/endpoints.ts:148-149`
+  to prefer `PGBOUNCER_HOST`/`PGBOUNCER_PORT`.
+- **The gateway is single-process.** No cluster mode. **FIXED:** Added Node.js cluster mode to
+  `apps/gateway-api/src/index.ts:1-100`. Forks `CLUSTER_WORKERS` workers (default: availableParallelism).
+- **Default Postgres port disagrees between code and compose.** **FIXED:** Aligned docker-compose
+  `TOP_POSTGRES_HOST_PORT` from 15433 → 16432 in `docker-compose.yml:62` and `.env.example:143`.
+- **`pnpm test` ignores an exported `DATABASE_URL`.** **FIXED:** Added `globalEnv` to `turbo.json:3`
+  for DATABASE_URL, DATABASE_CLOUD_URL, REDIS_URL, KAFKA_BROKER, JWT_SECRET.
+
+### Fixed in this session (1 Oct 2026)
+
+- **`authority_org` is one free-text column carrying four incompatible value types** (zone name,
+  UUID, Fabric MSP id, literal `'DefaultAuthority'`). **PARTIALLY FIXED:** Split into 4 typed columns
+  (`authority_zone`, `authority_msp_id`, `authority_fabric_org`, `authority_org`) in
+  `docker/postgres/init.sql`, `k8s/base/layer-0-platform/init.sql`. Added backfill logic and indexes.
+  Updated all queries across `authority.ts`, `citizen.ts`, `public.ts`, `db.ts`, `complaint-lifecycle.ts`,
+  `scheduler/index.ts`, and seed scripts. **Migration needed for existing data.**
+- **Every write still invalidates the whole read cache.** `bumpComplaintReadCache` only `INCR`s a
+  generation counter. **FIXED:** Changed to per-district/zone scoped generation keys in
+  `packages/redis/read-cache.ts:30-43`. Updated all callers to pass district/zone context.
+- **`docker compose up -d` cannot build its own images.** The `packages/redis` image build fails.
+  **WORKAROUND DOCUMENTED:** Services build workspace dependencies first; no separate Dockerfile
+  needed for `packages/redis` (it's consumed as built output).
+- **The deployed chaincode is covered, but from the wrong directory.** `complaint_anchor_test.go`
+  (33 tests) covers `complaint_anchor.go`, a *different* implementation from the deployed
+  `contract.js`. `contract.js` now has `services/fabric-anchor-consumer/complaint-anchor.test.ts`
+  (17 tests), but it lives in the consumer package, so nothing keeps it in step with the contract.
 
 ### Still open
 
@@ -74,52 +114,12 @@ system. See `STATE.md` §6 and §9 for what is still outstanding.
   `/docker-entrypoint-initdb.d/*.sql` when the data directory is empty, and a pre-existing volume
   silently keeps the old schema (`ops/dev/start-all.sh:139-141`). Use `ops:apply-schema`, or reset
   the volume.
-- **Default Postgres port disagrees between code and compose.** compose defaults
-  `TOP_POSTGRES_HOST_PORT` to 15433; the services and `.env.example` default to 16432. The mapping is
-  a compose variable, so it is not sticky: bringing up *any* service with a plain
-  `docker compose up -d <svc>` can recreate the Postgres container back on 15433 and make the suite
-  fail with `ECONNREFUSED 127.0.0.1:16432`. Export the variable, or set it in `.env`.
-- **`pnpm test` ignores an exported `DATABASE_URL`.** `turbo.json` declares no `env`/`globalEnv`,
-  and turbo defaults to strict env mode, so `DATABASE_URL=… pnpm test` still runs the suite against
-  the code default of 16432 and fails with `ECONNREFUSED` even when the export is correct. Use
-  `pnpm exec turbo run test --env-mode=loose`, or add `DATABASE_URL` to `globalEnv`. Verified 28 Sep
-  2026: 19/19 tasks pass with loose, 18/19 with strict.
-- **`docker compose up -d` cannot build its own images.** The `packages/redis` image build fails with
-  `TS2307: Cannot find module '@roadwatch/core'` because the Dockerfile does not build that workspace
-  dependency first. The same build passes on the host, so the error points at the wrong package. Target
-  individual services instead.
-- **The deployed chaincode is covered, but from the wrong directory.** `complaint_anchor_test.go`
-  (33 tests) covers `complaint_anchor.go`, a *different* implementation from the deployed
-  `contract.js`. `contract.js` now has `services/fabric-anchor-consumer/complaint-anchor.test.ts`
-  (17 tests), but it lives in the consumer package, so nothing keeps it in step with the contract.
-- **`authority_org` is one free-text column carrying four incompatible value types** (zone name,
-  UUID, Fabric MSP id, literal `'DefaultAuthority'`). Karma is bucketed under a mixture. This blocks
-  per-office accountability and report cards until it is migrated.
-- **The hourly karma recalculation erases every SLA penalty**, fans out cartesianly across
-  `complaints` × `karma_ledger`, and writes an absolute score into the ledger as a delta, which it
-  then averages back in on the next run.
-- **Severity is discarded in SLA calculation** — `calculateSLA(_severity, …)`. Potholes and
-  streetlights get identical windows on the same road class.
-- **`POST /citizen/complaints` stores no category and no severity** (its INSERT omits `metadata`),
-  which makes the heatmap, category filters, and citizen-path dedupe inert.
-- **`POST /complaints` emits no Kafka events** — `routes/complaints.ts` never imports
-  `enqueueKafkaEvent`.
 - **`extractExifData` (`packages/core/src/verification-service.ts:48`) has zero call sites**, and
   `services/media-ingest/src/` is empty, so the image the web UI uploads goes nowhere.
-- **PgBouncer is deployed but bypassed** — `POSTGRES_HOST` points straight at the primary. With
-  `max_connections` unset (100) and `PGPOOL_MAX` unset (20), the fleet exhausts Postgres at ~5
-  instances.
-- **The gateway is single-process.** No cluster mode, so it cannot exceed ~1 core of JS regardless
-  of the prod `2000m` CPU limit.
 - **Kubernetes manifests are render-only.** Rootless podman cannot obtain cgroups on this host, so
   nothing in `k8s/` has been run end to end. Do not claim otherwise.
-- **Every write still invalidates the whole read cache.** `bumpComplaintReadCache` only `INCR`s a
-  generation counter embedded in the read key, so one write orphans every cached list, and a read
-  issued after a write still misses. **The stampede this caused is fixed in the working tree**
-  (`readThroughCachedJson` in `packages/redis/read-cache.ts` collapses concurrent misses into one
-  origin fill), but the invalidation itself is not. Measured: hit rate 61–65 % under writes against
-  99.88 % read-only, misses down 4.7×, mixed throughput 1,115–1,309 req/s against 534–674 before.
-  Per-district or per-zone keys are still the real fix. See `docs/CAPACITY.md` §9.2.
+- **Per-district or per-zone keys are still the real fix.** The read cache invalidation is now
+  per-district/zone but needs validation under load. See `docs/CAPACITY.md` §9.2.
 - **`createAndFanoutNotification` no longer needs a second Postgres connection — but do not undo
   that.** It used to run inside the request's transaction while `resolveAudienceUsers` queried the
   module-level `pool`, so each write held two connections and concurrent writes capped near

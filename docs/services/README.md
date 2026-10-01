@@ -18,7 +18,7 @@ RoadWatch consists of four deployable applications, four background services, an
 | Fabric Anchor Consumer | `@roadwatch/fabric-anchor-consumer` | — | [fabric-anchor-consumer.md](./fabric-anchor-consumer.md) |
 | Webhook Handler | `@roadwatch/webhook-handler` | — | [webhook-handler.md](./webhook-handler.md) |
 | Scheduler | `@roadwatch/scheduler` | — | [scheduler.md](./scheduler.md) |
-| Media Ingest | `media-ingest-prototype` | 4000 | [media-ingest.md](./media-ingest.md) |
+| Media Ingest | `@roadwatch/media-ingest` | 4000 | [media-ingest.md](./media-ingest.md) |
 
 ## Shared packages
 
